@@ -1,0 +1,28 @@
+[package]
+name = "rusted-claude-meter"
+description = "Claude plan usage meter in your tray — Tauri port of ClaudeMeter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+# The `_lib` suffix avoids a name collision with the binary on Windows,
+# see https://github.com/rust-lang/cargo/issues/8519
+name = "rusted_claude_meter_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+meter-core = { path = "../crates/meter-core" }
+meter-api = { path = "../crates/meter-api" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
