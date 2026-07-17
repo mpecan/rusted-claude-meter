@@ -9,7 +9,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use jiff::Timestamp;
-use meter_api::{ApiError, UsageClient};
+use meter_api::{ApiError, DEFAULT_BASE_URL, UsageClient};
 
 use crate::scheduler::core::FetchOutcome;
 use crate::store::SessionStore;
@@ -23,6 +23,10 @@ pub trait UsageTransport: Send + Sync {
 /// Production transport talking to claude.ai.
 pub struct LiveTransport {
     store: Arc<dyn SessionStore>,
+    /// `meter-api`'s base URL, injectable so tests can point a real
+    /// `UsageClient` at a local mock server instead of claude.ai — see
+    /// [`LiveTransport::with_base_url`].
+    base_url: String,
     /// First organization's uuid, cached after discovery so steady-state
     /// polling costs one request, not two. Cleared on 401 so a replacement
     /// key (possibly for another account) rediscovers its organization.
@@ -31,8 +35,16 @@ pub struct LiveTransport {
 
 impl LiveTransport {
     pub fn new(store: Arc<dyn SessionStore>) -> Self {
+        Self::with_base_url(store, DEFAULT_BASE_URL)
+    }
+
+    /// As [`LiveTransport::new`], but pointed at `base_url` instead of
+    /// claude.ai — the seam integration tests use to drive a real
+    /// `UsageClient` against a local mock server with no network access.
+    pub fn with_base_url(store: Arc<dyn SessionStore>, base_url: impl Into<String>) -> Self {
         Self {
             store,
+            base_url: base_url.into(),
             org_id: Mutex::new(None),
         }
     }
@@ -56,7 +68,7 @@ impl LiveTransport {
             // retryable; it does not mean the key is gone.
             Err(_) => return FetchOutcome::Transient,
         };
-        let Ok(client) = UsageClient::new(&key) else {
+        let Ok(client) = UsageClient::with_base_url(&key, &self.base_url) else {
             return FetchOutcome::Transient;
         };
         let org_id = match self.cached_org() {
@@ -123,7 +135,119 @@ mod tests {
 
     use super::*;
     use crate::store::FakeSessionStore;
+    use meter_core::SessionKey;
     use pretty_assertions::assert_eq;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const RAW_KEY: &str = "sk-ant-sid01-abcDEF123456_-xyz789";
+    const USAGE_BODY: &str = r#"{"five_hour":{"utilization":10.0,"resets_at":"2026-07-17T15:00:00Z"},"seven_day":null,"limits":[]}"#;
+
+    fn store_with_key() -> Arc<FakeSessionStore> {
+        Arc::new(FakeSessionStore::with_key(
+            SessionKey::parse(RAW_KEY).unwrap(),
+        ))
+    }
+
+    async fn mount_org_discovery(server: &MockServer) {
+        Mock::given(method("GET"))
+            .and(path("/organizations"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!([{ "uuid": "org-1", "name": "Acme" }])),
+            )
+            .mount(server)
+            .await;
+    }
+
+    /// A `LiveTransport` pointed at a mock server end to end: real
+    /// `UsageClient` requests over loopback, no live claude.ai access — the
+    /// scenarios from issue #13, driven through the transport that
+    /// production code actually uses (not just `meter-api` in isolation).
+
+    #[tokio::test]
+    async fn fetch_against_a_healthy_mock_server_succeeds() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        let outcome = transport.fetch().await;
+        assert!(matches!(outcome, FetchOutcome::Success(_)));
+    }
+
+    #[tokio::test]
+    async fn session_expired_propagates_from_a_real_401_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/organizations"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        assert_eq!(transport.fetch().await, FetchOutcome::Unauthorized);
+    }
+
+    #[tokio::test]
+    async fn blocked_response_after_discovery_is_transient() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        assert_eq!(transport.fetch().await, FetchOutcome::Transient);
+    }
+
+    #[tokio::test]
+    async fn rate_limited_response_is_transient() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(429))
+            .mount(&server)
+            .await;
+
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        assert_eq!(transport.fetch().await, FetchOutcome::Transient);
+    }
+
+    #[tokio::test]
+    async fn server_error_response_is_transient() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        assert_eq!(transport.fetch().await, FetchOutcome::Transient);
+    }
+
+    #[tokio::test]
+    async fn malformed_json_from_a_real_server_is_transient_not_a_panic() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw("{not json", "application/json"))
+            .mount(&server)
+            .await;
+
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        assert_eq!(transport.fetch().await, FetchOutcome::Transient);
+    }
 
     #[test]
     fn only_unauthorized_pauses_polling() {

@@ -5,7 +5,10 @@ use crate::error::ApiError;
 use crate::headers::browser_headers;
 use crate::response::UsageResponse;
 
-const DEFAULT_BASE_URL: &str = "https://claude.ai/api";
+/// Production base URL. Exposed so callers that construct their own
+/// [`UsageClient`] via [`UsageClient::with_base_url`] (e.g. to inject a test
+/// double) can still recover the real one, e.g. `LiveTransport`.
+pub const DEFAULT_BASE_URL: &str = "https://claude.ai/api";
 
 /// An organization the session key has access to, from
 /// `GET /api/organizations`. Fetching it doubles as session validation.

@@ -8,6 +8,8 @@
 //! paused time — no real network or wall-clock waits.
 
 pub mod core;
+#[cfg(test)]
+mod mock_integration;
 pub mod transport;
 
 use std::path::PathBuf;
