@@ -10,6 +10,7 @@
 mod cache;
 mod commands;
 mod export;
+mod io_util;
 mod notifier;
 mod scheduler;
 mod settings;

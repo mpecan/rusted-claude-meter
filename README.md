@@ -44,6 +44,8 @@ Schema (mirrors `ClaudeMeter`'s `UsageExportPayload`, [eddmann/ClaudeMeter#32](h
 
 `scoped_usage` is the general, forward-compatible form — one entry per model-scoped limit the API reports. `sonnet_usage` is a deprecated alias kept for backward compatibility: it mirrors the scoped entry named "Sonnet" (case-insensitive) when one exists, or `null` otherwise, so scripts written against the older Sonnet-only export keep working.
 
+**Deviation from the Swift app:** in `ClaudeMeter`'s `UsageExportPayload`, `session_usage`/`weekly_usage` are non-optional — a snapshot missing a headline window either fails the fetch outright or gets a synthesized fallback reset time. This app's domain model already collapses "missing" into `None` with no data left to synthesize a fallback from, so on the rare snapshot without a headline window this export writes `session_usage`/`weekly_usage` as JSON `null` rather than omitting the field. Consumers written against the Swift app's non-optional guarantee should null-check these two fields.
+
 ## Development
 
 Prerequisites: Rust (pinned via `rust-toolchain.toml`), Node 24+, [`just`](https://github.com/casey/just).

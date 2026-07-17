@@ -13,6 +13,8 @@ use std::path::Path;
 use meter_core::UsageSnapshot;
 use serde::{Deserialize, Serialize};
 
+use crate::io_util::atomic_write;
+
 /// File name inside the app data dir.
 pub const CACHE_FILE: &str = "usage_cache.json";
 
@@ -41,18 +43,13 @@ pub fn load(path: &Path) -> Option<UsageSnapshot> {
 
 /// Persist `snapshot`, replacing any previous cache. Writes to a sibling
 /// temp file and renames so a crash mid-write cannot leave a truncated
-/// cache behind.
+/// cache behind (see `io_util::atomic_write`).
 pub fn save(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let body = serde_json::to_string(&DiskCacheRef {
         version: CACHE_VERSION,
         snapshot,
     })?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, body)?;
-    fs::rename(&tmp, path)
+    atomic_write(path, &body)
 }
 
 #[cfg(test)]

@@ -13,17 +13,32 @@
 //! is "Sonnet" (case-insensitive, matching the Swift app) — for scripts
 //! written against the older Sonnet-only shape.
 //!
+//! **Deliberate deviation from the Swift schema:** in `UsageExportPayload.swift`
+//! (PR #32) `session_usage`/`weekly_usage` are non-optional — `toDomain()`
+//! throws (skipping the write entirely) if a headline window is entirely
+//! absent, and synthesizes a fallback `resets_at` if only that field is
+//! missing. This app's domain model (`UsageSnapshot::five_hour`/`seven_day`,
+//! predates issue #8) already collapses "missing" and "present but no
+//! `resets_at`" into a single `None` with no fallback data to synthesize
+//! from, so by the time `write()` sees the snapshot the distinction Swift's
+//! fallback relies on is gone. Rather than invent a fallback reset time here,
+//! this export emits `session_usage`/`weekly_usage` as JSON `null` in that
+//! case — a schema difference consumers coming from the Swift app's
+//! non-optional guarantee should be aware of; see
+//! `missing_headline_windows_export_as_null_not_a_skipped_write` below.
+//!
 //! Write failures are logged (`eprintln!`) but never propagate: a refresh
 //! that fetched real data successfully must not be treated as failed just
 //! because the optional external export couldn't be written.
 
-use std::fs;
 use std::io;
 use std::path::Path;
 
 use jiff::Timestamp;
 use meter_core::{UsageSnapshot, UsageWindow};
 use serde::Serialize;
+
+use crate::io_util::atomic_write;
 
 /// Directory name inside the user's home directory.
 pub const EXPORT_DIR: &str = ".claudemeter";
@@ -65,9 +80,12 @@ pub struct UsageExportPayload {
     /// The 5-hour headline window. `None` on the rare snapshot where the API
     /// omitted it (e.g. a missing `resets_at`) — still written as `null`
     /// rather than skipping the export entirely, so consumers see a complete
-    /// but partial document instead of stale data.
+    /// but partial document instead of stale data. Nullable here, unlike the
+    /// Swift app's non-optional field of the same name — see the module
+    /// docs' "Deliberate deviation" note.
     pub session_usage: Option<ExportLimit>,
-    /// The 7-day headline window; see `session_usage` for the `None` case.
+    /// The 7-day headline window; see `session_usage` for the `None` case
+    /// and the deviation from the Swift schema.
     pub weekly_usage: Option<ExportLimit>,
     /// Every model-scoped limit, in snapshot order.
     pub scoped_usage: Vec<ExportScopedLimit>,
@@ -116,13 +134,8 @@ pub fn export_path(home: &Path) -> std::path::PathBuf {
 /// from this one either.
 pub fn write(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
     let payload = UsageExportPayload::from(snapshot);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let body = serde_json::to_string_pretty(&payload)?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, body)?;
-    fs::rename(&tmp, path)
+    atomic_write(path, &body)
 }
 
 #[cfg(test)]
@@ -132,6 +145,7 @@ mod tests {
     use super::*;
     use meter_core::{LimitWindow, ScopedLimit};
     use pretty_assertions::assert_eq;
+    use std::fs;
     use std::path::PathBuf;
 
     fn window(utilization: f64, resets_at: &str, kind: LimitWindow) -> UsageWindow {

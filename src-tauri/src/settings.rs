@@ -23,6 +23,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use meter_render::IconStyle;
 use serde::{Deserialize, Serialize};
 
+use crate::io_util::atomic_write;
 use crate::scheduler::RefreshInterval;
 
 /// File name inside the app data dir.
@@ -134,18 +135,13 @@ pub fn load(path: &Path) -> AppSettings {
 
 /// Persist `settings`, replacing any previous file. Writes to a sibling temp
 /// file and renames so a crash mid-write cannot leave a truncated file
-/// behind (same discipline as `cache::save`).
+/// behind (`io_util::atomic_write`, same discipline as `cache::save`).
 pub fn save(path: &Path, settings: &AppSettings) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let body = serde_json::to_string(&DiskSettingsRef {
         version: SETTINGS_VERSION,
         settings,
     })?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, body)?;
-    fs::rename(&tmp, path)
+    atomic_write(path, &body)
 }
 
 /// Managed Tauri state: the in-memory settings plus where to persist them.

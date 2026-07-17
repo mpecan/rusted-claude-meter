@@ -561,6 +561,68 @@ mod tests {
         task.abort();
     }
 
+    /// Pins the acceptance criterion "export failures are logged but never
+    /// fail the refresh" as actual behaviour, not just a code comment: point
+    /// `persist.export` at a path whose parent already exists as a *regular
+    /// file*, so `fs::create_dir_all` fails deterministically and portably
+    /// (a directory can never be created where a file already sits) — then
+    /// assert the loop still records the fetch as a success (state phase
+    /// stays `Polling`, the disk cache is still written, no panic) despite
+    /// the export write failing.
+    #[tokio::test(start_paused = true)]
+    async fn export_write_failure_does_not_fail_the_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("usage_cache.json");
+        // `blocker` is a regular file, so `create_dir_all(dir/"blocker")`
+        // (export.rs's parent-directory step for a path nested under it)
+        // must fail.
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let export_path = blocker.join("usage.json");
+
+        let count = Arc::new(AtomicUsize::new(0));
+        let core = Arc::new(Mutex::new(SchedulerCore::new(
+            RefreshInterval::OneMinute,
+            None,
+        )));
+        let notify = Arc::new(Notify::new());
+        let handle = SchedulerHandle::new(Arc::clone(&core), Arc::clone(&notify));
+        let phases = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&phases);
+        let transport = ScriptedTransport {
+            count: Arc::clone(&count),
+            script: vec![FetchOutcome::Success(snapshot_at(base()))],
+        };
+        let task = tokio::spawn(run_loop(
+            transport,
+            FakeClock::new(base()),
+            handle,
+            PersistPaths {
+                cache: Some(cache_path.clone()),
+                export: Some(export_path.clone()),
+            },
+            move |state| sink.lock().unwrap().push(state.phase),
+        ));
+
+        wait_until(|| count.load(Ordering::SeqCst) == 1).await;
+        wait_until(|| !phases.lock().unwrap().is_empty()).await;
+
+        assert!(
+            cache_path.exists(),
+            "disk cache must still be written when the export write fails"
+        );
+        assert!(
+            !export_path.exists(),
+            "export write was expected to fail, but a file appeared"
+        );
+        assert_eq!(
+            phases.lock().unwrap().last(),
+            Some(&Phase::Polling),
+            "a failed export write must not turn a successful fetch into a non-Polling phase"
+        );
+        task.abort();
+    }
+
     #[test]
     fn handle_reports_state_and_reschedules_on_interval_change() {
         let core = Arc::new(Mutex::new(SchedulerCore::new(
