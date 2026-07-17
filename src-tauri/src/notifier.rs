@@ -107,7 +107,7 @@ fn tracked_windows<'a>(
             snapshot
                 .scoped
                 .iter()
-                .filter(move |limit| limit.is_active && shown.contains(&limit.display_name))
+                .filter(move |limit| limit.is_visible(shown))
                 .map(|limit| (WindowId::Scoped(limit.display_name.clone()), &limit.usage)),
         )
 }

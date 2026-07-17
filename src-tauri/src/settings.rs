@@ -86,13 +86,21 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
-    /// Clamp both thresholds to a sane `0..=100` range. Called on every
-    /// write so a stray out-of-range value from the frontend (or a future
-    /// hand-edited settings file) can never propagate into a notification
-    /// comparison.
+    /// Clamp both thresholds to a sane `0..=100` range, then enforce
+    /// `warning_threshold <= critical_threshold`. Called on every write so a
+    /// stray out-of-range or inverted pair from the frontend (the Settings
+    /// UI exposes them as two independent 0-100 sliders with no
+    /// cross-constraint) or a future hand-edited settings file can never
+    /// propagate into a notification comparison — `notify.rs`'s
+    /// "Warning fires before/with Critical" guarantee depends on this
+    /// ordering holding for every `NotificationThresholds` sourced from
+    /// settings.
     const fn normalize(&mut self) {
         self.warning_threshold = self.warning_threshold.clamp(0.0, 100.0);
         self.critical_threshold = self.critical_threshold.clamp(0.0, 100.0);
+        if self.critical_threshold < self.warning_threshold {
+            self.critical_threshold = self.warning_threshold;
+        }
     }
 }
 
@@ -360,6 +368,36 @@ mod tests {
         });
         assert_eq!(result.warning_threshold, 0.0);
         assert_eq!(result.critical_threshold, 100.0);
+    }
+
+    #[test]
+    fn normalize_raises_critical_to_meet_an_inverted_warning_threshold() {
+        // Settings UI exposes warning/critical as two independent sliders
+        // with no cross-constraint; normalize() must still guarantee
+        // warning <= critical afterwards so notify.rs's severity-ordering
+        // contract holds for every threshold pair sourced from settings.
+        let state = SettingsState::new(None, AppSettings::default());
+        let result = state.update(|s| {
+            s.warning_threshold = 95.0;
+            s.critical_threshold = 50.0;
+        });
+        assert_eq!(result.warning_threshold, 95.0);
+        assert_eq!(result.critical_threshold, 95.0);
+        assert!(result.warning_threshold <= result.critical_threshold);
+    }
+
+    #[test]
+    fn load_raises_an_inverted_pair_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(
+            &path,
+            r#"{"version":1,"settings":{"warning_threshold":90.0,"critical_threshold":50.0}}"#,
+        )
+        .unwrap();
+        let loaded = load(&path);
+        assert_eq!(loaded.warning_threshold, 90.0);
+        assert_eq!(loaded.critical_threshold, 90.0);
     }
 
     #[test]

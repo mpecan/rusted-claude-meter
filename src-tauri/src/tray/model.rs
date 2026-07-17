@@ -68,7 +68,7 @@ pub fn menu_model(state: &MeterState, now: Timestamp, shown: &HashSet<String>) -
             usage_lines.push(usage_line(window_label(window.window), window, now));
         }
         for limit in &snapshot.scoped {
-            if !limit.is_active || !shown.contains(&limit.display_name) {
+            if !limit.is_visible(shown) {
                 continue;
             }
             let label = format!(

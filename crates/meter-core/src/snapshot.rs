@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +19,18 @@ pub struct ScopedLimit {
     pub model_id: Option<String>,
     pub usage: UsageWindow,
     pub is_active: bool,
+}
+
+impl ScopedLimit {
+    /// Whether this scoped limit belongs in the tray/popover/notifier: the
+    /// API reports it active *and* the user opted into showing it (issue
+    /// #6's `shown_scoped_models`, empty/opt-in by default). Single source
+    /// of truth for that gate — `tray::model::menu_model` and
+    /// `notifier::tracked_windows` both call this so their notion of a
+    /// visible scoped model cannot drift apart.
+    pub fn is_visible(&self, shown: &HashSet<String>) -> bool {
+        self.is_active && shown.contains(&self.display_name)
+    }
 }
 
 /// Everything `ClaudeMeter` knows about current usage after one fetch.
