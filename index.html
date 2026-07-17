@@ -97,6 +97,19 @@
         <div class="settings-section">
           <h3>Session</h3>
           <p id="settings-session-status" class="settings-hint">Checking session…</p>
+
+          <div class="browser-import">
+            <h4>Import from a browser</h4>
+            <p class="settings-hint">
+              Bring in the claude.ai session from a browser you're already signed in to — no
+              copy-pasting the cookie by hand.
+            </p>
+            <div id="browser-import-list" class="browser-import-list"></div>
+            <p id="browser-import-status" class="settings-hint" role="status" hidden></p>
+            <p id="browser-import-error" class="session-error" role="alert" hidden></p>
+          </div>
+
+          <h4>Paste a session key</h4>
           <form id="settings-session-form" class="session-form">
             <label for="settings-session-input">Session key</label>
             <input

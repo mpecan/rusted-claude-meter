@@ -377,3 +377,44 @@ body {
   padding: 0;
   background: transparent;
 }
+
+.settings-section h4 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.85rem;
+}
+
+.browser-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.browser-import-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+}
+
+.browser-import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.browser-import-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.browser-import-hint {
+  font-size: 0.75rem;
+}
+
+.browser-import-settings {
+  align-self: flex-start;
+}

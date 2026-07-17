@@ -54,6 +54,52 @@ export interface SessionCommandError {
 /** Mirrors `commands::SessionStatus`. */
 export type SessionStatus = "present" | "absent";
 
+/** Mirrors `meter_core::Browser`'s snake_case serde ids (issue #10). */
+export type Browser =
+  | "chrome"
+  | "chromium"
+  | "brave"
+  | "edge"
+  | "vivaldi"
+  | "opera"
+  | "opera_gx"
+  | "arc"
+  | "firefox"
+  | "librewolf"
+  | "zen"
+  | "safari";
+
+/** Mirrors `meter_core::BrowserFamily`. */
+export type BrowserFamily = "chromium" | "firefox" | "safari";
+
+/** Mirrors `browser_import::DetectedBrowser`: an import source with the
+ * permission story it implies on this platform. */
+export interface DetectedBrowser {
+  id: Browser;
+  name: string;
+  family: BrowserFamily;
+  /** Copy warning about the permission prompt to expect, or null. */
+  permission_hint: string | null;
+  /** A settings deep link (Full Disk Access on macOS for Safari), or null. */
+  settings_deep_link: string | null;
+}
+
+/** Mirrors `browser_import::ImportSummary`. */
+export interface ImportSummary {
+  browser: string;
+  /** Whether claude.ai confirmed the key. `false` means it's stored but will
+   * be verified on the next poll (claude.ai was unreachable). */
+  validated: boolean;
+}
+
+/** Mirrors `browser_import::BrowserImportError`'s `{ tag = "kind", content =
+ * "message" }` serde representation. Shares `describeError`'s handling with
+ * `SessionCommandError` since both are `{ kind, message }`. */
+export interface BrowserImportError {
+  kind: "Unsupported" | "CookieStore" | "NoSession" | "Invalid" | "Rejected" | "Store";
+  message: string;
+}
+
 /** Mirrors `scheduler::core::RefreshInterval`. */
 export type RefreshInterval = "one_minute" | "five_minutes" | "ten_minutes";
 

@@ -15,7 +15,10 @@ import { DEMO_STATE } from "./demo";
 import { DEFAULT_SETTINGS } from "./settings-view-model";
 import type {
   AppSettings,
+  Browser,
+  DetectedBrowser,
   IconStyle,
+  ImportSummary,
   MeterState,
   RefreshInterval,
   SessionCommandError,
@@ -47,6 +50,12 @@ export interface UsageBackend {
   sessionStatus(): Promise<SessionStatus>;
   /** Remove the stored session key. */
   clearSessionKey(): Promise<void>;
+  /** List the browsers a claude.ai session can be imported from on this
+   * platform, with the permission story each implies. */
+  listBrowserSessions(): Promise<DetectedBrowser[]>;
+  /** Import the claude.ai session from a browser: read it, store it, and
+   * validate it. Rejects with a `BrowserImportError`-shaped value on failure. */
+  importBrowserSession(browser: Browser): Promise<ImportSummary>;
   /** The persisted settings, for the Settings panel's initial render. */
   getSettings(): Promise<AppSettings>;
   /** Replace the opt-in set of scoped-model display names to show. */
@@ -90,6 +99,14 @@ class TauriBackend implements UsageBackend {
 
   clearSessionKey(): Promise<void> {
     return invoke<void>("clear_session_key");
+  }
+
+  listBrowserSessions(): Promise<DetectedBrowser[]> {
+    return invoke<DetectedBrowser[]>("list_browser_sessions");
+  }
+
+  importBrowserSession(browser: Browser): Promise<ImportSummary> {
+    return invoke<ImportSummary>("import_browser_session", { browser });
   }
 
   getSettings(): Promise<AppSettings> {
@@ -179,6 +196,31 @@ class DemoBackend implements UsageBackend {
     return Promise.resolve();
   }
 
+  listBrowserSessions(): Promise<DetectedBrowser[]> {
+    return Promise.resolve([
+      {
+        id: "chrome",
+        name: "Google Chrome",
+        family: "chromium",
+        permission_hint:
+          "macOS will ask to unlock the login Keychain so the cookie can be decrypted.",
+        settings_deep_link: null,
+      },
+      {
+        id: "firefox",
+        name: "Firefox",
+        family: "firefox",
+        permission_hint: null,
+        settings_deep_link: null,
+      },
+    ]);
+  }
+
+  importBrowserSession(browser: Browser): Promise<ImportSummary> {
+    this.sessionPresent = true;
+    return Promise.resolve({ browser, validated: true });
+  }
+
   getSettings(): Promise<AppSettings> {
     return Promise.resolve({ ...this.settings, shown_scoped_models: [...this.settings.shown_scoped_models] });
   }
@@ -224,8 +266,9 @@ export function createBackend(): UsageBackend {
 
 /** Best-effort extraction of a human message from an `invoke` rejection.
  * Tauri rejects command errors with the `Serialize`d `Err` value, so a
- * failed `set_session_key` call rejects with a `SessionCommandError`-shaped
- * object rather than an `Error`. */
+ * failed `set_session_key` or `import_browser_session` call rejects with a
+ * `{ kind, message }`-shaped object (`SessionCommandError` /
+ * `BrowserImportError`) rather than an `Error`. */
 export function describeError(error: unknown): string {
   if (isSessionCommandError(error)) {
     return error.message;

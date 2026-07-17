@@ -5,11 +5,15 @@
 // polling: every usage number comes from the `usage-state` event; only the
 // countdown text and the settings form's local echo are recomputed locally.
 
+import { openUrl } from "@tauri-apps/plugin-opener";
+
+import { describeImportSummary } from "./browser-import";
+import { renderBrowserList } from "./browser-import-render";
 import { createBackend, describeError } from "./ipc";
 import { applyBanner, renderCards, tickCountdowns } from "./render";
 import { renderModelToggles } from "./settings-render";
 import { DEFAULT_SETTINGS, scopedModelNames, toggleModel } from "./settings-view-model";
-import type { AppSettings, IconStyle, MeterState, RefreshInterval } from "./types";
+import type { AppSettings, Browser, IconStyle, MeterState, RefreshInterval } from "./types";
 import { buildViewModel } from "./view-model";
 
 /** How often the reset countdowns re-render. A minute-granularity display
@@ -50,6 +54,9 @@ function main(): void {
   const settingsSessionInput = requireElement<HTMLInputElement>("settings-session-input");
   const settingsSessionError = requireElement<HTMLElement>("settings-session-error");
   const clearSessionButton = requireElement<HTMLButtonElement>("clear-session-button");
+  const browserImportList = requireElement<HTMLElement>("browser-import-list");
+  const browserImportStatus = requireElement<HTMLElement>("browser-import-status");
+  const browserImportError = requireElement<HTMLElement>("browser-import-error");
 
   const backend = createBackend();
 
@@ -100,6 +107,45 @@ function main(): void {
       });
   }
 
+  function loadBrowserList(): void {
+    backend
+      .listBrowserSessions()
+      .then((browsers) => {
+        renderBrowserList(browserImportList, browsers, handleBrowserImport, handleOpenSettingsPane);
+      })
+      .catch((error: unknown) => {
+        console.error("failed to list importable browsers", error);
+      });
+  }
+
+  function handleBrowserImport(browser: Browser): void {
+    browserImportError.hidden = true;
+    browserImportStatus.hidden = true;
+    backend
+      .importBrowserSession(browser)
+      .then((summary) => {
+        browserImportStatus.textContent = describeImportSummary(summary);
+        browserImportStatus.hidden = false;
+        refreshSessionStatus();
+      })
+      .catch((error: unknown) => {
+        browserImportError.textContent = describeError(error);
+        browserImportError.hidden = false;
+      });
+  }
+
+  function handleOpenSettingsPane(url: string): void {
+    openUrl(url).catch((error: unknown) => {
+      console.error("failed to open settings pane", error);
+    });
+  }
+
+  function openSettingsPanel(): void {
+    settingsPanel.hidden = false;
+    refreshSessionStatus();
+    loadBrowserList();
+  }
+
   function handleModelToggle(name: string, enabled: boolean): void {
     const next = toggleModel(settings.shown_scoped_models, name, enabled);
     settings = { ...settings, shown_scoped_models: next };
@@ -126,10 +172,7 @@ function main(): void {
       console.error("failed to load initial usage state", error);
     });
   backend.onStateChange(render);
-  backend.onOpenSettings(() => {
-    settingsPanel.hidden = false;
-    refreshSessionStatus();
-  });
+  backend.onOpenSettings(openSettingsPanel);
 
   sessionForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -155,10 +198,7 @@ function main(): void {
     });
   });
 
-  settingsButton.addEventListener("click", () => {
-    settingsPanel.hidden = false;
-    refreshSessionStatus();
-  });
+  settingsButton.addEventListener("click", openSettingsPanel);
 
   closeSettingsButton.addEventListener("click", () => {
     settingsPanel.hidden = true;

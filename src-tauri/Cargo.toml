@@ -29,6 +29,7 @@ thiserror = { workspace = true }
 jiff = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 keyring-core = "1"
+rookie = "0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }

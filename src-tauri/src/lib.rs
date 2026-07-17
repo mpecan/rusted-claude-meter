@@ -7,6 +7,7 @@
 //! every change as a `usage-state` event — the single source of truth the
 //! tray and UI subscribe to.
 
+mod browser_import;
 mod cache;
 mod commands;
 mod export;
@@ -46,6 +47,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_session_key,
             commands::session_status,
             commands::clear_session_key,
+            browser_import::list_browser_sessions,
+            browser_import::import_browser_session,
             commands::usage_state,
             commands::refresh_usage,
             commands::get_settings,
@@ -112,25 +115,26 @@ pub fn run() -> tauri::Result<()> {
             );
             Ok(())
         })
-        .on_window_event(|window, event| {
-            match event {
-                // The app keeps running in the tray; closing the window
-                // hides it.
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-                // macOS popover feel: the window auto-hides when it loses
-                // focus. Linux keeps a normal window — the tray menu is the
-                // primary surface there.
-                #[cfg(target_os = "macos")]
-                tauri::WindowEvent::Focused(false) => {
-                    let _ = window.hide();
-                }
-                _ => {}
-            }
-        })
+        .on_window_event(handle_window_event)
         .run(tauri::generate_context!())
+}
+
+/// The app keeps running in the tray, so closing the window hides it rather
+/// than quitting; on macOS the popover-style window also auto-hides when it
+/// loses focus. Linux keeps a normal window — the tray menu is the primary
+/// surface there.
+fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+        #[cfg(target_os = "macos")]
+        tauri::WindowEvent::Focused(false) => {
+            let _ = window.hide();
+        }
+        _ => {}
+    }
 }
 
 /// macOS-only: style the main window as a popover — frameless and always on
