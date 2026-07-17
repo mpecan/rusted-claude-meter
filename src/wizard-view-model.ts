@@ -4,7 +4,7 @@
 // `settings-view-model.ts` and `browser-import.ts` use. The DOM wiring lives
 // in `wizard.ts`.
 
-import type { AppSettings, IconStyle, RefreshInterval, WizardSessionResult } from "./types";
+import type { AppSettings, IconStyle, RefreshInterval, SessionSubmission } from "./types";
 
 /** The wizard's steps, in the order the user walks through them. */
 export type WizardStep = "welcome" | "session" | "validate" | "customize" | "done";
@@ -26,7 +26,7 @@ export function stepIndicatorLabel(step: WizardStep): string {
  * `browser-import.ts::describeImportSummary`: a key claude.ai has confirmed
  * reads differently from one stored but not yet verified (claude.ai was
  * unreachable — the scheduler verifies it on the next poll). */
-export function describeWizardValidation(result: WizardSessionResult): string {
+export function describeWizardValidation(result: SessionSubmission): string {
   return result.validated
     ? "Your session is connected and verified with claude.ai."
     : "Your session is saved. claude.ai couldn't be reached to confirm it just now — it will " +

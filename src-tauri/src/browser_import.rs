@@ -34,9 +34,9 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::commands::SessionStoreState;
-use crate::cookie_reader::{BrowserCookieReader, RookieCookieReader};
+use crate::cookie_reader::{BrowserCookieReader, CookieStoreError, RookieCookieReader};
 use crate::scheduler::SchedulerHandle;
-use crate::store::SessionStore;
+use crate::store::{SessionStore, run_store_op};
 
 /// A browser offered to the user as an import source, with the permission
 /// story it implies on this platform.
@@ -199,27 +199,35 @@ pub enum StoreAndValidateError {
 /// working session and an invalid key never lingers. A network hiccup keeps
 /// the key — it might still be good, and the scheduler validates it on its
 /// next poll — and resolves to `Ok(false)` ("stored, not yet confirmed").
+///
+/// Every store touch goes through [`run_store_op`]'s blocking pool: the
+/// credential store is a synchronous OS round trip that must not occupy an
+/// async worker thread.
 pub async fn store_and_validate(
-    store: &dyn SessionStore,
+    store: &Arc<dyn SessionStore>,
     validator: &impl SessionValidator,
     key: &SessionKey,
 ) -> Result<bool, StoreAndValidateError> {
     // Hold on to whatever key was stored before, so a rejection can put it
     // back instead of destroying a working session. Best-effort: if the
     // store can't be read, there is nothing to restore.
-    let previous = store.load().unwrap_or_default();
+    let previous = run_store_op(store, |s| s.load()).await.unwrap_or_default();
 
-    store
-        .save(key)
+    let to_save = key.clone();
+    run_store_op(store, move |s| s.save(&to_save))
+        .await
         .map_err(|error| StoreAndValidateError::Store(error.to_string()))?;
 
     match validator.validate(key).await {
         Ok(()) => Ok(true),
         Err(ValidationError::Unauthorized) => {
             // Best-effort: don't leave a rejected key behind.
-            let _ = previous
-                .as_ref()
-                .map_or_else(|| store.clear(), |previous_key| store.save(previous_key));
+            let _ = run_store_op(store, move |s| {
+                previous
+                    .as_ref()
+                    .map_or_else(|| s.clear(), |previous_key| s.save(previous_key))
+            })
+            .await;
             Err(StoreAndValidateError::Rejected)
         }
         Err(ValidationError::Transient) => Ok(false),
@@ -231,9 +239,9 @@ pub async fn store_and_validate(
 /// claude.ai is rolled back (see [`store_and_validate`]), so a failed import
 /// never destroys a working session and nothing invalid lingers.
 async fn import_impl(
-    reader: &dyn BrowserCookieReader,
+    reader: impl BrowserCookieReader + 'static,
     validator: &impl SessionValidator,
-    store: &dyn SessionStore,
+    store: &Arc<dyn SessionStore>,
     os: Os,
     browser: Browser,
 ) -> Result<ImportSummary, BrowserImportError> {
@@ -244,8 +252,17 @@ async fn import_impl(
         )));
     }
 
-    let cookies = reader
-        .read_claude_cookies(browser)
+    // Reading + decrypting a cookie store is blocking I/O (SQLite reads plus
+    // an OS keyring round trip), so it runs on the blocking pool rather than
+    // occupying an async worker thread for its duration.
+    let cookies = tokio::task::spawn_blocking(move || reader.read_claude_cookies(browser))
+        .await
+        .unwrap_or_else(|_| {
+            Err(CookieStoreError::new(format!(
+                "Reading {}'s cookie store failed unexpectedly.",
+                browser.display_name()
+            )))
+        })
         .map_err(|error| BrowserImportError::CookieStore(error.into_message()))?;
     let key = session_key_from_cookies(&cookies).map_err(|error| match error {
         CookieImportError::NoSessionCookie => BrowserImportError::NoSession(format!(
@@ -298,9 +315,9 @@ pub async fn import_browser_session(
     let scheduler = (*scheduler).clone();
 
     let summary = import_impl(
-        &RookieCookieReader,
+        RookieCookieReader,
         &LiveSessionValidator::new(),
-        store.as_ref(),
+        &store,
         current_os(),
         browser,
     )
@@ -366,9 +383,9 @@ mod tests {
 
     #[tokio::test]
     async fn successful_import_stores_and_reports_validated() {
-        let store = FakeSessionStore::new();
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let summary = import_impl(
-            &FakeReader::with_session(),
+            FakeReader::with_session(),
             &ok_validator(),
             &store,
             Os::MacOs,
@@ -389,9 +406,9 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_browser_never_touches_the_store() {
-        let store = FakeSessionStore::new();
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
-            &FakeReader::with_session(),
+            FakeReader::with_session(),
             &ok_validator(),
             &store,
             Os::Linux,
@@ -406,9 +423,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_locked_store_degrades_to_a_cookie_store_error() {
-        let store = FakeSessionStore::new();
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
-            &FakeReader::locked(),
+            FakeReader::locked(),
             &ok_validator(),
             &store,
             Os::MacOs,
@@ -423,9 +440,9 @@ mod tests {
 
     #[tokio::test]
     async fn no_session_cookie_reports_no_session() {
-        let store = FakeSessionStore::new();
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
-            &FakeReader::empty(),
+            FakeReader::empty(),
             &ok_validator(),
             &store,
             Os::MacOs,
@@ -445,8 +462,8 @@ mod tests {
             "sessionKey",
             "sk-ant-sid01-bad value",
         )]));
-        let store = FakeSessionStore::new();
-        let error = import_impl(&reader, &ok_validator(), &store, Os::MacOs, Browser::Chrome)
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
+        let error = import_impl(reader, &ok_validator(), &store, Os::MacOs, Browser::Chrome)
             .await
             .unwrap_err();
 
@@ -457,9 +474,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_rejected_key_with_no_previous_key_clears_the_store() {
-        let store = FakeSessionStore::new();
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
-            &FakeReader::with_session(),
+            FakeReader::with_session(),
             &FakeValidator(Err(ValidationError::Unauthorized)),
             &store,
             Os::MacOs,
@@ -476,9 +493,9 @@ mod tests {
     #[tokio::test]
     async fn a_rejected_key_restores_the_previously_stored_key() {
         let previous = SessionKey::parse("sk-ant-sid01-previousKEY_123-456789").unwrap();
-        let store = FakeSessionStore::with_key(previous.clone());
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::with_key(previous.clone()));
         let error = import_impl(
-            &FakeReader::with_session(),
+            FakeReader::with_session(),
             &FakeValidator(Err(ValidationError::Unauthorized)),
             &store,
             Os::MacOs,
@@ -495,9 +512,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_transient_validation_failure_keeps_the_key_unvalidated() {
-        let store = FakeSessionStore::new();
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let summary = import_impl(
-            &FakeReader::with_session(),
+            FakeReader::with_session(),
             &FakeValidator(Err(ValidationError::Transient)),
             &store,
             Os::MacOs,
@@ -513,9 +530,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_store_failure_surfaces_before_validation() {
-        let store = FakeSessionStore::unavailable();
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::unavailable());
         let error = import_impl(
-            &FakeReader::with_session(),
+            FakeReader::with_session(),
             &ok_validator(),
             &store,
             Os::MacOs,

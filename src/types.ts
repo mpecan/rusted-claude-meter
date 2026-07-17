@@ -45,9 +45,10 @@ export interface MeterState {
 }
 
 /** Mirrors `commands::SessionCommandError`'s `{ tag = "kind", content =
- * "message" }` serde representation. */
+ * "message" }` serde representation. `Rejected` means the key parsed but
+ * claude.ai refused it — the previously stored key (if any) was restored. */
 export interface SessionCommandError {
-  kind: "Validation" | "Store";
+  kind: "Validation" | "Rejected" | "Store";
   message: string;
 }
 
@@ -133,18 +134,11 @@ export const REFRESH_INTERVAL_OPTIONS: readonly SelectOption<RefreshInterval>[] 
   { value: "ten_minutes", label: "Every 10 minutes" },
 ];
 
-/** Mirrors `wizard::WizardSessionResult` (issue #11). */
-export interface WizardSessionResult {
+/** Mirrors `commands::SessionSubmission`: the outcome of a validated
+ * session-key submission, shared by the popover field, the Settings field
+ * and the wizard's paste step (issues #1/#11). */
+export interface SessionSubmission {
   validated: boolean;
-}
-
-/** Mirrors `wizard::WizardSessionError`'s `{ tag = "kind", content =
- * "message" }` serde representation. Shares `describeError`'s handling with
- * `SessionCommandError` / `BrowserImportError` since all three are
- * `{ kind, message }`. */
-export interface WizardSessionError {
-  kind: "Validation" | "Rejected" | "Store";
-  message: string;
 }
 
 /** Mirrors `settings::AppSettings`. `shown_scoped_models` is opt-in and

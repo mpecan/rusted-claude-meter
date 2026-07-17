@@ -70,7 +70,6 @@ pub fn run() -> tauri::Result<()> {
             autostart::autostart_status,
             autostart::set_autostart,
             wizard::wizard_should_run,
-            wizard::wizard_submit_session_key,
             wizard::wizard_complete,
             wizard::is_gnome_desktop,
         ])

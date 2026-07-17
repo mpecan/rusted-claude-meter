@@ -23,7 +23,7 @@ import type {
   RefreshInterval,
   SessionCommandError,
   SessionStatus,
-  WizardSessionResult,
+  SessionSubmission,
 } from "./types";
 
 const USAGE_STATE_EVENT = "usage-state";
@@ -42,9 +42,13 @@ export interface UsageBackend {
   /** Subscribe to the tray's "open Settings" request. Returns an
    * unsubscribe function. */
   onOpenSettings(callback: () => void): () => void;
-  /** Parse and store a pasted session key. Rejects with a
-   * `SessionCommandError`-shaped value on failure. */
-  submitSessionKey(input: string): Promise<void>;
+  /** Parse, store and validate a pasted session key against claude.ai, with
+   * rollback on rejection — the same guarantee browser import gives an
+   * imported key. Resolves with whether claude.ai confirmed it (`validated:
+   * false` means stored but unverified because claude.ai was unreachable).
+   * Rejects with a `SessionCommandError`-shaped value on failure. Shared by
+   * the popover field, the Settings field and the wizard's paste step. */
+  submitSessionKey(input: string): Promise<SessionSubmission>;
   /** Ask for a refresh now (TTL-guarded on the Rust side). */
   refreshUsage(): Promise<void>;
   /** Whether a session key is currently stored, without exposing it. */
@@ -74,11 +78,6 @@ export interface UsageBackend {
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
-  /** Parse, store and validate a pasted session key for the wizard's
-   * "session" step, the same rollback-on-rejection way browser import
-   * validates an imported one. Rejects with a `WizardSessionError`-shaped
-   * value on failure. */
-  wizardSubmitSessionKey(input: string): Promise<WizardSessionResult>;
   /** Mark the wizard complete by writing settings to disk even if nothing
    * changed, so "absence of settings" stops being true on the next launch. */
   wizardComplete(): Promise<void>;
@@ -109,8 +108,8 @@ class TauriBackend implements UsageBackend {
     return subscribe(OPEN_SETTINGS_EVENT, callback);
   }
 
-  submitSessionKey(input: string): Promise<void> {
-    return invoke<void>("set_session_key", { input });
+  submitSessionKey(input: string): Promise<SessionSubmission> {
+    return invoke<SessionSubmission>("set_session_key", { input });
   }
 
   refreshUsage(): Promise<void> {
@@ -163,10 +162,6 @@ class TauriBackend implements UsageBackend {
 
   wizardShouldRun(): Promise<boolean> {
     return invoke<boolean>("wizard_should_run");
-  }
-
-  wizardSubmitSessionKey(input: string): Promise<WizardSessionResult> {
-    return invoke<WizardSessionResult>("wizard_submit_session_key", { input });
   }
 
   wizardComplete(): Promise<void> {
@@ -228,9 +223,9 @@ class DemoBackend implements UsageBackend {
     return () => {};
   }
 
-  submitSessionKey(): Promise<void> {
+  submitSessionKey(): Promise<SessionSubmission> {
     this.sessionPresent = true;
-    return Promise.resolve();
+    return Promise.resolve({ validated: true });
   }
 
   refreshUsage(): Promise<void> {
@@ -311,11 +306,6 @@ class DemoBackend implements UsageBackend {
 
   wizardShouldRun(): Promise<boolean> {
     return Promise.resolve(!this.wizardCompleted);
-  }
-
-  wizardSubmitSessionKey(): Promise<WizardSessionResult> {
-    this.sessionPresent = true;
-    return Promise.resolve({ validated: true });
   }
 
   wizardComplete(): Promise<void> {

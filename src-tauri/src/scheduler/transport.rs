@@ -12,7 +12,7 @@ use jiff::Timestamp;
 use meter_api::{ApiError, DEFAULT_BASE_URL, UsageClient};
 
 use crate::scheduler::core::FetchOutcome;
-use crate::store::SessionStore;
+use crate::store::{SessionStore, run_store_op};
 
 /// One refresh attempt. Implementations classify their own failures — the
 /// scheduler core never sees transport-specific error types.
@@ -61,7 +61,10 @@ impl LiveTransport {
     }
 
     async fn attempt(&self) -> FetchOutcome {
-        let key = match self.store.load() {
+        // The credential store is a synchronous OS round trip; every poll
+        // tick routes it through the blocking pool so a slow Keychain /
+        // Secret-Service daemon can't tie up an async worker thread.
+        let key = match run_store_op(&self.store, |store| store.load()).await {
             Ok(Some(key)) => key,
             Ok(None) => return FetchOutcome::NoSession,
             // A credential-store hiccup (locked keychain, daemon restart) is

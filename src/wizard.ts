@@ -11,9 +11,11 @@
 // screen driven from a different place: `listBrowserSessions` /
 // `importBrowserSession` for the session step's import path (issue #10),
 // `setIconStyle` / `setRefreshInterval` for the customize step (both already
-// apply live and persist). Only the "paste a key" validate step
-// (`wizardSubmitSessionKey`) and completion marker (`wizardComplete`) are
-// wizard-specific — see `src-tauri/src/wizard.rs`.
+// apply live and persist), and `submitSessionKey` for the "paste a key"
+// validate step (the same validated, rollback-on-rejection command the
+// popover and Settings fields use). Only the completion marker
+// (`wizardComplete`) and first-run detection are wizard-specific — see
+// `src-tauri/src/wizard.rs`.
 
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -175,7 +177,7 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     sessionError.hidden = true;
     showValidating();
     backend
-      .wizardSubmitSessionKey(value)
+      .submitSessionKey(value)
       .then((result) => {
         sessionInput.value = "";
         showValidateSuccess(describeWizardValidation(result));

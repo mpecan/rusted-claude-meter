@@ -1,6 +1,6 @@
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 const KEY_PREFIX: &str = "sk-ant-";
 const COOKIE_NAME: &str = "sessionKey=";
@@ -10,10 +10,20 @@ const MIN_KEY_LENGTH: usize = 20;
 ///
 /// Accepts either the raw `sk-ant-...` value or a full cookie header
 /// containing `sessionKey=...`. `Debug` and `Display` redact the value so the
-/// key can never leak into logs.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
+/// key can never leak into logs. Deliberately **not** `Serialize`: handing a
+/// `SessionKey` to any serializer would emit the raw value, so a future
+/// `#[derive(Serialize)]` command payload cannot silently leak it — the only
+/// way out is the explicit [`SessionKey::expose`]. The backing buffer is
+/// zeroized on drop (every clone scrubs its own copy), so the key does not
+/// linger in freed heap memory once no longer needed.
+#[derive(Clone, PartialEq, Eq)]
 pub struct SessionKey(String);
+
+impl Drop for SessionKey {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SessionKeyError {

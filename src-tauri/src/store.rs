@@ -20,6 +20,7 @@
 use keyring_core::Entry;
 use meter_core::SessionKey;
 use std::sync::Arc;
+use zeroize::Zeroize;
 
 const SERVICE: &str = "com.mpecan.rusted-claude-meter";
 const USERNAME: &str = "session-key";
@@ -101,6 +102,33 @@ fn ensure_credential_store() -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Run one blocking [`SessionStore`] operation on the async runtime's
+/// dedicated blocking pool.
+///
+/// Keychain / Secret-Service calls are synchronous OS round trips — and per
+/// the module docs, the Secret Service daemon may not even be up yet at
+/// login/autostart, so a call can genuinely stall. Routing every store call
+/// through `spawn_blocking` keeps that latency off both the UI thread (where
+/// non-async commands run) and the shared async worker threads (where the
+/// scheduler loop and other command futures run).
+///
+/// A join failure (the blocking task panicking or being cancelled) is mapped
+/// to [`StoreError::Unavailable`] — same retryable classification as any
+/// other backend failure.
+pub async fn run_store_op<T: Send + 'static>(
+    store: &Arc<dyn SessionStore>,
+    op: impl FnOnce(&dyn SessionStore) -> Result<T, StoreError> + Send + 'static,
+) -> Result<T, StoreError> {
+    let store = Arc::clone(store);
+    tokio::task::spawn_blocking(move || op(store.as_ref()))
+        .await
+        .unwrap_or_else(|error| {
+            Err(StoreError::Unavailable(format!(
+                "credential-store task failed: {error}"
+            )))
+        })
+}
+
 /// Maps a raw `get_password` result to a parsed session key.
 ///
 /// Pulled out of [`KeyringSessionStore::load`] so it can be unit-tested
@@ -109,9 +137,16 @@ fn ensure_credential_store() -> Result<(), StoreError> {
 /// constructible data with no OS dependency.
 fn map_loaded(result: keyring_core::Result<String>) -> Result<Option<SessionKey>, StoreError> {
     match result {
-        Ok(raw) => SessionKey::parse(&raw)
-            .map(Some)
-            .map_err(|_| StoreError::Corrupt),
+        Ok(mut raw) => {
+            let parsed = SessionKey::parse(&raw)
+                .map(Some)
+                .map_err(|_| StoreError::Corrupt);
+            // The transient copy of the credential must not linger in freed
+            // heap memory (`SessionKey` itself zeroizes on drop; this is the
+            // one owned intermediate on the load path).
+            raw.zeroize();
+            parsed
+        }
         Err(keyring_core::Error::NoEntry) => Ok(None),
         Err(other) => Err(StoreError::from(other)),
     }
@@ -280,6 +315,22 @@ mod tests {
         let error = StoreError::Unavailable("no Secret Service daemon".to_owned());
         assert!(!error.to_string().contains(VALID));
         assert!(!format!("{error:?}").contains(VALID));
+    }
+
+    #[tokio::test]
+    async fn run_store_op_round_trips_through_the_blocking_pool() {
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
+        let key = SessionKey::parse(VALID).unwrap();
+        run_store_op(&store, move |s| s.save(&key)).await.unwrap();
+        let loaded = run_store_op(&store, |s| s.load()).await.unwrap();
+        assert_eq!(loaded.unwrap().expose(), VALID);
+    }
+
+    #[tokio::test]
+    async fn run_store_op_propagates_backend_errors() {
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::unavailable());
+        let result = run_store_op(&store, |s| s.load()).await;
+        assert!(matches!(result, Err(StoreError::Unavailable(_))));
     }
 
     // `map_loaded` is the free-function core of `KeyringSessionStore::load`,

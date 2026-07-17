@@ -12,6 +12,7 @@ publish.workspace = true
 serde = { workspace = true }
 thiserror = { workspace = true }
 jiff = { workspace = true }
+zeroize = "1"
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

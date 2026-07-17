@@ -23,6 +23,7 @@ import {
   type RefreshInterval,
 } from "./types";
 import { buildViewModel } from "./view-model";
+import { describeWizardValidation } from "./wizard-view-model";
 import { createWizard } from "./wizard";
 
 /** How often the reset countdowns re-render. A minute-granularity display
@@ -241,8 +242,14 @@ function main(): void {
     sessionError.hidden = true;
     backend
       .submitSessionKey(value)
-      .then(() => {
+      .then((result) => {
         sessionInput.value = "";
+        if (!result.validated) {
+          // Stored, but claude.ai was unreachable to confirm it — say so
+          // rather than silently accepting (mirrors the wizard's copy).
+          sessionError.textContent = describeWizardValidation(result);
+          sessionError.hidden = false;
+        }
       })
       .catch((error: unknown) => {
         sessionError.textContent = describeError(error);
@@ -344,8 +351,12 @@ function main(): void {
     settingsSessionError.hidden = true;
     backend
       .submitSessionKey(value)
-      .then(() => {
+      .then((result) => {
         settingsSessionInput.value = "";
+        if (!result.validated) {
+          settingsSessionError.textContent = describeWizardValidation(result);
+          settingsSessionError.hidden = false;
+        }
         refreshSessionStatus();
       })
       .catch((error: unknown) => {
