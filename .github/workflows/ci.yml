@@ -52,6 +52,95 @@ jobs:
       - name: Check file sizes
         run: bash scripts/check-file-sizes.sh
 
+      - name: Frontend typecheck (strict tsc)
+        run: npx tsc --noEmit
+
+      - name: Frontend tests (vitest)
+        run: npm run test
+
+  quality:
+    name: Quality (licenses, advisories, duplication)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+
+      # cargo-deny and cargo-dupes only read Cargo.lock/manifests and source
+      # text respectively — no compilation, so no Tauri system deps needed.
+      - name: cargo-deny check (licenses, advisories, bans, sources)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+      - name: Install cargo-dupes
+        run: cargo install cargo-dupes
+
+      - name: Duplication check
+        run: |
+          cargo dupes check --exclude-tests \
+            --exclude 'target/*' --exclude 'node_modules/*' --exclude 'dist/*' --exclude 'src-tauri/gen/*' \
+            --max-exact 13 --max-near 4 --max-exact-percent 6.0 --max-near-percent 2.5
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev libgtk-3-dev
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Build frontend (required by tauri-build)
+        run: |
+          npm ci
+          npm run build
+
+      # Ratcheting coverage floor: these numbers must only ever go up (as
+      # coverage improves) and are kept in sync with the `coverage` recipe
+      # in justfile. Never lower them to make a change pass — add tests
+      # instead, or get explicit sign-off for an intentional decrease.
+      - name: Coverage (ratchet-gated)
+        run: |
+          set +e
+          cargo llvm-cov --workspace \
+            --fail-under-lines 87 \
+            --fail-under-functions 87 \
+            --fail-under-regions 87 > coverage.txt 2>&1
+          status=$?
+          {
+            echo "## Coverage report"
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat coverage.txt
+          exit $status
+
   test:
     name: Test (${{ matrix.os }})
     strategy:

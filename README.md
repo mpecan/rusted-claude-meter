@@ -55,8 +55,11 @@ On Linux additionally: `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librs
 ```sh
 just setup   # npm install, frontend build, git hooks
 just dev     # run the app with hot reload
-just check   # everything CI runs: fmt, clippy -D warnings, tests, file sizes
+just check   # everything CI runs: fmt, clippy -D warnings, tests, file sizes,
+             # cargo-deny, cargo-dupes, coverage floor, frontend typecheck + tests
 ```
+
+`just check` needs a few cargo tools beyond `just setup` — see [CONTRIBUTING.md](CONTRIBUTING.md#setup).
 
 ## Quality bar
 
@@ -64,6 +67,10 @@ just check   # everything CI runs: fmt, clippy -D warnings, tests, file sizes
 - `unsafe_code` is forbidden workspace-wide.
 - Source files stay under 500 lines (soft) / 700 (hard) — `scripts/check-file-sizes.sh`.
 - Every behaviour lands with tests; API contracts are pinned by fixtures in `crates/meter-api/tests/fixtures/`.
+- `cargo-deny` (`deny.toml`) gates dependency licenses, security advisories, banned crates, and dependency sources.
+- `cargo-dupes` gates structural code duplication against a ratcheted ceiling.
+- `cargo-llvm-cov` gates test coverage against a ratcheted floor — see the `coverage` job in `.github/workflows/ci.yml` for the PR-facing report.
+- Dependabot keeps cargo, npm, and GitHub Actions dependencies current (`.github/dependabot.yml`).
 
 ## License
 

@@ -1,0 +1,110 @@
+# cargo-deny configuration — licenses, security advisories, banned/duplicate
+# crates, and dependency source policy.
+#
+# Run locally with `just deny` (wraps `cargo deny check`). CI runs the same
+# command via `just check`, so a local pass means CI passes.
+#
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# advisories — RUSTSEC vulnerability / unmaintained / yanked notices
+# ---------------------------------------------------------------------------
+[advisories]
+ignore = [
+    # All of the entries below are "unmaintained" notices (not known
+    # vulnerabilities) pulled in transitively by tauri/gtk-rs on the Linux
+    # build. There is no safe upgrade available from our side — they live
+    # inside tauri's own dependency tree. Re-check when bumping tauri.
+    { id = "RUSTSEC-2024-0370", reason = "unmaintained `proc-macro-error`, transitive via tauri-codegen; no upstream replacement yet" },
+    { id = "RUSTSEC-2024-0384", reason = "unmaintained `instant`, transitive via gtk-rs GTK3 bindings on Linux" },
+    { id = "RUSTSEC-2024-0388", reason = "unmaintained `derivative`, transitive via zbus 3.x (rookie's browser-cookie dependency)" },
+    { id = "RUSTSEC-2024-0411", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0412", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0413", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0414", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0415", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0416", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0417", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0418", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0419", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2024-0420", reason = "gtk-rs GTK3 bindings unmaintained, transitive via tauri's Linux webview stack" },
+    { id = "RUSTSEC-2025-0075", reason = "unmaintained `unic-char-property`, transitive via tauri-utils' urlpattern dependency" },
+    { id = "RUSTSEC-2025-0080", reason = "unmaintained `unic-char-range`, transitive via tauri-utils' urlpattern dependency" },
+    { id = "RUSTSEC-2025-0081", reason = "unmaintained `unic-common`, transitive via tauri-utils' urlpattern dependency" },
+    { id = "RUSTSEC-2025-0098", reason = "unmaintained `unic-ucd-version`, transitive via tauri-utils' urlpattern dependency" },
+    { id = "RUSTSEC-2025-0100", reason = "unmaintained `unic-ucd-ident`, transitive via tauri-utils' urlpattern dependency" },
+]
+
+# ---------------------------------------------------------------------------
+# licenses — allow only well-understood permissive licenses by default
+# ---------------------------------------------------------------------------
+[licenses]
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unlicense",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "0BSD",
+    "BSL-1.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+
+# LGPL crates are scoped exceptions rather than a blanket allow, so a future
+# transitive dependency can't silently pick up LGPL/GPL terms unnoticed.
+exceptions = [
+    # rookie (browser cookie import, issue #9) reads the Edge/ESE cookie
+    # store via libesedb.
+    { allow = ["LGPL-3.0-or-later"], crate = "libesedb" },
+    { allow = ["LGPL-3.0-or-later"], crate = "libesedb-sys" },
+    # r-efi is a UEFI metadata crate pulled in by the `windows` crate family;
+    # not compiled for our targets, but present in the resolved graph.
+    { allow = ["LGPL-2.1-or-later"], crate = "r-efi" },
+]
+
+[licenses.private]
+ignore = false
+
+# ---------------------------------------------------------------------------
+# bans — banned crates, wildcard versions, duplicate major versions
+# ---------------------------------------------------------------------------
+[bans]
+# Reported but non-blocking: the dependency graph currently carries several
+# duplicate major versions (e.g. zbus 3.x pulled in by `rookie` alongside
+# zbus 5.x used by the keyring/notification stack). These come from
+# third-party crates we don't control the release cadence of. Flip to "deny"
+# once the graph is clean, or add `skip`/`skip-tree` entries for the ones
+# that can't be collapsed and deny the rest.
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace-internal `{ path = "..." }` deps (meter-core, meter-api,
+# meter-render) have no version requirement by design; only flag genuine
+# `version = "*"` dependencies on external crates.
+allow-wildcard-paths = true
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow-workspace = true
+
+# ---------------------------------------------------------------------------
+# sources — only allow crates.io; flag anything from git or other registries
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
