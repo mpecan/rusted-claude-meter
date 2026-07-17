@@ -34,26 +34,40 @@ jobs:
   changelog:
     name: Draft release + changelog
     runs-on: ubuntu-latest
+    env:
+      # Passed through env (not spliced into run: script text) so a tag name
+      # containing shell metacharacters can't break out of the quoting and
+      # run arbitrary shell (tag names are attacker-controllable by anyone
+      # who can push a v* tag).
+      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # This job never pushes with git — gh/git-cliff use GH_TOKEN/the
+          # env above explicitly — so don't leave the write-scoped
+          # GITHUB_TOKEN sitting in .git/config for the whole job.
+          persist-credentials: false
 
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
         with:
           tool: git-cliff
 
+      # --latest (not --unreleased): by the time this runs, actions/checkout
+      # already sees the just-pushed tag pointing at HEAD, so "unreleased"
+      # (commits not yet covered by any tag) is always empty. --latest
+      # renders the range between the previous tag and this one instead.
       - name: Render release notes from Conventional Commits
-        run: git-cliff --tag "${{ github.ref_name }}" --unreleased --strip header -o release-notes.md
+        run: git-cliff --tag "$TAG" --latest --strip header -o release-notes.md
 
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
+          gh release create "$TAG" \
             --repo "${{ github.repository }}" \
-            --title "Rusted Claude Meter ${{ github.ref_name }}" \
+            --title "Rusted Claude Meter $TAG" \
             --notes-file release-notes.md \
             --draft
 
@@ -69,15 +83,19 @@ jobs:
           # older glibc, so it stays installable on older distros too.
           - platform: ubuntu-22.04
     runs-on: ${{ matrix.platform }}
+    env:
+      # See the identical comment in the changelog job: keep tag names out
+      # of run: script text and use gh's own token env var instead of git's
+      # persisted credentials.
+      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Tauri system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev libgtk-3-dev
+        uses: ./.github/actions/tauri-linux-deps
 
       - uses: actions/setup-node@v5
         with:
@@ -115,14 +133,14 @@ jobs:
         if: runner.os == 'macOS'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/render-cask.sh "${{ github.ref_name }}"
+        run: bash scripts/render-cask.sh "$TAG"
 
       - name: Upload Homebrew cask asset (macOS only)
         if: runner.os == 'macOS'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.ref_name }}" rusted-claude-meter.rb \
+          gh release upload "$TAG" rusted-claude-meter.rb \
             --repo "${{ github.repository }}" --clobber
 
   # Un-drafts the release once every platform has uploaded its artifacts, so
@@ -131,9 +149,11 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release edit "${{ github.ref_name }}" \
+          gh release edit "$TAG" \
             --repo "${{ github.repository }}" --draft=false

@@ -21,10 +21,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev libgtk-3-dev
+        uses: ./.github/actions/tauri-linux-deps
 
       - uses: actions/setup-node@v5
         with:
@@ -56,6 +53,11 @@ jobs:
         uses: reviewdog/action-actionlint@v1
         with:
           fail_level: error
+          # github-pr-check (the action's default reporter) requires an open
+          # PR to attach annotations to; this job also runs on `push` to
+          # main, where reviewdog would error with "this is not PullRequest
+          # build". github-check works on both push and pull_request.
+          reporter: github-check
 
       - name: Frontend typecheck (strict tsc)
         run: npx tsc --noEmit
@@ -105,10 +107,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev libgtk-3-dev
+        uses: ./.github/actions/tauri-linux-deps
 
       - uses: actions/setup-node@v5
         with:
@@ -163,10 +162,7 @@ jobs:
 
       - name: Install Tauri system dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev libgtk-3-dev
+        uses: ./.github/actions/tauri-linux-deps
 
       - uses: actions/setup-node@v5
         with:
