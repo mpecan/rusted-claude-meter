@@ -10,6 +10,7 @@ use meter_core::UsageStatus;
 
 use crate::palette::{ink, risk_badge, status_color};
 use crate::state::IconState;
+use crate::svg::svg_document;
 
 const COUNT: u32 = 5;
 const WIDTH: f64 = 2.6;
@@ -28,28 +29,26 @@ pub fn svg(state: IconState) -> String {
     // 0%.
     let lit = (1 + u32::from(state.percent) / 20).min(COUNT);
 
-    let mut out = String::with_capacity(768);
-    out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
-    for index in 0..COUNT {
-        let x = f64::from(index).mul_add(WIDTH + GAP, START_X);
-        let height = HEIGHT_STEP.mul_add(f64::from(index), BASE_HEIGHT);
-        let y = BASELINE - height;
-        if index < lit {
-            let fill = segment_color(state.mono, index, ink);
-            let _ = write!(
-                out,
-                r#"<rect x="{x:.2}" y="{y:.2}" width="{WIDTH}" height="{height:.2}" rx="1" fill="{fill}"/>"#
-            );
-        } else {
-            let _ = write!(
-                out,
-                r#"<rect x="{x:.2}" y="{y:.2}" width="{WIDTH}" height="{height:.2}" rx="1" fill="{ink}" fill-opacity="0.2"/>"#
-            );
+    svg_document(768, |out| {
+        for index in 0..COUNT {
+            let x = f64::from(index).mul_add(WIDTH + GAP, START_X);
+            let height = HEIGHT_STEP.mul_add(f64::from(index), BASE_HEIGHT);
+            let y = BASELINE - height;
+            if index < lit {
+                let fill = segment_color(state.mono, index, ink);
+                let _ = write!(
+                    out,
+                    r#"<rect x="{x:.2}" y="{y:.2}" width="{WIDTH}" height="{height:.2}" rx="1" fill="{fill}"/>"#
+                );
+            } else {
+                let _ = write!(
+                    out,
+                    r#"<rect x="{x:.2}" y="{y:.2}" width="{WIDTH}" height="{height:.2}" rx="1" fill="{ink}" fill-opacity="0.2"/>"#
+                );
+            }
         }
-    }
-    out.push_str(&risk_badge(state.at_risk, state.mono));
-    out.push_str("</svg>");
-    out
+        out.push_str(&risk_badge(state.at_risk, state.mono));
+    })
 }
 
 /// Lit segments shade green → orange → red by position (a gradient effect,

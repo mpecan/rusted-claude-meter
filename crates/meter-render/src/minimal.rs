@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 
 use crate::palette::{ink, proportional_fill, risk_badge};
 use crate::state::IconState;
+use crate::svg::svg_document;
 
 const TRACK_X: f64 = 2.0;
 const TRACK_WIDTH: f64 = 18.0;
@@ -18,22 +19,20 @@ const MIN_FILL_WIDTH: f64 = 1.0;
 pub fn svg(state: IconState) -> String {
     let ink = ink(state.mono, state.status);
 
-    let mut out = String::with_capacity(384);
-    out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
-    let _ = write!(
-        out,
-        r#"<rect x="{TRACK_X}" y="{TRACK_Y}" width="{TRACK_WIDTH}" height="{TRACK_HEIGHT}" rx="2" fill="{ink}" fill-opacity="0.2"/>"#
-    );
-    if state.percent > 0 {
-        let width = proportional_fill(TRACK_WIDTH, MIN_FILL_WIDTH, state.percent);
+    svg_document(384, |out| {
         let _ = write!(
             out,
-            r#"<rect x="{TRACK_X}" y="{TRACK_Y}" width="{width:.2}" height="{TRACK_HEIGHT}" rx="2" fill="{ink}"/>"#
+            r#"<rect x="{TRACK_X}" y="{TRACK_Y}" width="{TRACK_WIDTH}" height="{TRACK_HEIGHT}" rx="2" fill="{ink}" fill-opacity="0.2"/>"#
         );
-    }
-    out.push_str(&risk_badge(state.at_risk, state.mono));
-    out.push_str("</svg>");
-    out
+        if state.percent > 0 {
+            let width = proportional_fill(TRACK_WIDTH, MIN_FILL_WIDTH, state.percent);
+            let _ = write!(
+                out,
+                r#"<rect x="{TRACK_X}" y="{TRACK_Y}" width="{width:.2}" height="{TRACK_HEIGHT}" rx="2" fill="{ink}"/>"#
+            );
+        }
+        out.push_str(&risk_badge(state.at_risk, state.mono));
+    })
 }
 
 #[cfg(test)]

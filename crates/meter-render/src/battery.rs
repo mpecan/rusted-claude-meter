@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 
 use crate::palette::{ink, proportional_fill, risk_badge};
 use crate::state::IconState;
+use crate::svg::svg_document;
 
 /// Charge fill geometry: inset inside the stroked body.
 const FILL_X: f64 = 3.0;
@@ -19,24 +20,22 @@ const FILL_MIN_WIDTH: f64 = 1.0;
 pub fn svg(state: IconState) -> String {
     let ink = ink(state.mono, state.status);
 
-    let mut out = String::with_capacity(640);
-    out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
-    // Body outline and terminal cap.
-    let _ = write!(
-        out,
-        r#"<rect x="1.25" y="6.25" width="17.5" height="9.5" rx="2.75" fill="none" stroke="{ink}" stroke-width="1.5"/><rect x="19.75" y="9.25" width="1.5" height="3.5" rx="0.75" fill="{ink}"/>"#
-    );
-    // Charge fill, proportional to percent.
-    if state.percent > 0 {
-        let width = proportional_fill(FILL_MAX_WIDTH, FILL_MIN_WIDTH, state.percent);
+    svg_document(640, |out| {
+        // Body outline and terminal cap.
         let _ = write!(
             out,
-            r#"<rect x="{FILL_X}" y="8" width="{width:.2}" height="6" rx="1.2" fill="{ink}"/>"#
+            r#"<rect x="1.25" y="6.25" width="17.5" height="9.5" rx="2.75" fill="none" stroke="{ink}" stroke-width="1.5"/><rect x="19.75" y="9.25" width="1.5" height="3.5" rx="0.75" fill="{ink}"/>"#
         );
-    }
-    out.push_str(&risk_badge(state.at_risk, state.mono));
-    out.push_str("</svg>");
-    out
+        // Charge fill, proportional to percent.
+        if state.percent > 0 {
+            let width = proportional_fill(FILL_MAX_WIDTH, FILL_MIN_WIDTH, state.percent);
+            let _ = write!(
+                out,
+                r#"<rect x="{FILL_X}" y="8" width="{width:.2}" height="6" rx="1.2" fill="{ink}"/>"#
+            );
+        }
+        out.push_str(&risk_badge(state.at_risk, state.mono));
+    })
 }
 
 #[cfg(test)]

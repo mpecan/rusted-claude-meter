@@ -8,10 +8,10 @@ coverage_min_regions := "87"
 
 # Duplication ratchet ceiling (cargo-dupes). Only ever lower these numbers as
 # duplication is cleaned up — never raise them to let new duplication in.
-dupes_max_exact := "13"
-dupes_max_near := "4"
-dupes_max_exact_percent := "6.0"
-dupes_max_near_percent := "2.5"
+dupes_max_exact := "12"
+dupes_max_near := "3"
+dupes_max_exact_percent := "5.9"
+dupes_max_near_percent := "1.5"
 dupes_excludes := "--exclude 'target/*' --exclude 'node_modules/*' --exclude 'dist/*' --exclude 'src-tauri/gen/*'"
 
 # Run all checks (what CI runs)

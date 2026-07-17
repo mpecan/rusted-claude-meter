@@ -19,6 +19,7 @@ mod palette;
 mod render;
 mod segments;
 mod state;
+mod svg;
 
 pub use cache::IconCache;
 pub use render::{RenderError, RenderedIcon, render_icon};

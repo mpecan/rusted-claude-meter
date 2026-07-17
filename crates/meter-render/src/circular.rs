@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 
 use crate::palette::{ink, risk_badge};
 use crate::state::IconState;
+use crate::svg::svg_document;
 
 const CENTER: f64 = 11.0;
 const RADIUS: f64 = 8.0;
@@ -21,25 +22,23 @@ const MIN_ARC: f64 = 1.5;
 pub fn svg(state: IconState) -> String {
     let ink = ink(state.mono, state.status);
 
-    let mut out = String::with_capacity(640);
-    out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
-    // Background track, faint so it reads at 22px without competing with the
-    // progress arc.
-    let _ = write!(
-        out,
-        r#"<circle cx="{CENTER}" cy="{CENTER}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-opacity="0.25" stroke-width="{STROKE}"/>"#
-    );
-    if state.percent > 0 {
-        let filled = (CIRCUMFERENCE * f64::from(state.percent) / 100.0).max(MIN_ARC);
-        let remainder = (CIRCUMFERENCE - filled).max(0.0);
+    svg_document(640, |out| {
+        // Background track, faint so it reads at 22px without competing with
+        // the progress arc.
         let _ = write!(
             out,
-            r#"<circle cx="{CENTER}" cy="{CENTER}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-width="{STROKE}" stroke-linecap="round" stroke-dasharray="{filled:.2} {remainder:.2}" transform="rotate(-90 {CENTER} {CENTER})"/>"#
+            r#"<circle cx="{CENTER}" cy="{CENTER}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-opacity="0.25" stroke-width="{STROKE}"/>"#
         );
-    }
-    out.push_str(&risk_badge(state.at_risk, state.mono));
-    out.push_str("</svg>");
-    out
+        if state.percent > 0 {
+            let filled = (CIRCUMFERENCE * f64::from(state.percent) / 100.0).max(MIN_ARC);
+            let remainder = (CIRCUMFERENCE - filled).max(0.0);
+            let _ = write!(
+                out,
+                r#"<circle cx="{CENTER}" cy="{CENTER}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-width="{STROKE}" stroke-linecap="round" stroke-dasharray="{filled:.2} {remainder:.2}" transform="rotate(-90 {CENTER} {CENTER})"/>"#
+            );
+        }
+        out.push_str(&risk_badge(state.at_risk, state.mono));
+    })
 }
 
 #[cfg(test)]

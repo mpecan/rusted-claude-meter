@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 
 use crate::palette::{ink, risk_badge};
 use crate::state::IconState;
+use crate::svg::svg_document;
 
 const CENTER_X: f64 = 11.0;
 const CENTER_Y: f64 = 15.0;
@@ -25,29 +26,27 @@ const MIN_ARC: f64 = 1.2;
 pub fn svg(state: IconState) -> String {
     let ink = ink(state.mono, state.status);
 
-    let mut out = String::with_capacity(768);
-    out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
-    // Background track: the top half of the circle, faint.
-    let _ = write!(
-        out,
-        r#"<circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-opacity="0.25" stroke-width="{STROKE}" stroke-dasharray="{HALF_CIRCUMFERENCE:.2} {HALF_CIRCUMFERENCE:.2}" transform="rotate(-180 {CENTER_X} {CENTER_Y})"/>"#
-    );
-    if state.percent > 0 {
-        let filled = (HALF_CIRCUMFERENCE * f64::from(state.percent) / 100.0).max(MIN_ARC);
-        let remainder = (CIRCUMFERENCE - filled).max(0.0);
+    svg_document(768, |out| {
+        // Background track: the top half of the circle, faint.
         let _ = write!(
             out,
-            r#"<circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-width="{STROKE}" stroke-linecap="round" stroke-dasharray="{filled:.2} {remainder:.2}" transform="rotate(-180 {CENTER_X} {CENTER_Y})"/>"#
+            r#"<circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-opacity="0.25" stroke-width="{STROKE}" stroke-dasharray="{HALF_CIRCUMFERENCE:.2} {HALF_CIRCUMFERENCE:.2}" transform="rotate(-180 {CENTER_X} {CENTER_Y})"/>"#
         );
-    }
-    let (needle_x, needle_y) = needle_tip(state.percent);
-    let _ = write!(
-        out,
-        r#"<line x1="{CENTER_X}" y1="{CENTER_Y}" x2="{needle_x:.2}" y2="{needle_y:.2}" stroke="{ink}" stroke-width="1.4" stroke-linecap="round"/><circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{HUB_RADIUS}" fill="{ink}"/>"#
-    );
-    out.push_str(&risk_badge(state.at_risk, state.mono));
-    out.push_str("</svg>");
-    out
+        if state.percent > 0 {
+            let filled = (HALF_CIRCUMFERENCE * f64::from(state.percent) / 100.0).max(MIN_ARC);
+            let remainder = (CIRCUMFERENCE - filled).max(0.0);
+            let _ = write!(
+                out,
+                r#"<circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{RADIUS}" fill="none" stroke="{ink}" stroke-width="{STROKE}" stroke-linecap="round" stroke-dasharray="{filled:.2} {remainder:.2}" transform="rotate(-180 {CENTER_X} {CENTER_Y})"/>"#
+            );
+        }
+        let (needle_x, needle_y) = needle_tip(state.percent);
+        let _ = write!(
+            out,
+            r#"<line x1="{CENTER_X}" y1="{CENTER_Y}" x2="{needle_x:.2}" y2="{needle_y:.2}" stroke="{ink}" stroke-width="1.4" stroke-linecap="round"/><circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{HUB_RADIUS}" fill="{ink}"/>"#
+        );
+        out.push_str(&risk_badge(state.at_risk, state.mono));
+    })
 }
 
 /// The needle tip for `percent`: 0% points at 9 o'clock, 100% at 3 o'clock,

@@ -8,6 +8,7 @@ use std::fmt::Write as _;
 
 use crate::palette::{ACCENT, ink, proportional_fill, risk_badge};
 use crate::state::IconState;
+use crate::svg::svg_document;
 
 const BAR_X: f64 = 2.0;
 const BAR_WIDTH: f64 = 18.0;
@@ -22,13 +23,11 @@ pub fn svg(state: IconState) -> String {
     let primary_ink = ink(state.mono, state.status);
     let secondary_ink = if state.mono { primary_ink } else { ACCENT };
 
-    let mut out = String::with_capacity(896);
-    out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
-    write_bar(&mut out, TOP_Y, state.percent, primary_ink);
-    write_bar(&mut out, BOTTOM_Y, state.secondary_percent, secondary_ink);
-    out.push_str(&risk_badge(state.at_risk, state.mono));
-    out.push_str("</svg>");
-    out
+    svg_document(896, |out| {
+        write_bar(out, TOP_Y, state.percent, primary_ink);
+        write_bar(out, BOTTOM_Y, state.secondary_percent, secondary_ink);
+        out.push_str(&risk_badge(state.at_risk, state.mono));
+    })
 }
 
 fn write_bar(out: &mut String, y: f64, percent: u8, fill: &str) {
