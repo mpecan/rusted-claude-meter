@@ -1,15 +1,25 @@
 //! Session-key storage, backed by the platform credential store.
 //!
 //! macOS uses Keychain Services; Linux uses the Secret Service D-Bus API
-//! (gnome-keyring / `KWallet`), both via the `keyring` crate's default `v1`
-//! backend set. There is deliberately no plaintext-file fallback for a
-//! headless Linux session with no Secret Service daemon running:
-//! [`StoreError::Unavailable`] surfaces that case as an explicit, typed
-//! error instead of silently degrading security. See the decision record
-//! on <https://github.com/mpecan/rusted-claude-meter/issues/1>.
+//! (gnome-keyring / `KWallet`), both driven directly through `keyring-core`
+//! rather than the `keyring` crate's `v1` convenience shim. The shim caches
+//! backend-construction success/failure in a process-wide `AtomicBool` that
+//! is set *before* the platform store is actually built: if the Secret
+//! Service daemon isn't reachable yet on the first call (a real race on
+//! login/autostart or after a sleep/wake D-Bus renegotiation), the shim
+//! never retries for the rest of the process's life, even once the daemon
+//! comes up. Driving `keyring-core` ourselves and re-attempting
+//! [`keyring_core::set_default_store`] whenever no default store is set lets
+//! a later retry recover once the daemon becomes reachable. There is
+//! deliberately no plaintext-file fallback for a headless Linux session with
+//! no Secret Service daemon running: [`StoreError::Unavailable`] surfaces
+//! that case as an explicit, typed error instead of silently degrading
+//! security. See the decision record on
+//! <https://github.com/mpecan/rusted-claude-meter/issues/1>.
 
-use keyring::Entry;
+use keyring_core::Entry;
 use meter_core::SessionKey;
+use std::sync::Arc;
 
 const SERVICE: &str = "com.mpecan.rusted-claude-meter";
 const USERNAME: &str = "session-key";
@@ -47,13 +57,68 @@ pub enum StoreError {
     Unavailable(String),
 }
 
-impl From<keyring::Error> for StoreError {
-    fn from(error: keyring::Error) -> Self {
+impl From<keyring_core::Error> for StoreError {
+    fn from(error: keyring_core::Error) -> Self {
         Self::Unavailable(error.to_string())
     }
 }
 
-/// [`SessionStore`] backed by the platform credential store via `keyring`.
+/// Builds this platform's `keyring-core` credential store backend.
+///
+/// macOS uses Keychain Services via `apple-native-keyring-store`.
+#[cfg(target_os = "macos")]
+fn build_platform_store() -> keyring_core::Result<Arc<keyring_core::CredentialStore>> {
+    apple_native_keyring_store::keychain::Store::new()
+        .map(|store| store as Arc<keyring_core::CredentialStore>)
+}
+
+/// Builds this platform's `keyring-core` credential store backend.
+///
+/// Non-macOS Unix (i.e. Linux, per this app's supported platforms) uses the
+/// Secret Service D-Bus API via `zbus-secret-service-keyring-store`.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn build_platform_store() -> keyring_core::Result<Arc<keyring_core::CredentialStore>> {
+    zbus_secret_service_keyring_store::Store::new()
+        .map(|store| store as Arc<keyring_core::CredentialStore>)
+}
+
+/// Ensures `keyring_core`'s default store is set, (re-)constructing the
+/// platform backend if it isn't.
+///
+/// Unlike the `keyring` crate's `v1::Entry::new`, this retries backend
+/// construction on every call that finds no default store installed —
+/// including after a previous attempt failed — rather than caching failure
+/// forever in a process-wide flag. That matters for a long-lived tray app:
+/// a transient failure (Secret Service daemon not yet up at login/autostart,
+/// or a D-Bus session renegotiation after sleep/wake) must not permanently
+/// poison every later `save`/`load`/`clear` call.
+fn ensure_credential_store() -> Result<(), StoreError> {
+    if keyring_core::get_default_store().is_some() {
+        return Ok(());
+    }
+    let store = build_platform_store()?;
+    keyring_core::set_default_store(store);
+    Ok(())
+}
+
+/// Maps a raw `get_password` result to a parsed session key.
+///
+/// Pulled out of [`KeyringSessionStore::load`] so it can be unit-tested
+/// without a real OS credential-store backend: `keyring_core::Error`'s
+/// variants (`NoEntry`, `NoDefaultStore`, ...) are plain, publicly
+/// constructible data with no OS dependency.
+fn map_loaded(result: keyring_core::Result<String>) -> Result<Option<SessionKey>, StoreError> {
+    match result {
+        Ok(raw) => SessionKey::parse(&raw)
+            .map(Some)
+            .map_err(|_| StoreError::Corrupt),
+        Err(keyring_core::Error::NoEntry) => Ok(None),
+        Err(other) => Err(StoreError::from(other)),
+    }
+}
+
+/// [`SessionStore`] backed by the platform credential store via
+/// `keyring-core`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KeyringSessionStore;
 
@@ -61,6 +126,7 @@ impl KeyringSessionStore {
     /// Not an instance method: the entry identity (service/username) is
     /// fixed, not per-instance state.
     fn entry() -> Result<Entry, StoreError> {
+        ensure_credential_store()?;
         Entry::new(SERVICE, USERNAME).map_err(StoreError::from)
     }
 }
@@ -73,18 +139,12 @@ impl SessionStore for KeyringSessionStore {
     }
 
     fn load(&self) -> Result<Option<SessionKey>, StoreError> {
-        match Self::entry()?.get_password() {
-            Ok(raw) => SessionKey::parse(&raw)
-                .map(Some)
-                .map_err(|_| StoreError::Corrupt),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(other) => Err(StoreError::from(other)),
-        }
+        map_loaded(Self::entry()?.get_password())
     }
 
     fn clear(&self) -> Result<(), StoreError> {
         match Self::entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
             Err(other) => Err(StoreError::from(other)),
         }
     }
@@ -220,5 +280,34 @@ mod tests {
         let error = StoreError::Unavailable("no Secret Service daemon".to_owned());
         assert!(!error.to_string().contains(VALID));
         assert!(!format!("{error:?}").contains(VALID));
+    }
+
+    // `map_loaded` is the free-function core of `KeyringSessionStore::load`,
+    // pulled out specifically so these four cases can be exercised without a
+    // real OS credential-store backend (see its doc comment).
+
+    #[test]
+    fn map_loaded_no_entry_is_none() {
+        assert_eq!(map_loaded(Err(keyring_core::Error::NoEntry)), Ok(None));
+    }
+
+    #[test]
+    fn map_loaded_unparseable_value_is_corrupt() {
+        assert_eq!(
+            map_loaded(Ok("not-a-valid-key".to_owned())),
+            Err(StoreError::Corrupt)
+        );
+    }
+
+    #[test]
+    fn map_loaded_valid_value_is_some() {
+        let key = SessionKey::parse(VALID).unwrap();
+        assert_eq!(map_loaded(Ok(VALID.to_owned())), Ok(Some(key)));
+    }
+
+    #[test]
+    fn map_loaded_other_backend_error_is_unavailable() {
+        let result = map_loaded(Err(keyring_core::Error::NoDefaultStore));
+        assert!(matches!(result, Err(StoreError::Unavailable(_))));
     }
 }
