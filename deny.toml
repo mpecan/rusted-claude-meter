@@ -40,6 +40,13 @@ ignore = [
     { id = "RUSTSEC-2025-0081", reason = "unmaintained `unic-common`, transitive via tauri-utils' urlpattern dependency" },
     { id = "RUSTSEC-2025-0098", reason = "unmaintained `unic-ucd-version`, transitive via tauri-utils' urlpattern dependency" },
     { id = "RUSTSEC-2025-0100", reason = "unmaintained `unic-ucd-ident`, transitive via tauri-utils' urlpattern dependency" },
+    # The two below are "unmaintained" notices (not vulnerabilities) for the
+    # font-shaping/parsing stack resvg/usvg use to rasterize the tray icon's
+    # baked-in percentage text (meter-render's `text` feature). No safe upgrade
+    # exists from our side — they live inside resvg 0.47's own dependency tree.
+    # Re-check when bumping resvg (a future release may move to harfrust/skrifa).
+    { id = "RUSTSEC-2026-0206", reason = "unmaintained `rustybuzz`, transitive via usvg 0.47 text shaping (resvg tray-icon renderer)" },
+    { id = "RUSTSEC-2026-0192", reason = "unmaintained `ttf-parser`, transitive via usvg 0.47/fontdb text parsing (resvg tray-icon renderer)" },
 ]
 
 # ---------------------------------------------------------------------------

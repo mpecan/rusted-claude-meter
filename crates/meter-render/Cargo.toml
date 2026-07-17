@@ -13,7 +13,11 @@ meter-core = { path = "../meter-core" }
 jiff = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-resvg = { version = "0.47", default-features = false }
+# `text` pulls in usvg's font stack (fontdb + rustybuzz) so `<text>` renders.
+# We deliberately omit `system-fonts`/`memmap-fonts`: the only font is the
+# bundled Roboto Mono subset loaded via `load_font_data`, which keeps rendering
+# deterministic (no machine-dependent system fonts) for the snapshot tests.
+resvg = { version = "0.47", default-features = false, features = ["text"] }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
