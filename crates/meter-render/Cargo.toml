@@ -1,0 +1,21 @@
+[package]
+name = "meter-render"
+description = "Tray gauge renderer: usage state → RGBA icon, no platform code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+meter-core = { path = "../meter-core" }
+jiff = { workspace = true }
+thiserror = { workspace = true }
+resvg = { version = "0.47", default-features = false }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+png = "0.18"
+
+[lints]
+workspace = true

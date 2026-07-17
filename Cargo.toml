@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/meter-core", "crates/meter-api", "src-tauri"]
+members = [
+    "crates/meter-core",
+    "crates/meter-api",
+    "crates/meter-render",
+    "src-tauri",
+]
 
 [workspace.package]
 version = "0.1.0"

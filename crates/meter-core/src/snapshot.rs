@@ -48,7 +48,8 @@ impl UsageSnapshot {
             .find(|limit| limit.display_name == display_name)
     }
 
-    fn windows(&self) -> impl Iterator<Item = &UsageWindow> {
+    /// Every reported window: headline first, then scoped, in API order.
+    pub fn windows(&self) -> impl Iterator<Item = &UsageWindow> {
         self.five_hour
             .iter()
             .chain(self.seven_day.iter())

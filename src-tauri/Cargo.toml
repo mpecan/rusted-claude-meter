@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 meter-core = { path = "../crates/meter-core" }
 meter-api = { path = "../crates/meter-api" }
+meter-render = { path = "../crates/meter-render" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { workspace = true }

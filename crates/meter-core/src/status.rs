@@ -10,7 +10,7 @@ const CRITICAL_THRESHOLD: f64 = 80.0;
 /// Drives both the tray icon colour and notification urgency. Thresholds
 /// mirror the original `ClaudeMeter`: safe below 50%, warning from 50%,
 /// critical from 80%.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageStatus {
     Safe,
