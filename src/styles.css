@@ -268,35 +268,23 @@ body {
   color: var(--color-critical);
 }
 
-/* Settings panel (issue #6): an overlay over the popover's card list rather
-   than a separate Tauri window — the app already keeps one main window that
-   plays popover (macOS) or menu-driven (Linux) roles, so a second native
-   window would duplicate that plumbing for no benefit. Reached via the
-   header's gear button or the tray's "Settings…" item (`open-settings`
-   event). */
-.settings-panel {
-  position: absolute;
-  inset: 0;
+/* Settings page (issue #6): its own dedicated top-level window (label
+   "settings"), opened front-most on macOS by temporarily raising the app's
+   activation policy — see src-tauri/src/settings_window.rs. Reached via the
+   popover header's Settings button (the `open_settings_window` command) or the
+   tray's "Settings…" item. This is the whole window body, so it flows and
+   scrolls with the window rather than overlaying the popover. */
+.settings {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
   padding: 1rem;
-  background: var(--bg);
-  overflow-y: auto;
+  max-width: 34rem;
+  margin: 0 auto;
 }
 
-.settings-panel[hidden] {
-  display: none;
-}
-
-.settings-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.settings-panel-header h2 {
-  font-size: 1rem;
+.settings-header h1 {
+  font-size: 1.1rem;
   font-weight: 600;
   margin: 0;
 }
@@ -430,10 +418,9 @@ body {
   cursor: pointer;
 }
 
-/* Setup wizard (issue #11): a modal-style overlay above everything else,
-   including the Settings panel — "Run setup again" opens it from there —
-   for the same reason the Settings panel itself is an overlay rather than a
-   second native window (see that section's comment above). */
+/* Setup wizard (issue #11): a modal-style overlay filling the Settings window,
+   above the settings sections — it auto-opens on first run (when Settings opens
+   itself) and "Run setup again" reopens it. */
 .wizard-panel {
   position: absolute;
   inset: 0;

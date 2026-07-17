@@ -21,7 +21,7 @@ use std::sync::Arc;
 use meter_core::{SessionKey, SessionKeyError};
 use meter_render::IconStyle;
 use serde::Serialize;
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::browser_import::{
     LiveSessionValidator, SessionValidator, StoreAndValidateError, store_and_validate,
@@ -33,6 +33,14 @@ use crate::tray;
 
 /// Managed Tauri state wrapping the active [`SessionStore`].
 pub struct SessionStoreState(pub Arc<dyn SessionStore>);
+
+/// Broadcast to every window whenever settings that another window renders
+/// change. Now that Settings lives in its own window (see
+/// `crate::settings_window`), the popover — a separate window — can no longer
+/// see a model-visibility toggle by sharing the same `settings` object, so it
+/// subscribes to this to re-filter its cards live. Carries the full
+/// [`AppSettings`] so any future cross-window setting can piggyback on it.
+pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 
 /// Errors returned to the frontend by session commands.
 ///
@@ -247,6 +255,9 @@ pub fn set_shown_scoped_models(
     models: Vec<String>,
 ) {
     let updated = settings.update(|s| s.shown_scoped_models = models);
+    // Tell the popover window (which filters its cards by this set) before we
+    // consume `updated` for the tray update below.
+    let _ = app.emit(SETTINGS_CHANGED_EVENT, &updated);
     let shown: HashSet<String> = updated.shown_scoped_models.into_iter().collect();
     tray::set_shown_scoped_models(&app, shown, &scheduler.state_now());
 }

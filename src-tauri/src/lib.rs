@@ -17,6 +17,7 @@ mod io_util;
 mod notifier;
 mod scheduler;
 mod settings;
+mod settings_window;
 mod store;
 mod tray;
 mod wizard;
@@ -69,6 +70,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_notify_on_reset,
             autostart::autostart_status,
             autostart::set_autostart,
+            settings_window::open_settings_window,
             wizard::wizard_should_run,
             wizard::wizard_complete,
             wizard::is_gnome_desktop,
@@ -139,18 +141,26 @@ pub fn run() -> tauri::Result<()> {
         .run(tauri::generate_context!())
 }
 
-/// The app keeps running in the tray, so closing the window hides it rather
-/// than quitting; on macOS the popover-style window also auto-hides when it
-/// loses focus. Linux keeps a normal window — the tray menu is the primary
-/// surface there.
+/// Window lifecycle differs by window. The popover/`main` window keeps the app
+/// alive in the tray, so closing it hides it rather than quitting, and on macOS
+/// it auto-hides on focus loss (popover feel). The Settings window is an
+/// ordinary window the user dismisses explicitly: it really closes (and is
+/// rebuilt on the next open), and on macOS its close drops the app back to
+/// `Accessory` so it returns to menu-bar-only.
 fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     match event {
         tauri::WindowEvent::CloseRequested { api, .. } => {
-            api.prevent_close();
-            let _ = window.hide();
+            if settings_window::is_settings_label(window.label()) {
+                settings_window::set_app_foreground(window.app_handle(), false);
+            } else {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         }
+        // Only the popover auto-hides on focus loss; the Settings window stays
+        // put until the user closes it.
         #[cfg(target_os = "macos")]
-        tauri::WindowEvent::Focused(false) => {
+        tauri::WindowEvent::Focused(false) if settings_window::is_main_label(window.label()) => {
             let _ = window.hide();
         }
         _ => {}

@@ -27,10 +27,11 @@ import type {
 } from "./types";
 
 const USAGE_STATE_EVENT = "usage-state";
-/** Mirrors `tray::OPEN_SETTINGS_EVENT`: the tray's "Settings…" menu item is
- * the primary way to reach Settings on Linux, where the tray delivers no
- * click events for a popover-style affordance. */
-export const OPEN_SETTINGS_EVENT = "open-settings";
+/** Mirrors `commands::SETTINGS_CHANGED_EVENT`: broadcast whenever settings a
+ * different window renders change. The popover subscribes so a model-visibility
+ * toggle made in the Settings window re-filters its cards live, now that the
+ * two live in separate windows and no longer share one `settings` object. */
+export const SETTINGS_CHANGED_EVENT = "settings-changed";
 
 export interface UsageBackend {
   /** The state as of right now, for the initial render before the first
@@ -39,9 +40,14 @@ export interface UsageBackend {
   /** Subscribe to every subsequent state broadcast. Returns an unsubscribe
    * function. */
   onStateChange(callback: (state: MeterState) => void): () => void;
-  /** Subscribe to the tray's "open Settings" request. Returns an
-   * unsubscribe function. */
-  onOpenSettings(callback: () => void): () => void;
+  /** Open (or focus) the dedicated Settings window — the popover's Settings
+   * button. Resolves once the request is delivered; the window itself renders
+   * asynchronously. */
+  openSettingsWindow(): Promise<void>;
+  /** Subscribe to the `settings-changed` broadcast (the full [`AppSettings`]),
+   * so a window can re-render when another window changes a shared setting.
+   * Returns an unsubscribe function. */
+  onSettingsChanged(callback: (settings: AppSettings) => void): () => void;
   /** Parse, store and validate a pasted session key against claude.ai, with
    * rollback on rejection — the same guarantee browser import gives an
    * imported key. Resolves with whether claude.ai confirmed it (`validated:
@@ -104,8 +110,12 @@ class TauriBackend implements UsageBackend {
     return subscribe(USAGE_STATE_EVENT, callback);
   }
 
-  onOpenSettings(callback: () => void): () => void {
-    return subscribe(OPEN_SETTINGS_EVENT, callback);
+  openSettingsWindow(): Promise<void> {
+    return invoke<void>("open_settings_window");
+  }
+
+  onSettingsChanged(callback: (settings: AppSettings) => void): () => void {
+    return subscribe(SETTINGS_CHANGED_EVENT, callback);
   }
 
   submitSessionKey(input: string): Promise<SessionSubmission> {
@@ -219,7 +229,13 @@ class DemoBackend implements UsageBackend {
     return () => {};
   }
 
-  onOpenSettings(): () => void {
+  openSettingsWindow(): Promise<void> {
+    // No second window outside a Tauri shell; the demo renders the popover
+    // only. A no-op keeps the Settings button harmless in `npm run dev`.
+    return Promise.resolve();
+  }
+
+  onSettingsChanged(): () => void {
     return () => {};
   }
 

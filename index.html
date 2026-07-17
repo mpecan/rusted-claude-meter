@@ -9,42 +9,48 @@
   </head>
 
   <body>
-    <main class="popover">
-      <header class="popover-header">
-        <h1>Rusted Claude Meter</h1>
-        <div class="header-actions">
-          <button id="settings-button" class="ghost-button" type="button" aria-label="Settings">
-            Settings
-          </button>
-          <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
-        </div>
-      </header>
+    <!-- One bundle serves two windows. `src/main.ts` reads the current window
+         label and reveals exactly one of these views: the popover in the
+         `main` window, the Settings page in the `settings` window. -->
+    <div id="popover-view" hidden>
+      <main class="popover">
+        <header class="popover-header">
+          <h1>Rusted Claude Meter</h1>
+          <div class="header-actions">
+            <button id="settings-button" class="ghost-button" type="button" aria-label="Settings">
+              Settings
+            </button>
+            <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+          </div>
+        </header>
 
-      <p id="status-line" class="status-line" data-banner="loading">Waiting for first update…</p>
+        <p id="status-line" class="status-line" data-banner="loading">Waiting for first update…</p>
 
-      <section id="cards" class="cards" aria-live="polite"></section>
+        <section id="cards" class="cards" aria-live="polite"></section>
 
-      <p id="empty-state" class="empty-state" hidden>No usage data yet.</p>
+        <p id="empty-state" class="empty-state" hidden>No usage data yet.</p>
 
-      <form id="session-form" class="session-form" hidden>
-        <label for="session-input">Session key</label>
-        <input
-          id="session-input"
-          name="session"
-          type="password"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="sk-ant-… or the sessionKey cookie value"
-        />
-        <button type="submit">Save</button>
-        <p id="session-error" class="session-error" role="alert" hidden></p>
-      </form>
+        <form id="session-form" class="session-form" hidden>
+          <label for="session-input">Session key</label>
+          <input
+            id="session-input"
+            name="session"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="sk-ant-… or the sessionKey cookie value"
+          />
+          <button type="submit">Save</button>
+          <p id="session-error" class="session-error" role="alert" hidden></p>
+        </form>
+      </main>
+    </div>
 
-      <section id="settings-panel" class="settings-panel" hidden aria-label="Settings">
-        <div class="settings-panel-header">
-          <h2>Settings</h2>
-          <button id="close-settings-button" class="ghost-button" type="button">Done</button>
-        </div>
+    <div id="settings-view" hidden>
+      <main class="settings" aria-label="Settings">
+        <header class="settings-header">
+          <h1>Settings</h1>
+        </header>
 
         <div class="settings-section">
           <h3>Setup</h3>
@@ -133,109 +139,109 @@
           </button>
           <p id="settings-session-error" class="session-error" role="alert" hidden></p>
         </div>
-      </section>
 
-      <section id="wizard-panel" class="wizard-panel" hidden role="dialog" aria-modal="true" aria-label="Setup wizard">
-        <div class="wizard-card">
-          <p id="wizard-step-indicator" class="wizard-step-indicator"></p>
+        <section id="wizard-panel" class="wizard-panel" hidden role="dialog" aria-modal="true" aria-label="Setup wizard">
+          <div class="wizard-card">
+            <p id="wizard-step-indicator" class="wizard-step-indicator"></p>
 
-          <div id="wizard-step-welcome" class="wizard-step">
-            <h2>Welcome to Rusted Claude Meter</h2>
-            <p>
-              This app watches your Claude plan usage from the tray. Setup takes under a minute:
-              connect your claude.ai session, then pick how it looks.
-            </p>
-            <div class="wizard-actions">
-              <button id="wizard-skip-button" class="ghost-button" type="button">
-                Skip for now
-              </button>
-              <button id="wizard-start-button" class="primary-button" type="button">
-                Get started
-              </button>
+            <div id="wizard-step-welcome" class="wizard-step">
+              <h2>Welcome to Rusted Claude Meter</h2>
+              <p>
+                This app watches your Claude plan usage from the tray. Setup takes under a minute:
+                connect your claude.ai session, then pick how it looks.
+              </p>
+              <div class="wizard-actions">
+                <button id="wizard-skip-button" class="ghost-button" type="button">
+                  Skip for now
+                </button>
+                <button id="wizard-start-button" class="primary-button" type="button">
+                  Get started
+                </button>
+              </div>
+            </div>
+
+            <div id="wizard-step-session" class="wizard-step" hidden>
+              <h2>Connect your session</h2>
+              <p class="settings-hint">
+                Import the claude.ai session from a browser you're already signed in to, or paste a
+                session key by hand.
+              </p>
+              <div id="wizard-browser-import-list" class="browser-import-list"></div>
+              <h4>Paste a session key</h4>
+              <form id="wizard-session-form" class="session-form">
+                <label for="wizard-session-input">Session key</label>
+                <input
+                  id="wizard-session-input"
+                  name="session"
+                  type="password"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="sk-ant-… or the sessionKey cookie value"
+                />
+                <button type="submit">Continue</button>
+              </form>
+              <p id="wizard-session-error" class="session-error" role="alert" hidden></p>
+              <div class="wizard-actions">
+                <button id="wizard-session-back-button" class="ghost-button" type="button">
+                  Back
+                </button>
+                <button id="wizard-session-cancel-button" class="ghost-button" type="button">
+                  Cancel setup
+                </button>
+              </div>
+            </div>
+
+            <div id="wizard-step-validate" class="wizard-step" hidden>
+              <h2>Checking your session…</h2>
+              <p id="wizard-validate-status" class="settings-hint" role="status"></p>
+              <p id="wizard-validate-error" class="session-error" role="alert" hidden></p>
+              <div class="wizard-actions">
+                <button id="wizard-validate-retry-button" class="ghost-button" type="button" hidden>
+                  Try again
+                </button>
+                <button
+                  id="wizard-validate-continue-button"
+                  class="primary-button"
+                  type="button"
+                  hidden
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+
+            <div id="wizard-step-customize" class="wizard-step" hidden>
+              <h2>Make it yours</h2>
+              <div class="settings-section">
+                <h3>Tray icon</h3>
+                <select id="wizard-icon-style-select"></select>
+              </div>
+              <div class="settings-section">
+                <h3>Refresh interval</h3>
+                <select id="wizard-refresh-interval-select"></select>
+              </div>
+              <div class="wizard-actions">
+                <button id="wizard-customize-continue-button" class="primary-button" type="button">
+                  Continue
+                </button>
+              </div>
+            </div>
+
+            <div id="wizard-step-done" class="wizard-step" hidden>
+              <h2>You're all set</h2>
+              <p>Rusted Claude Meter is now watching your usage from the tray.</p>
+              <p id="wizard-gnome-hint" class="settings-hint" hidden>
+                Heads up: GNOME hides tray icons unless the "AppIndicator and KStatusNotifierItem
+                Support" extension is installed and enabled. Install it from
+                extensions.gnome.org, then look for the icon in the top bar.
+              </p>
+              <div class="wizard-actions">
+                <button id="wizard-finish-button" class="primary-button" type="button">Finish</button>
+              </div>
             </div>
           </div>
-
-          <div id="wizard-step-session" class="wizard-step" hidden>
-            <h2>Connect your session</h2>
-            <p class="settings-hint">
-              Import the claude.ai session from a browser you're already signed in to, or paste a
-              session key by hand.
-            </p>
-            <div id="wizard-browser-import-list" class="browser-import-list"></div>
-            <h4>Paste a session key</h4>
-            <form id="wizard-session-form" class="session-form">
-              <label for="wizard-session-input">Session key</label>
-              <input
-                id="wizard-session-input"
-                name="session"
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="sk-ant-… or the sessionKey cookie value"
-              />
-              <button type="submit">Continue</button>
-            </form>
-            <p id="wizard-session-error" class="session-error" role="alert" hidden></p>
-            <div class="wizard-actions">
-              <button id="wizard-session-back-button" class="ghost-button" type="button">
-                Back
-              </button>
-              <button id="wizard-session-cancel-button" class="ghost-button" type="button">
-                Cancel setup
-              </button>
-            </div>
-          </div>
-
-          <div id="wizard-step-validate" class="wizard-step" hidden>
-            <h2>Checking your session…</h2>
-            <p id="wizard-validate-status" class="settings-hint" role="status"></p>
-            <p id="wizard-validate-error" class="session-error" role="alert" hidden></p>
-            <div class="wizard-actions">
-              <button id="wizard-validate-retry-button" class="ghost-button" type="button" hidden>
-                Try again
-              </button>
-              <button
-                id="wizard-validate-continue-button"
-                class="primary-button"
-                type="button"
-                hidden
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-
-          <div id="wizard-step-customize" class="wizard-step" hidden>
-            <h2>Make it yours</h2>
-            <div class="settings-section">
-              <h3>Tray icon</h3>
-              <select id="wizard-icon-style-select"></select>
-            </div>
-            <div class="settings-section">
-              <h3>Refresh interval</h3>
-              <select id="wizard-refresh-interval-select"></select>
-            </div>
-            <div class="wizard-actions">
-              <button id="wizard-customize-continue-button" class="primary-button" type="button">
-                Continue
-              </button>
-            </div>
-          </div>
-
-          <div id="wizard-step-done" class="wizard-step" hidden>
-            <h2>You're all set</h2>
-            <p>Rusted Claude Meter is now watching your usage from the tray.</p>
-            <p id="wizard-gnome-hint" class="settings-hint" hidden>
-              Heads up: GNOME hides tray icons unless the "AppIndicator and KStatusNotifierItem
-              Support" extension is installed and enabled. Install it from
-              extensions.gnome.org, then look for the icon in the top bar.
-            </p>
-            <div class="wizard-actions">
-              <button id="wizard-finish-button" class="primary-button" type="button">Finish</button>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </div>
   </body>
 </html>

@@ -31,18 +31,12 @@ use meter_render::{IconCache, IconStyle, RenderedIcon, Scale};
 use tauri::image::Image;
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 
 use crate::scheduler::{MeterState, SchedulerHandle};
 use model::{MenuModel, TrayDiff};
 
 const TRAY_ID: &str = "main";
-
-/// Emitted at the main window when the tray's "Settings…" item is chosen —
-/// the primary way to reach Settings on Linux, where the tray delivers no
-/// click events for a popover-style affordance (see the module docs). The
-/// frontend listens for this to open its settings panel.
-pub const OPEN_SETTINGS_EVENT: &str = "open-settings";
 
 /// Everything the live update path mutates, behind one lock.
 ///
@@ -107,10 +101,11 @@ pub fn init<R: Runtime>(
         .show_menu_on_left_click(!cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main_window(app),
-            "settings" => {
-                show_main_window(app);
-                let _ = app.emit(OPEN_SETTINGS_EVENT, ());
-            }
+            // "Settings…" opens the dedicated Settings window (its own
+            // top-level window, front-most on macOS). This is the primary way
+            // to reach Settings on Linux, where the tray delivers no click
+            // events for a popover-style affordance (see the module docs).
+            "settings" => crate::settings_window::open(app),
             "refresh" => {
                 if let Some(scheduler) = app.try_state::<SchedulerHandle>() {
                     scheduler.request_refresh();
