@@ -95,6 +95,18 @@ pub struct MeterState {
     pub phase: Phase,
 }
 
+impl MeterState {
+    /// The state before anything is known: no snapshot yet, polling.
+    /// What the tray shows between startup and the first broadcast.
+    pub const fn empty() -> Self {
+        Self {
+            snapshot: None,
+            staleness: Staleness::Missing,
+            phase: Phase::Polling,
+        }
+    }
+}
+
 /// The scheduler's decision core. See the module docs for the design.
 #[derive(Debug)]
 pub struct SchedulerCore {

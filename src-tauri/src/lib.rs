@@ -46,18 +46,45 @@ pub fn run() -> tauri::Result<()> {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            configure_popover_window(app);
+            // Tray before scheduler: the tray must be managed before the
+            // first state broadcast or early updates would be dropped.
             tray::init(app.handle())?;
             spawn_scheduler(app, scheduler_store);
             Ok(())
         })
         .on_window_event(|window, event| {
-            // The app keeps running in the tray; closing the window hides it.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                // The app keeps running in the tray; closing the window
+                // hides it.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                // macOS popover feel: the window auto-hides when it loses
+                // focus. Linux keeps a normal window — the tray menu is the
+                // primary surface there.
+                #[cfg(target_os = "macos")]
+                tauri::WindowEvent::Focused(false) => {
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
+}
+
+/// macOS-only: style the main window as a popover — frameless and always on
+/// top, anchored under the tray icon on click (see `tray::popover`). On
+/// Linux the window stays a regular decorated window.
+fn configure_popover_window(app: &tauri::App) {
+    #[cfg(target_os = "macos")]
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_decorations(false);
+        let _ = window.set_always_on_top(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
 }
 
 /// Seed the scheduler from the disk cache, expose its handle as managed
@@ -85,6 +112,9 @@ fn spawn_scheduler(app: &tauri::App, session_store: Arc<dyn SessionStore>) {
         cache_path,
         move |state| {
             let _ = emitter.emit(USAGE_STATE_EVENT, &state);
+            // The tray subscribes to the same broadcast: icon and menu
+            // reflect every state change within the same tick.
+            tray::apply_state(&emitter, &state);
         },
     ));
 }

@@ -17,7 +17,10 @@ Scaffold. The workspace layout, domain model, API decoding contract and quality 
 | `src-tauri` | Application shell: tray, windows, scheduler, notifications, secure storage, settings. |
 | `src/` | Webview frontend (popover cards, settings, wizard) — vanilla TypeScript + Vite. |
 
-Interaction model is platform-idiomatic: a popover-style window anchored to the menu bar item on macOS; a tray menu with live usage lines on Linux (StatusNotifierItem delivers no click events, only menus).
+Interaction model is platform-idiomatic:
+
+- **macOS** — left-click the menu-bar icon to toggle a frameless, always-on-top popover window anchored beneath it; it hides on focus loss, and closing it keeps the app resident in the menu bar. Right-click serves the menu.
+- **Linux** — StatusNotifierItem/AppIndicator delivers **no click events and no tooltip**, so the tray menu is the primary surface: a status line plus one live line per usage window (5-hour, 7-day, and each model-scoped limit) with percent and reset time, then Open / Refresh Now / Quit. Menu text updates in place — the tray icon is never recreated, so updates don't flicker. On GNOME the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) is required for the tray icon to appear at all; KDE Plasma shows it out of the box.
 
 ## Development
 

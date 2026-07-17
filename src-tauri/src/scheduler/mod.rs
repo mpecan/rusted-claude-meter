@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use jiff::Timestamp;
 use tokio::sync::Notify;
 
-pub use self::core::{MeterState, RefreshInterval, SchedulerCore};
+pub use self::core::{MeterState, Phase, RefreshInterval, SchedulerCore, Staleness};
 pub use self::transport::LiveTransport;
 
 use self::core::FetchOutcome;
