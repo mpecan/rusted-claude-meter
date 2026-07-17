@@ -43,10 +43,12 @@ const MONO: bool = cfg!(target_os = "macos");
 
 /// Everything the live update path mutates, behind one lock.
 ///
-/// Lock discipline: only [`apply_state`] (scheduler thread) takes this lock.
-/// Menu/tray event handlers run on the main thread and must never take it —
-/// tray and menu mutations dispatch to the main thread and block, so a
-/// main-thread wait on this lock while the scheduler holds it would
+/// Lock discipline: [`apply_state`] (scheduler thread) and [`set_style`]
+/// (the `set_icon_style` Tauri command, invoked from a webview IPC thread)
+/// both take this lock. What must never take it is the main event loop: no
+/// `on_menu_event`/`on_tray_icon_event` handler may lock here, because tray
+/// and menu mutations dispatch to the main thread and block, so a
+/// main-thread wait on this lock while another thread holds it would
 /// deadlock.
 struct TrayResources<R: Runtime> {
     cache: IconCache,

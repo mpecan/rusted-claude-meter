@@ -6,7 +6,7 @@
 
 use std::fmt::Write as _;
 
-use crate::palette::{ACCENT, ink, risk_badge};
+use crate::palette::{ACCENT, ink, proportional_fill, risk_badge};
 use crate::state::IconState;
 
 const BAR_X: f64 = 2.0;
@@ -37,7 +37,7 @@ fn write_bar(out: &mut String, y: f64, percent: u8, fill: &str) {
         r#"<rect x="{BAR_X}" y="{y}" width="{BAR_WIDTH}" height="{BAR_HEIGHT}" rx="1.5" fill="{fill}" fill-opacity="0.2"/>"#
     );
     if percent > 0 {
-        let width = (BAR_WIDTH * f64::from(percent) / 100.0).max(MIN_FILL_WIDTH);
+        let width = proportional_fill(BAR_WIDTH, MIN_FILL_WIDTH, percent);
         let _ = write!(
             out,
             r#"<rect x="{BAR_X}" y="{y}" width="{width:.2}" height="{BAR_HEIGHT}" rx="1.5" fill="{fill}"/>"#

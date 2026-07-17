@@ -22,14 +22,11 @@ const BASELINE: f64 = 18.0;
 
 pub fn svg(state: IconState) -> String {
     let ink = ink(state.mono, state.status);
-    // How many of the five segments are lit: at least one whenever `percent`
-    // is greater than zero, one more per full 20-point band crossed —
-    // matching the original's `percentage >= index * 20` quantization.
-    let lit = if state.percent == 0 {
-        0
-    } else {
-        (1 + u32::from(state.percent) / 20).min(COUNT)
-    };
+    // How many of the five segments are lit — matching the original's
+    // `percentage >= index * 20` quantization exactly, which always lights
+    // the first segment (`percentage >= 0 * 20` is trivially true), even at
+    // 0%.
+    let lit = (1 + u32::from(state.percent) / 20).min(COUNT);
 
     let mut out = String::with_capacity(768);
     out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
@@ -90,10 +87,12 @@ mod tests {
     }
 
     #[test]
-    fn zero_percent_lights_no_segment() {
+    fn zero_percent_still_lights_the_first_segment() {
+        // Matches the original's `percentage >= index * 20`: for index 0
+        // that's `percentage >= 0`, always true.
         assert_eq!(
             lit_count(&svg(state(0, UsageStatus::Safe, false, false))),
-            0
+            1
         );
     }
 

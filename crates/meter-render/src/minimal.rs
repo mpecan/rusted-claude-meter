@@ -5,7 +5,7 @@
 
 use std::fmt::Write as _;
 
-use crate::palette::{ink, risk_badge};
+use crate::palette::{ink, proportional_fill, risk_badge};
 use crate::state::IconState;
 
 const TRACK_X: f64 = 2.0;
@@ -25,7 +25,7 @@ pub fn svg(state: IconState) -> String {
         r#"<rect x="{TRACK_X}" y="{TRACK_Y}" width="{TRACK_WIDTH}" height="{TRACK_HEIGHT}" rx="2" fill="{ink}" fill-opacity="0.2"/>"#
     );
     if state.percent > 0 {
-        let width = (TRACK_WIDTH * f64::from(state.percent) / 100.0).max(MIN_FILL_WIDTH);
+        let width = proportional_fill(TRACK_WIDTH, MIN_FILL_WIDTH, state.percent);
         let _ = write!(
             out,
             r#"<rect x="{TRACK_X}" y="{TRACK_Y}" width="{width:.2}" height="{TRACK_HEIGHT}" rx="2" fill="{ink}"/>"#

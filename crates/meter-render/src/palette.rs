@@ -30,6 +30,14 @@ pub const fn ink(mono: bool, status: UsageStatus) -> &'static str {
     if mono { MONO } else { status_color(status) }
 }
 
+/// A fill width proportional to `percent` of `max_width`, floored to
+/// `min_width` so a nonzero-but-tiny percentage still renders a visible
+/// sliver instead of rounding away to nothing. Shared by every style that
+/// draws a proportional bar (battery, minimal, dual bar).
+pub fn proportional_fill(max_width: f64, min_width: f64, percent: u8) -> f64 {
+    (max_width * f64::from(percent) / 100.0).max(min_width)
+}
+
 /// The pacing at-risk badge dot, shared geometry across every style: a small
 /// filled circle tucked into the top-right corner, outside the 0–18 area
 /// every style keeps its main artwork within. Empty when `at_risk` is false.

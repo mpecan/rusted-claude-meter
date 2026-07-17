@@ -7,7 +7,7 @@
 
 use std::fmt::Write as _;
 
-use crate::palette::{CRITICAL, MONO, ink};
+use crate::palette::{ink, proportional_fill, risk_badge};
 use crate::state::IconState;
 
 /// Charge fill geometry: inset inside the stroked body.
@@ -18,7 +18,6 @@ const FILL_MIN_WIDTH: f64 = 1.0;
 
 pub fn svg(state: IconState) -> String {
     let ink = ink(state.mono, state.status);
-    let badge = if state.mono { MONO } else { CRITICAL };
 
     let mut out = String::with_capacity(640);
     out.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">"#);
@@ -29,19 +28,13 @@ pub fn svg(state: IconState) -> String {
     );
     // Charge fill, proportional to percent.
     if state.percent > 0 {
-        let width = (FILL_MAX_WIDTH * f64::from(state.percent) / 100.0).max(FILL_MIN_WIDTH);
+        let width = proportional_fill(FILL_MAX_WIDTH, FILL_MIN_WIDTH, state.percent);
         let _ = write!(
             out,
             r#"<rect x="{FILL_X}" y="8" width="{width:.2}" height="6" rx="1.2" fill="{ink}"/>"#
         );
     }
-    // Pacing at-risk badge.
-    if state.at_risk {
-        let _ = write!(
-            out,
-            r#"<circle cx="17.75" cy="3.4" r="2.2" fill="{badge}"/>"#
-        );
-    }
+    out.push_str(&risk_badge(state.at_risk, state.mono));
     out.push_str("</svg>");
     out
 }
@@ -49,7 +42,7 @@ pub fn svg(state: IconState) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::palette::{SAFE, WARNING};
+    use crate::palette::{CRITICAL, MONO, SAFE, WARNING};
     use crate::state::{IconStyle, Scale};
     use meter_core::UsageStatus;
 
