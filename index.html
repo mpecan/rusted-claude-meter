@@ -12,7 +12,12 @@
     <main class="popover">
       <header class="popover-header">
         <h1>Rusted Claude Meter</h1>
-        <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+        <div class="header-actions">
+          <button id="settings-button" class="ghost-button" type="button" aria-label="Settings">
+            Settings
+          </button>
+          <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+        </div>
       </header>
 
       <p id="status-line" class="status-line" data-banner="loading">Waiting for first update…</p>
@@ -34,6 +39,82 @@
         <button type="submit">Save</button>
         <p id="session-error" class="session-error" role="alert" hidden></p>
       </form>
+
+      <section id="settings-panel" class="settings-panel" hidden aria-label="Settings">
+        <div class="settings-panel-header">
+          <h2>Settings</h2>
+          <button id="close-settings-button" class="ghost-button" type="button">Done</button>
+        </div>
+
+        <div class="settings-section">
+          <h3>Model-scoped limits</h3>
+          <p class="settings-hint">
+            A model appears here as soon as it's reported. Switch it on to show it in the popover
+            and the tray menu.
+          </p>
+          <div id="model-toggles" class="model-toggles"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Refresh interval</h3>
+          <select id="refresh-interval-select">
+            <option value="one_minute">Every minute</option>
+            <option value="five_minutes">Every 5 minutes</option>
+            <option value="ten_minutes">Every 10 minutes</option>
+          </select>
+        </div>
+
+        <div class="settings-section">
+          <h3>Notification thresholds</h3>
+          <label class="settings-slider">
+            Warning
+            <input id="warning-threshold" type="range" min="0" max="100" step="1" />
+            <span id="warning-threshold-value" class="settings-slider-value"></span>
+          </label>
+          <label class="settings-slider">
+            Critical
+            <input id="critical-threshold" type="range" min="0" max="100" step="1" />
+            <span id="critical-threshold-value" class="settings-slider-value"></span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <h3>Tray icon</h3>
+          <select id="icon-style-select">
+            <option value="battery">Battery</option>
+            <option value="circular">Circular</option>
+            <option value="minimal">Minimal</option>
+            <option value="segments">Segments</option>
+            <option value="dual_bar">Dual Bar</option>
+            <option value="gauge">Gauge</option>
+          </select>
+          <label class="settings-checkbox">
+            <input id="monochrome-toggle" type="checkbox" />
+            Monochrome
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <h3>Session</h3>
+          <p id="settings-session-status" class="settings-hint">Checking session…</p>
+          <form id="settings-session-form" class="session-form">
+            <label for="settings-session-input">Session key</label>
+            <input
+              id="settings-session-input"
+              name="session"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="sk-ant-… or the sessionKey cookie value"
+            />
+            <button type="submit">Save</button>
+          </form>
+          <button id="clear-session-button" class="ghost-button" type="button">
+            Clear stored key
+          </button>
+          <p id="settings-session-error" class="session-error" role="alert" hidden></p>
+        </div>
+      </section>
     </main>
   </body>
 </html>

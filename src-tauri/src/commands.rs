@@ -5,6 +5,7 @@
 //! `tauri::State` construction required in tests — so parse-error and
 //! store-error mapping is covered without spinning up the Tauri runtime.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use meter_core::{SessionKey, SessionKeyError};
@@ -13,6 +14,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::scheduler::{MeterState, RefreshInterval, SchedulerHandle};
+use crate::settings::{AppSettings, SettingsState};
 use crate::store::{SessionStore, StoreError};
 use crate::tray;
 
@@ -129,23 +131,88 @@ pub fn refresh_usage(scheduler: State<'_, SchedulerHandle>) {
     scheduler.request_refresh();
 }
 
-/// Change the polling cadence (60 / 300 / 600 seconds).
+/// Change the polling cadence (60 / 300 / 600 seconds) and persist the
+/// choice (Settings, issue #6) so it survives a restart.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub fn set_refresh_interval(scheduler: State<'_, SchedulerHandle>, interval: RefreshInterval) {
+pub fn set_refresh_interval(
+    scheduler: State<'_, SchedulerHandle>,
+    settings: State<'_, SettingsState>,
+    interval: RefreshInterval,
+) {
     scheduler.set_interval(interval);
+    settings.update(|s| s.refresh_interval = interval);
 }
 
 /// Change the tray icon style (Settings, issue #9) and apply it
-/// immediately, so switching styles never needs a restart.
+/// immediately, so switching styles never needs a restart. Persisted
+/// (Settings, issue #6) so it survives a restart too.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_icon_style(
     app: tauri::AppHandle,
     scheduler: State<'_, SchedulerHandle>,
+    settings: State<'_, SettingsState>,
     style: IconStyle,
 ) {
+    settings.update(|s| s.icon_style = style);
     tray::set_style(&app, style, &scheduler.state_now());
+}
+
+/// The current settings, for the Settings panel's initial render.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn get_settings(settings: State<'_, SettingsState>) -> AppSettings {
+    settings.get()
+}
+
+/// Toggle the tray/popover between template (monochrome) and full-colour
+/// icon artwork, and apply it immediately (Settings, issue #6). Persisted so
+/// it survives a restart.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_monochrome(
+    app: tauri::AppHandle,
+    scheduler: State<'_, SchedulerHandle>,
+    settings: State<'_, SettingsState>,
+    monochrome: bool,
+) {
+    settings.update(|s| s.monochrome = monochrome);
+    tray::set_mono(&app, monochrome, &scheduler.state_now());
+}
+
+/// Replace the opt-in set of scoped-model display names the popover and
+/// Linux tray menu are allowed to show (Settings, issue #6), and apply it
+/// immediately. `models` need not be deduplicated — the tray only ever reads
+/// it as a set.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_shown_scoped_models(
+    app: tauri::AppHandle,
+    scheduler: State<'_, SchedulerHandle>,
+    settings: State<'_, SettingsState>,
+    models: Vec<String>,
+) {
+    let updated = settings.update(|s| s.shown_scoped_models = models);
+    let shown: HashSet<String> = updated.shown_scoped_models.into_iter().collect();
+    tray::set_shown_scoped_models(&app, shown, &scheduler.state_now());
+}
+
+/// Update the warning/critical notification thresholds (Settings, issue #6;
+/// consumed by notifications, issue #7). Both are clamped to `0..=100` by
+/// the settings store; the resolved values are returned so the frontend's
+/// sliders can reflect the clamp.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_thresholds(
+    settings: State<'_, SettingsState>,
+    warning: f64,
+    critical: f64,
+) -> AppSettings {
+    settings.update(|s| {
+        s.warning_threshold = warning;
+        s.critical_threshold = critical;
+    })
 }
 
 #[cfg(test)]

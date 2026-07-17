@@ -23,6 +23,7 @@ mod model;
 #[cfg(target_os = "macos")]
 mod popover;
 
+use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use jiff::Timestamp;
@@ -30,33 +31,44 @@ use meter_render::{IconCache, IconStyle, RenderedIcon, Scale};
 use tauri::image::Image;
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::scheduler::{MeterState, SchedulerHandle};
 use model::{MenuModel, TrayDiff};
 
 const TRAY_ID: &str = "main";
 
-/// macOS menu-bar icons should be templates so they adapt to light/dark
-/// appearance; Linux trays have no template concept, so colour carries state.
-const MONO: bool = cfg!(target_os = "macos");
+/// Emitted at the main window when the tray's "Settings…" item is chosen —
+/// the primary way to reach Settings on Linux, where the tray delivers no
+/// click events for a popover-style affordance (see the module docs). The
+/// frontend listens for this to open its settings panel.
+pub const OPEN_SETTINGS_EVENT: &str = "open-settings";
 
 /// Everything the live update path mutates, behind one lock.
 ///
-/// Lock discipline: [`apply_state`] (scheduler thread) and [`set_style`]
-/// (the `set_icon_style` Tauri command, invoked from a webview IPC thread)
-/// both take this lock. What must never take it is the main event loop: no
-/// `on_menu_event`/`on_tray_icon_event` handler may lock here, because tray
-/// and menu mutations dispatch to the main thread and block, so a
-/// main-thread wait on this lock while another thread holds it would
-/// deadlock.
+/// Lock discipline: [`apply_state`] (scheduler thread) and [`set_style`] /
+/// [`set_mono`] / [`set_shown_scoped_models`] (Settings commands, issue #6,
+/// invoked from a webview IPC thread) all take this lock. What must never
+/// take it is the main event loop: no `on_menu_event`/`on_tray_icon_event`
+/// handler may lock here, because tray and menu mutations dispatch to the
+/// main thread and block, so a main-thread wait on this lock while another
+/// thread holds it would deadlock.
 struct TrayResources<R: Runtime> {
     cache: IconCache,
     diff: TrayDiff,
-    /// The user's current style choice (Settings, issue #6). Read fresh on
+    /// The user's current style choice (Settings, issue #9). Read fresh on
     /// every [`apply_state`], so [`set_style`] changing it takes effect on
     /// the very next render — no restart, no tray/menu rebuild.
     style: IconStyle,
+    /// The user's current monochrome choice (Settings, issue #6). Defaults
+    /// to the platform-appropriate value baked into
+    /// `settings::AppSettings::default` (macOS: template/monochrome; Linux:
+    /// colour), but is now user-overridable, live, same as `style`.
+    mono: bool,
+    /// Opt-in set of scoped-model display names to show as usage lines
+    /// (Settings, issue #6). Empty means no scoped model renders — see
+    /// `model::menu_model`.
+    shown: HashSet<String>,
     status_item: MenuItem<R>,
     usage_items: Vec<MenuItem<R>>,
 }
@@ -72,10 +84,19 @@ fn lock<R: Runtime>(updater: &TrayUpdater<R>) -> MutexGuard<'_, TrayResources<R>
 /// [`apply_state`] can drive live updates. Must run before the scheduler
 /// starts broadcasting, or early states would be dropped. `initial` is the
 /// state to render right away — the caller passes the cache-restored state
-/// so a restart never flashes an empty gauge.
-pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Result<()> {
+/// so a restart never flashes an empty gauge. `style`, `mono` and `shown`
+/// seed from the persisted [`crate::settings::AppSettings`] (issue #6) so a
+/// restart renders exactly as the user last configured it, not the
+/// hardcoded defaults.
+pub fn init<R: Runtime>(
+    app: &AppHandle<R>,
+    initial: &MeterState,
+    style: IconStyle,
+    mono: bool,
+    shown: HashSet<String>,
+) -> tauri::Result<()> {
     let now = Timestamp::now();
-    let menu_model = model::menu_model(initial, now);
+    let menu_model = model::menu_model(initial, now, &shown);
     let (menu, status_item, usage_items) = build_menu(app, &menu_model)?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -86,6 +107,10 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Resu
         .show_menu_on_left_click(!cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main_window(app),
+            "settings" => {
+                show_main_window(app);
+                let _ = app.emit(OPEN_SETTINGS_EVENT, ());
+            }
             "refresh" => {
                 if let Some(scheduler) = app.try_state::<SchedulerHandle>() {
                     scheduler.request_refresh();
@@ -105,8 +130,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Resu
     // retries the real gauge.
     let mut cache = IconCache::new();
     let mut diff = TrayDiff::default();
-    let style = IconStyle::Battery;
-    let icon = model::icon_state(initial, now, style, MONO, Scale::X2);
+    let icon = model::icon_state(initial, now, style, mono, Scale::X2);
     match cache.get_or_render(icon) {
         Ok(rendered) => {
             tray = tray
@@ -129,6 +153,8 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Resu
         cache,
         diff,
         style,
+        mono,
+        shown,
         status_item,
         usage_items,
     })));
@@ -141,6 +167,30 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Resu
 pub fn set_style<R: Runtime>(app: &AppHandle<R>, style: IconStyle, state: &MeterState) {
     if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
         lock(&updater).style = style;
+    }
+    apply_state(app, state);
+}
+
+/// Change the tray's monochrome/colour choice and re-render immediately —
+/// the live-switch path Settings drives (issue #6). A no-op if the tray has
+/// not been initialized yet.
+pub fn set_mono<R: Runtime>(app: &AppHandle<R>, mono: bool, state: &MeterState) {
+    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
+        lock(&updater).mono = mono;
+    }
+    apply_state(app, state);
+}
+
+/// Change which scoped models render as usage lines and re-render
+/// immediately — the live-switch path Settings drives (issue #6). A no-op if
+/// the tray has not been initialized yet.
+pub fn set_shown_scoped_models<R: Runtime>(
+    app: &AppHandle<R>,
+    shown: HashSet<String>,
+    state: &MeterState,
+) {
+    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
+        lock(&updater).shown = shown;
     }
     apply_state(app, state);
 }
@@ -160,10 +210,10 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
     };
 
     let now = Timestamp::now();
-    let menu = model::menu_model(state, now);
 
     let mut resources = lock(&updater);
-    let icon = model::icon_state(state, now, resources.style, MONO, Scale::X2);
+    let menu = model::menu_model(state, now, &resources.shown);
+    let icon = model::icon_state(state, now, resources.style, resources.mono, Scale::X2);
     let plan = resources.diff.plan(icon, &menu);
     if let Some(icon) = plan.icon {
         match resources.cache.get_or_render(icon) {
@@ -222,7 +272,9 @@ fn apply_menu<R: Runtime>(
 type BuiltMenu<R> = (Menu<R>, MenuItem<R>, Vec<MenuItem<R>>);
 
 /// Build the full tray menu for a [`MenuModel`]: status line, live usage
-/// lines (informational, disabled), then Open / Refresh Now / Quit.
+/// lines (informational, disabled), then Open / Settings / Refresh Now /
+/// Quit. "Settings…" is the primary way to reach Settings on Linux, where
+/// the tray delivers no click events for a popover-style affordance.
 fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result<BuiltMenu<R>> {
     let status_item = MenuItem::with_id(app, "status", &menu.status_line, false, None::<&str>)?;
     let usage_items = menu
@@ -234,6 +286,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result
         })
         .collect::<tauri::Result<Vec<_>>>()?;
     let open = MenuItem::with_id(app, "open", "Open Rusted Claude Meter", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh Now", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let usage_separator = PredefinedMenuItem::separator(app)?;
@@ -248,6 +301,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result
     }
     items.push(&actions_separator);
     items.push(&open);
+    items.push(&settings);
     items.push(&refresh);
     items.push(&quit);
 

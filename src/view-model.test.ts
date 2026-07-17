@@ -6,6 +6,10 @@ import { buildViewModel } from "./view-model";
 
 const NOW = new Date("2026-07-17T12:00:00Z");
 
+/** Every scoped model in the DEMO_STATE fixture opted in — the behaviour
+ * most tests below still assert, distinct from the dedicated opt-in tests. */
+const ALL_SHOWN = new Set(["Fable", "Sonnet"]);
+
 function window(utilization: number, resetsInSecs: number): UsageWindow {
   return {
     utilization,
@@ -34,7 +38,7 @@ function state(overrides: Partial<MeterState>): MeterState {
 
 describe("buildViewModel — cards", () => {
   it("renders the fixture snapshot: both headline cards plus every named scoped model", () => {
-    const viewModel = buildViewModel(DEMO_STATE, NOW);
+    const viewModel = buildViewModel(DEMO_STATE, NOW, ALL_SHOWN);
     expect(viewModel.cards.map((c) => c.id)).toEqual([
       "five_hour",
       "seven_day",
@@ -55,6 +59,7 @@ describe("buildViewModel — cards", () => {
         snapshot: { five_hour: window(10, 1000), seven_day: null, scoped: [], fetched_at: NOW.toISOString() },
       }),
       NOW,
+      ALL_SHOWN,
     );
     expect(viewModel.cards.map((c) => c.id)).toEqual(["five_hour"]);
   });
@@ -70,12 +75,42 @@ describe("buildViewModel — cards", () => {
         },
       }),
       NOW,
+      ALL_SHOWN,
+    );
+    expect(viewModel.cards.map((c) => c.id)).toEqual(["scoped:Sonnet"]);
+  });
+
+  it("hides every scoped model by default (empty shown set)", () => {
+    // Both models are `is_active`, but an empty `shownScopedModels` — the
+    // default until the user opts in via Settings — keeps them out.
+    const viewModel = buildViewModel(DEMO_STATE, NOW, new Set());
+    expect(viewModel.cards.map((c) => c.id)).toEqual(["five_hour", "seven_day"]);
+  });
+
+  it("shows only the scoped models the user switched on", () => {
+    const viewModel = buildViewModel(DEMO_STATE, NOW, new Set(["Fable"]));
+    expect(viewModel.cards.map((c) => c.id)).toEqual(["five_hour", "seven_day", "scoped:Fable"]);
+  });
+
+  it("requires both is_active and opt-in — either gate alone is not enough", () => {
+    const viewModel = buildViewModel(
+      state({
+        snapshot: {
+          five_hour: null,
+          seven_day: null,
+          scoped: [scoped("Sonnet", true), scoped("CodeOnly", false)],
+          fetched_at: NOW.toISOString(),
+        },
+      }),
+      NOW,
+      // Both models opted in, but "CodeOnly" is not `is_active`.
+      new Set(["Sonnet", "CodeOnly"]),
     );
     expect(viewModel.cards.map((c) => c.id)).toEqual(["scoped:Sonnet"]);
   });
 
   it("produces no cards without a snapshot", () => {
-    expect(buildViewModel(state({}), NOW).cards).toEqual([]);
+    expect(buildViewModel(state({}), NOW, ALL_SHOWN).cards).toEqual([]);
   });
 
   it("flags pacing risk per card", () => {
@@ -85,6 +120,7 @@ describe("buildViewModel — cards", () => {
         snapshot: { five_hour: null, seven_day: hot, scoped: [], fetched_at: NOW.toISOString() },
       }),
       NOW,
+      ALL_SHOWN,
     );
     expect(viewModel.cards[0]?.atRisk).toBe(true);
   });
@@ -92,14 +128,14 @@ describe("buildViewModel — cards", () => {
 
 describe("buildViewModel — banner and status line", () => {
   it("is 'loading' before the first snapshot arrives", () => {
-    const viewModel = buildViewModel(state({ phase: "polling", staleness: "missing" }), NOW);
+    const viewModel = buildViewModel(state({ phase: "polling", staleness: "missing" }), NOW, ALL_SHOWN);
     expect(viewModel.bannerKind).toBe("loading");
     expect(viewModel.statusLine).toBe("Waiting for first update…");
     expect(viewModel.showSessionForm).toBe(false);
   });
 
   it("is 'ok' with no banner text change when fresh", () => {
-    const viewModel = buildViewModel(DEMO_STATE, NOW);
+    const viewModel = buildViewModel(DEMO_STATE, NOW, ALL_SHOWN);
     expect(viewModel.bannerKind).toBe("ok");
     expect(viewModel.statusLine).toBe("Updated under 1m ago");
   });
@@ -110,13 +146,13 @@ describe("buildViewModel — banner and status line", () => {
       staleness: "stale",
       snapshot: { ...DEMO_STATE.snapshot!, fetched_at: new Date(NOW.getTime() - 25 * 60_000).toISOString() },
     };
-    const viewModel = buildViewModel(aged, NOW);
+    const viewModel = buildViewModel(aged, NOW, ALL_SHOWN);
     expect(viewModel.bannerKind).toBe("stale");
     expect(viewModel.statusLine).toBe("Stale — updated 25m ago");
   });
 
   it("shows the session-key CTA and its message when awaiting a session", () => {
-    const viewModel = buildViewModel(state({ phase: "awaiting_session" }), NOW);
+    const viewModel = buildViewModel(state({ phase: "awaiting_session" }), NOW, ALL_SHOWN);
     expect(viewModel.bannerKind).toBe("awaiting_session");
     expect(viewModel.showSessionForm).toBe(true);
     expect(viewModel.statusLine).toBe("No session key — paste one below to get started");
@@ -124,7 +160,7 @@ describe("buildViewModel — banner and status line", () => {
 
   it("surfaces cached data age alongside the session-expired CTA", () => {
     const aged: MeterState = { ...DEMO_STATE, phase: "session_expired" };
-    const viewModel = buildViewModel(aged, NOW);
+    const viewModel = buildViewModel(aged, NOW, ALL_SHOWN);
     expect(viewModel.bannerKind).toBe("session_expired");
     expect(viewModel.showSessionForm).toBe(true);
     expect(viewModel.statusLine).toBe("Session expired — showing data from under 1m ago");
@@ -132,7 +168,7 @@ describe("buildViewModel — banner and status line", () => {
 
   it("reads as 'degraded' with cards still shown from the last good snapshot", () => {
     const degraded: MeterState = { ...DEMO_STATE, phase: "degraded" };
-    const viewModel = buildViewModel(degraded, NOW);
+    const viewModel = buildViewModel(degraded, NOW, ALL_SHOWN);
     expect(viewModel.bannerKind).toBe("degraded");
     expect(viewModel.showSessionForm).toBe(false);
     expect(viewModel.cards.length).toBeGreaterThan(0);

@@ -1,12 +1,15 @@
-// Entry point for the popover UI (issue #5). Wires the IPC backend (real
-// Tauri commands/events, or the demo backend outside a Tauri shell) to the
-// pure view-model and the DOM renderer, and runs the client-side countdown
-// tick. The frontend owns no polling: every usage number comes from the
-// `usage-state` event; only the countdown text is recomputed locally.
+// Entry point for the popover UI (issue #5) and the Settings panel (issue
+// #6). Wires the IPC backend (real Tauri commands/events, or the demo
+// backend outside a Tauri shell) to the pure view-models and the DOM
+// renderers, and runs the client-side countdown tick. The frontend owns no
+// polling: every usage number comes from the `usage-state` event; only the
+// countdown text and the settings form's local echo are recomputed locally.
 
 import { createBackend, describeError } from "./ipc";
 import { applyBanner, renderCards, tickCountdowns } from "./render";
-import type { MeterState } from "./types";
+import { renderModelToggles } from "./settings-render";
+import { DEFAULT_SETTINGS, scopedModelNames, toggleModel } from "./settings-view-model";
+import type { AppSettings, IconStyle, MeterState, RefreshInterval } from "./types";
 import { buildViewModel } from "./view-model";
 
 /** How often the reset countdowns re-render. A minute-granularity display
@@ -31,10 +34,35 @@ function main(): void {
   const sessionError = requireElement<HTMLElement>("session-error");
   const refreshButton = requireElement<HTMLButtonElement>("refresh-button");
 
+  const settingsButton = requireElement<HTMLButtonElement>("settings-button");
+  const settingsPanel = requireElement<HTMLElement>("settings-panel");
+  const closeSettingsButton = requireElement<HTMLButtonElement>("close-settings-button");
+  const modelTogglesEl = requireElement<HTMLElement>("model-toggles");
+  const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
+  const warningInput = requireElement<HTMLInputElement>("warning-threshold");
+  const warningValue = requireElement<HTMLElement>("warning-threshold-value");
+  const criticalInput = requireElement<HTMLInputElement>("critical-threshold");
+  const criticalValue = requireElement<HTMLElement>("critical-threshold-value");
+  const iconStyleSelect = requireElement<HTMLSelectElement>("icon-style-select");
+  const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
+  const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
+  const settingsSessionForm = requireElement<HTMLFormElement>("settings-session-form");
+  const settingsSessionInput = requireElement<HTMLInputElement>("settings-session-input");
+  const settingsSessionError = requireElement<HTMLElement>("settings-session-error");
+  const clearSessionButton = requireElement<HTMLButtonElement>("clear-session-button");
+
   const backend = createBackend();
 
+  let settings: AppSettings = DEFAULT_SETTINGS;
+  let latestState: MeterState | null = null;
+
+  function shownScopedModels(): Set<string> {
+    return new Set(settings.shown_scoped_models);
+  }
+
   function render(state: MeterState): void {
-    const viewModel = buildViewModel(state, new Date());
+    latestState = state;
+    const viewModel = buildViewModel(state, new Date(), shownScopedModels());
     applyBanner(statusLineEl, viewModel.bannerKind, viewModel.statusLine);
     renderCards(cardsEl, viewModel.cards);
     emptyStateEl.hidden = viewModel.cards.length > 0 || viewModel.showSessionForm;
@@ -42,10 +70,54 @@ function main(): void {
     if (!viewModel.showSessionForm) {
       sessionError.hidden = true;
     }
+    renderModelToggles(
+      modelTogglesEl,
+      scopedModelNames(state.snapshot),
+      shownScopedModels(),
+      handleModelToggle,
+    );
+  }
+
+  function applySettingsToForm(): void {
+    refreshIntervalSelect.value = settings.refresh_interval;
+    warningInput.value = String(settings.warning_threshold);
+    warningValue.textContent = `${settings.warning_threshold}%`;
+    criticalInput.value = String(settings.critical_threshold);
+    criticalValue.textContent = `${settings.critical_threshold}%`;
+    iconStyleSelect.value = settings.icon_style;
+    monochromeToggle.checked = settings.monochrome;
+  }
+
+  function refreshSessionStatus(): void {
+    backend
+      .sessionStatus()
+      .then((status) => {
+        settingsSessionStatus.textContent =
+          status === "present" ? "A session key is stored." : "No session key is stored.";
+      })
+      .catch((error: unknown) => {
+        console.error("failed to read session status", error);
+      });
+  }
+
+  function handleModelToggle(name: string, enabled: boolean): void {
+    const next = toggleModel(settings.shown_scoped_models, name, enabled);
+    settings = { ...settings, shown_scoped_models: next };
+    backend.setShownScopedModels(next).catch((error: unknown) => {
+      console.error("failed to persist model visibility", error);
+    });
+    if (latestState) {
+      render(latestState);
+    }
   }
 
   backend
-    .initialState()
+    .getSettings()
+    .then((loaded) => {
+      settings = loaded;
+      applySettingsToForm();
+      return backend.initialState();
+    })
     .then(render)
     .catch((error: unknown) => {
       // The initial pull failed (should not happen once Tauri is up, but a
@@ -54,6 +126,10 @@ function main(): void {
       console.error("failed to load initial usage state", error);
     });
   backend.onStateChange(render);
+  backend.onOpenSettings(() => {
+    settingsPanel.hidden = false;
+    refreshSessionStatus();
+  });
 
   sessionForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -77,6 +153,90 @@ function main(): void {
     backend.refreshUsage().catch((error: unknown) => {
       console.error("manual refresh failed", error);
     });
+  });
+
+  settingsButton.addEventListener("click", () => {
+    settingsPanel.hidden = false;
+    refreshSessionStatus();
+  });
+
+  closeSettingsButton.addEventListener("click", () => {
+    settingsPanel.hidden = true;
+  });
+
+  refreshIntervalSelect.addEventListener("change", () => {
+    const interval = refreshIntervalSelect.value as RefreshInterval;
+    settings = { ...settings, refresh_interval: interval };
+    backend.setRefreshInterval(interval).catch((error: unknown) => {
+      console.error("failed to persist refresh interval", error);
+    });
+  });
+
+  warningInput.addEventListener("input", () => {
+    warningValue.textContent = `${warningInput.value}%`;
+  });
+  warningInput.addEventListener("change", () => {
+    const warning = Number(warningInput.value);
+    settings = { ...settings, warning_threshold: warning };
+    backend.setThresholds(warning, settings.critical_threshold).catch((error: unknown) => {
+      console.error("failed to persist warning threshold", error);
+    });
+  });
+
+  criticalInput.addEventListener("input", () => {
+    criticalValue.textContent = `${criticalInput.value}%`;
+  });
+  criticalInput.addEventListener("change", () => {
+    const critical = Number(criticalInput.value);
+    settings = { ...settings, critical_threshold: critical };
+    backend.setThresholds(settings.warning_threshold, critical).catch((error: unknown) => {
+      console.error("failed to persist critical threshold", error);
+    });
+  });
+
+  iconStyleSelect.addEventListener("change", () => {
+    const style = iconStyleSelect.value as IconStyle;
+    settings = { ...settings, icon_style: style };
+    backend.setIconStyle(style).catch((error: unknown) => {
+      console.error("failed to persist icon style", error);
+    });
+  });
+
+  monochromeToggle.addEventListener("change", () => {
+    settings = { ...settings, monochrome: monochromeToggle.checked };
+    backend.setMonochrome(monochromeToggle.checked).catch((error: unknown) => {
+      console.error("failed to persist monochrome setting", error);
+    });
+  });
+
+  settingsSessionForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = settingsSessionInput.value.trim();
+    if (!value) {
+      return;
+    }
+    settingsSessionError.hidden = true;
+    backend
+      .submitSessionKey(value)
+      .then(() => {
+        settingsSessionInput.value = "";
+        refreshSessionStatus();
+      })
+      .catch((error: unknown) => {
+        settingsSessionError.textContent = describeError(error);
+        settingsSessionError.hidden = false;
+      });
+  });
+
+  clearSessionButton.addEventListener("click", () => {
+    backend
+      .clearSessionKey()
+      .then(() => {
+        refreshSessionStatus();
+      })
+      .catch((error: unknown) => {
+        console.error("failed to clear session key", error);
+      });
   });
 
   window.setInterval(() => {

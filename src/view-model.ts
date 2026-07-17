@@ -54,8 +54,17 @@ function cardFor(id: string, title: string, window: UsageWindow, now: Date): Usa
   };
 }
 
-/** Build the popover's full view-model from one broadcast state. */
-export function buildViewModel(state: MeterState, now: Date): PopoverViewModel {
+/** Build the popover's full view-model from one broadcast state.
+ *
+ * `shownScopedModels` is the user's opt-in set of scoped-model display names
+ * from Settings (issue #6, `AppSettings.shown_scoped_models`) — empty by
+ * default, so a freshly reported model stays out of the popover until
+ * switched on, mirroring `tray::model::menu_model` on the Rust side. */
+export function buildViewModel(
+  state: MeterState,
+  now: Date,
+  shownScopedModels: ReadonlySet<string>,
+): PopoverViewModel {
   const cards: UsageCardViewModel[] = [];
   const snapshot = state.snapshot;
   if (snapshot) {
@@ -66,11 +75,11 @@ export function buildViewModel(state: MeterState, now: Date): PopoverViewModel {
       cards.push(cardFor("seven_day", HEADLINE_LABELS.seven_day, snapshot.seven_day, now));
     }
     for (const limit of snapshot.scoped) {
-      // Only visible (active) scoped limits render as cards — an inactive
-      // entry (plan doesn't include it, surface-only scope, ...) is real
-      // data the API returned but not something the user is being metered
-      // on right now.
-      if (!limit.is_active) {
+      // Only visible (active) *and* opted-in scoped limits render as cards.
+      // `is_active` is real API data (plan doesn't include it, surface-only
+      // scope, ...); `shownScopedModels` is the user's own Settings choice —
+      // both gates must pass.
+      if (!limit.is_active || !shownScopedModels.has(limit.display_name)) {
         continue;
       }
       cards.push(cardFor(`scoped:${limit.display_name}`, limit.display_name, limit.usage, now));

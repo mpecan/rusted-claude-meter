@@ -1,0 +1,343 @@
+//! Typed, disk-persisted application settings (issue #6).
+//!
+//! Mirrors `cache.rs`'s decode-safety discipline: `settings.json` lives in
+//! the app data dir behind a version envelope, and loading never errors — a
+//! missing, corrupt, foreign-shaped or future-versioned file yields
+//! [`AppSettings::default`] instead. On top of that, `#[serde(default)]` on
+//! the struct itself means an *older* saved file (missing fields a newer
+//! build added) still decodes field-by-field instead of being rejected
+//! wholesale, and an unrecognised field left behind by a newer build is
+//! silently ignored (no `deny_unknown_fields`). Together these two layers
+//! are what "old saved settings must decode safely" means in the issue.
+//!
+//! `shown_scoped_models` is opt-in and empty by default: a model reported in
+//! a snapshot for the first time appears in Settings but stays out of the
+//! popover/tray menu until the user switches it on (see
+//! `tray::model::menu_model` and `src/view-model.ts`).
+
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use meter_render::IconStyle;
+use serde::{Deserialize, Serialize};
+
+use crate::scheduler::RefreshInterval;
+
+/// File name inside the app data dir.
+pub const SETTINGS_FILE: &str = "settings.json";
+
+/// Bumped whenever the persisted shape changes incompatibly; readers treat
+/// any other version as absent (falling back to defaults) instead of
+/// guessing. Field additions/removals do *not* need a bump — `#[serde(default)]`
+/// already handles those; this is only for a true breaking rewrite.
+const SETTINGS_VERSION: u32 = 1;
+
+/// The default for [`AppSettings::monochrome`]: matches the tray's previous
+/// hardcoded behaviour (`tray::mod::MONO`) so a fresh install renders
+/// exactly as before until the user opts out. macOS menu-bar icons should be
+/// templates so the system recolours them for light/dark appearance; Linux
+/// trays have no template concept, so colour carries state there.
+const fn default_monochrome() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// Every user-configurable setting, persisted as one JSON document.
+///
+/// Every field has a plain-data default (see [`Default`]), and every field
+/// decodes independently — see the module docs for what that buys forward-
+/// and backward-compatibility-wise.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppSettings {
+    /// Display names of scoped limits the popover/tray are allowed to show.
+    /// Opt-in: empty by default, keyed on `ScopedLimit::display_name` (the
+    /// API's `model_id` is currently always null).
+    pub shown_scoped_models: Vec<String>,
+    pub refresh_interval: RefreshInterval,
+    /// Utilization percentage (0-100) at which a notification is considered
+    /// a warning (issue #7 consumes this; #6 only persists it).
+    pub warning_threshold: f64,
+    /// Utilization percentage (0-100) at which a notification is considered
+    /// critical.
+    pub critical_threshold: f64,
+    pub icon_style: IconStyle,
+    pub monochrome: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            shown_scoped_models: Vec::new(),
+            refresh_interval: RefreshInterval::default(),
+            warning_threshold: 75.0,
+            critical_threshold: 90.0,
+            icon_style: IconStyle::Battery,
+            monochrome: default_monochrome(),
+        }
+    }
+}
+
+impl AppSettings {
+    /// Clamp both thresholds to a sane `0..=100` range. Called on every
+    /// write so a stray out-of-range value from the frontend (or a future
+    /// hand-edited settings file) can never propagate into a notification
+    /// comparison.
+    const fn normalize(&mut self) {
+        self.warning_threshold = self.warning_threshold.clamp(0.0, 100.0);
+        self.critical_threshold = self.critical_threshold.clamp(0.0, 100.0);
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DiskSettings {
+    version: u32,
+    #[serde(default)]
+    settings: AppSettings,
+}
+
+#[derive(Debug, Serialize)]
+struct DiskSettingsRef<'a> {
+    version: u32,
+    settings: &'a AppSettings,
+}
+
+/// Load the persisted settings, or [`AppSettings::default`] when there is
+/// nothing usable (missing file, corrupt JSON, foreign shape, or a future
+/// version this build doesn't understand). Never errors: settings are an
+/// optimization over sane defaults, not a source of truth the app cannot
+/// run without.
+pub fn load(path: &Path) -> AppSettings {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<DiskSettings>(&raw).ok())
+        .filter(|decoded| decoded.version == SETTINGS_VERSION)
+        .map_or_else(AppSettings::default, |decoded| decoded.settings)
+}
+
+/// Persist `settings`, replacing any previous file. Writes to a sibling temp
+/// file and renames so a crash mid-write cannot leave a truncated file
+/// behind (same discipline as `cache::save`).
+pub fn save(path: &Path, settings: &AppSettings) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string(&DiskSettingsRef {
+        version: SETTINGS_VERSION,
+        settings,
+    })?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, body)?;
+    fs::rename(&tmp, path)
+}
+
+/// Managed Tauri state: the in-memory settings plus where to persist them.
+/// `path` is `None` when the app data dir couldn't be resolved (mirrors
+/// `cache_path` in `lib.rs`) — settings still work for the running session,
+/// they just don't survive a restart.
+pub struct SettingsState {
+    path: Option<PathBuf>,
+    settings: Mutex<AppSettings>,
+}
+
+impl SettingsState {
+    pub const fn new(path: Option<PathBuf>, settings: AppSettings) -> Self {
+        Self {
+            path,
+            settings: Mutex::new(settings),
+        }
+    }
+
+    /// The current settings.
+    pub fn get(&self) -> AppSettings {
+        self.lock().clone()
+    }
+
+    /// Apply `mutate` to the in-memory settings, normalize thresholds, then
+    /// persist the result (best-effort: a disk write failure does not undo
+    /// the in-memory change, mirroring the scheduler's cache-write
+    /// discipline). Returns the settings as they now stand, so a command can
+    /// hand the resolved/clamped value straight back to the frontend.
+    pub fn update(&self, mutate: impl FnOnce(&mut AppSettings)) -> AppSettings {
+        let mut guard = self.lock();
+        mutate(&mut guard);
+        guard.normalize();
+        let snapshot = guard.clone();
+        drop(guard);
+        if let Some(path) = &self.path {
+            let _ = save(path, &snapshot);
+        }
+        snapshot
+    }
+
+    fn lock(&self) -> MutexGuard<'_, AppSettings> {
+        self.settings.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::float_cmp)]
+
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use std::path::PathBuf;
+
+    fn settings_path(dir: &tempfile::TempDir) -> PathBuf {
+        dir.path().join(SETTINGS_FILE)
+    }
+
+    fn sample() -> AppSettings {
+        AppSettings {
+            shown_scoped_models: vec!["Fable".to_owned(), "Sonnet".to_owned()],
+            refresh_interval: RefreshInterval::FiveMinutes,
+            warning_threshold: 60.0,
+            critical_threshold: 85.0,
+            icon_style: IconStyle::Gauge,
+            monochrome: !default_monochrome(),
+        }
+    }
+
+    #[test]
+    fn round_trips_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        save(&path, &sample()).unwrap();
+        assert_eq!(load(&path), sample());
+    }
+
+    #[test]
+    fn missing_file_loads_as_default() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(load(&settings_path(&dir)), AppSettings::default());
+    }
+
+    #[test]
+    fn default_is_empty_and_opt_in_for_scoped_models() {
+        assert!(AppSettings::default().shown_scoped_models.is_empty());
+    }
+
+    #[test]
+    fn corrupt_json_loads_as_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(&path, "{ not json").unwrap();
+        assert_eq!(load(&path), AppSettings::default());
+    }
+
+    #[test]
+    fn foreign_json_shape_loads_as_default() {
+        // A bare settings object with no version envelope (e.g. a manually
+        // crafted or very old file) must decode safely to defaults.
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(&path, serde_json::to_string(&sample()).unwrap()).unwrap();
+        assert_eq!(load(&path), AppSettings::default());
+    }
+
+    #[test]
+    fn future_settings_version_loads_as_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        save(&path, &sample()).unwrap();
+        let bumped = fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"version\":1", "\"version\":999");
+        fs::write(&path, bumped).unwrap();
+        assert_eq!(load(&path), AppSettings::default());
+    }
+
+    #[test]
+    fn missing_fields_are_defaulted_field_by_field() {
+        // An "old" save that only ever wrote `shown_scoped_models` (as if a
+        // future build removes/adds fields) must still decode: everything
+        // else falls back to `AppSettings::default()`, not a hard error.
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(
+            &path,
+            r#"{"version":1,"settings":{"shown_scoped_models":["Fable"]}}"#,
+        )
+        .unwrap();
+        let loaded = load(&path);
+        assert_eq!(loaded.shown_scoped_models, vec!["Fable".to_owned()]);
+        assert_eq!(loaded.refresh_interval, RefreshInterval::default());
+        assert_eq!(loaded.warning_threshold, 75.0);
+        assert_eq!(loaded.critical_threshold, 90.0);
+        assert_eq!(loaded.icon_style, IconStyle::Battery);
+        assert_eq!(loaded.monochrome, default_monochrome());
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored() {
+        // A field a newer build introduced (or a stray typo) must not break
+        // decoding for an older build reading the same file.
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(
+            &path,
+            r#"{"version":1,"settings":{"shown_scoped_models":[],"totally_new_field":42}}"#,
+        )
+        .unwrap();
+        assert_eq!(load(&path), AppSettings::default());
+    }
+
+    #[test]
+    fn empty_settings_object_defaults_every_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(&path, r#"{"version":1,"settings":{}}"#).unwrap();
+        assert_eq!(load(&path), AppSettings::default());
+    }
+
+    #[test]
+    fn save_creates_missing_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/app-data").join(SETTINGS_FILE);
+        save(&path, &sample()).unwrap();
+        assert_eq!(load(&path), sample());
+    }
+
+    #[test]
+    fn save_replaces_a_previous_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        save(&path, &sample()).unwrap();
+        let mut newer = sample();
+        newer.icon_style = IconStyle::Minimal;
+        save(&path, &newer).unwrap();
+        assert_eq!(load(&path), newer);
+    }
+
+    #[test]
+    fn state_update_persists_to_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        let state = SettingsState::new(Some(path.clone()), AppSettings::default());
+
+        let result = state.update(|s| s.shown_scoped_models.push("Fable".to_owned()));
+        assert_eq!(result.shown_scoped_models, vec!["Fable".to_owned()]);
+        assert_eq!(state.get().shown_scoped_models, vec!["Fable".to_owned()]);
+        assert_eq!(load(&path).shown_scoped_models, vec!["Fable".to_owned()]);
+    }
+
+    #[test]
+    fn state_update_clamps_thresholds() {
+        let state = SettingsState::new(None, AppSettings::default());
+        let result = state.update(|s| {
+            s.warning_threshold = -10.0;
+            s.critical_threshold = 250.0;
+        });
+        assert_eq!(result.warning_threshold, 0.0);
+        assert_eq!(result.critical_threshold, 100.0);
+    }
+
+    #[test]
+    fn state_without_a_path_still_updates_in_memory() {
+        let state = SettingsState::new(None, AppSettings::default());
+        let result = state.update(|s| s.monochrome = !s.monochrome);
+        assert_eq!(state.get().monochrome, result.monochrome);
+    }
+}

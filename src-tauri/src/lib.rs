@@ -10,18 +10,20 @@
 mod cache;
 mod commands;
 mod scheduler;
+mod settings;
 mod store;
 mod tray;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use commands::SessionStoreState;
 use jiff::Timestamp;
 use scheduler::{
-    LiveTransport, RefreshInterval, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT,
-    run_loop,
+    LiveTransport, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT, run_loop,
 };
+use settings::SettingsState;
 use store::{KeyringSessionStore, SessionStore};
 use tauri::{Emitter, Manager};
 use tokio::sync::Notify;
@@ -41,8 +43,12 @@ pub fn run() -> tauri::Result<()> {
             commands::clear_session_key,
             commands::usage_state,
             commands::refresh_usage,
+            commands::get_settings,
             commands::set_refresh_interval,
             commands::set_icon_style,
+            commands::set_monochrome,
+            commands::set_shown_scoped_models,
+            commands::set_thresholds,
         ])
         .setup(move |app| {
             // Menu-bar-only on macOS: no Dock icon, no app switcher entry.
@@ -50,21 +56,30 @@ pub fn run() -> tauri::Result<()> {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             configure_popover_window(app);
+            let data_dir = app.path().app_data_dir().ok();
             // The disk cache is loaded before the tray is wired so the very
             // first icon reflects any restored snapshot instead of flashing
             // the empty placeholder until the scheduler's first broadcast.
-            let cache_path = app
-                .path()
-                .app_data_dir()
-                .ok()
-                .map(|dir| dir.join(cache::CACHE_FILE));
+            let cache_path = data_dir.as_ref().map(|dir| dir.join(cache::CACHE_FILE));
+            let settings_path = data_dir.map(|dir| dir.join(settings::SETTINGS_FILE));
+            let app_settings = settings_path
+                .as_deref()
+                .map_or_else(settings::AppSettings::default, settings::load);
             let core = SchedulerCore::new(
-                RefreshInterval::default(),
+                app_settings.refresh_interval,
                 cache_path.as_deref().and_then(cache::load),
             );
+            let shown: HashSet<String> = app_settings.shown_scoped_models.iter().cloned().collect();
             // Tray before scheduler: the tray must be managed before the
             // first state broadcast or early updates would be dropped.
-            tray::init(app.handle(), &core.state(Timestamp::now()))?;
+            tray::init(
+                app.handle(),
+                &core.state(Timestamp::now()),
+                app_settings.icon_style,
+                app_settings.monochrome,
+                shown,
+            )?;
+            app.manage(SettingsState::new(settings_path, app_settings));
             spawn_scheduler(app, scheduler_store, core, cache_path);
             Ok(())
         })

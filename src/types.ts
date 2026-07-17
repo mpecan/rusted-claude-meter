@@ -50,3 +50,27 @@ export interface SessionCommandError {
   kind: "Validation" | "Store";
   message: string;
 }
+
+/** Mirrors `commands::SessionStatus`. */
+export type SessionStatus = "present" | "absent";
+
+/** Mirrors `scheduler::core::RefreshInterval`. */
+export type RefreshInterval = "one_minute" | "five_minutes" | "ten_minutes";
+
+/** Mirrors `meter_render::IconStyle` (issue #9's six tray styles). */
+export type IconStyle = "battery" | "circular" | "minimal" | "segments" | "dual_bar" | "gauge";
+
+/** Mirrors `settings::AppSettings`. `shown_scoped_models` is opt-in and
+ * empty by default: a scoped model reported in a snapshot is not shown in
+ * the popover or the Linux tray menu until its `display_name` is added
+ * here (see `src-tauri/src/settings.rs` and `tray/model.rs::menu_model`). */
+export interface AppSettings {
+  shown_scoped_models: string[];
+  refresh_interval: RefreshInterval;
+  /** Utilization percentage (0-100) at which a notification is a warning. */
+  warning_threshold: number;
+  /** Utilization percentage (0-100) at which a notification is critical. */
+  critical_threshold: number;
+  icon_style: IconStyle;
+  monochrome: boolean;
+}

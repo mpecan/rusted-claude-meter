@@ -9,6 +9,8 @@
 //! [`TrayPlan`], so identical consecutive states touch neither the icon nor
 //! the menu (no flicker, no redundant `set_icon` calls).
 
+use std::collections::HashSet;
+
 use jiff::Timestamp;
 use meter_core::{LimitWindow, UsageWindow};
 use meter_render::{IconState, IconStyle, Scale, round_percent};
@@ -50,7 +52,13 @@ pub fn icon_state(
 }
 
 /// Build the menu view-model for a state at `now`.
-pub fn menu_model(state: &MeterState, now: Timestamp) -> MenuModel {
+///
+/// `shown` is the user's opt-in set of scoped-model display names from
+/// Settings (issue #6): a scoped limit only becomes a usage line once its
+/// name is in this set, even when the API reports it as `is_active`. Empty
+/// by default, so a freshly reported model stays out of the tray menu until
+/// switched on.
+pub fn menu_model(state: &MeterState, now: Timestamp, shown: &HashSet<String>) -> MenuModel {
     let mut usage_lines = Vec::new();
     if let Some(snapshot) = &state.snapshot {
         if let Some(window) = &snapshot.five_hour {
@@ -60,6 +68,9 @@ pub fn menu_model(state: &MeterState, now: Timestamp) -> MenuModel {
             usage_lines.push(usage_line(window_label(window.window), window, now));
         }
         for limit in &snapshot.scoped {
+            if !shown.contains(&limit.display_name) {
+                continue;
+            }
             let label = format!(
                 "{} ({})",
                 limit.display_name,
@@ -247,9 +258,15 @@ mod tests {
         state(Phase::Polling, Staleness::Fresh, Some(snapshot()))
     }
 
+    /// Every scoped model in `snapshot()` opted in — the pre-issue-#6
+    /// behaviour most existing tests still assert.
+    fn all_shown() -> HashSet<String> {
+        ["Sonnet", "Fable"].into_iter().map(String::from).collect()
+    }
+
     #[test]
     fn menu_lists_headline_then_scoped_windows_with_percent_and_reset() {
-        let model = menu_model(&healthy(), now());
+        let model = menu_model(&healthy(), now(), &all_shown());
         assert_eq!(
             model.usage_lines,
             vec![
@@ -263,8 +280,41 @@ mod tests {
     }
 
     #[test]
+    fn scoped_models_are_opt_in_and_hidden_by_default() {
+        // An empty `shown` set (the default, matching `AppSettings`) hides
+        // every scoped line, even though both are `is_active` in the API
+        // response — only the headline windows survive.
+        let model = menu_model(&healthy(), now(), &HashSet::new());
+        assert_eq!(
+            model.usage_lines,
+            vec![
+                "5-hour: 42% — resets in 2h 15m",
+                "7-day: 63% — resets in 3d 4h",
+            ]
+        );
+    }
+
+    #[test]
+    fn toggling_one_model_on_shows_only_that_one() {
+        let shown: HashSet<String> = std::iter::once("Fable".to_owned()).collect();
+        let model = menu_model(&healthy(), now(), &shown);
+        assert_eq!(
+            model.usage_lines,
+            vec![
+                "5-hour: 42% — resets in 2h 15m",
+                "7-day: 63% — resets in 3d 4h",
+                "Fable (7-day): 100% — resets in under 1m",
+            ]
+        );
+    }
+
+    #[test]
     fn menu_has_no_usage_lines_without_a_snapshot() {
-        let model = menu_model(&state(Phase::Polling, Staleness::Missing, None), now());
+        let model = menu_model(
+            &state(Phase::Polling, Staleness::Missing, None),
+            now(),
+            &all_shown(),
+        );
         assert!(model.usage_lines.is_empty());
         assert_eq!(model.status_line, "Waiting for first update…");
     }
@@ -275,7 +325,11 @@ mod tests {
         snap.five_hour = Some(window(10.0, -5, LimitWindow::FiveHour));
         snap.seven_day = None;
         snap.scoped.clear();
-        let model = menu_model(&state(Phase::Polling, Staleness::Fresh, Some(snap)), now());
+        let model = menu_model(
+            &state(Phase::Polling, Staleness::Fresh, Some(snap)),
+            now(),
+            &all_shown(),
+        );
         assert_eq!(model.usage_lines, vec!["5-hour: 10% — resets soon"]);
     }
 
@@ -291,7 +345,11 @@ mod tests {
         ));
         snap.seven_day = None;
         snap.scoped.clear();
-        let model = menu_model(&state(Phase::Polling, Staleness::Stale, Some(snap)), now());
+        let model = menu_model(
+            &state(Phase::Polling, Staleness::Stale, Some(snap)),
+            now(),
+            &all_shown(),
+        );
         assert_eq!(model.usage_lines, vec!["5-hour: 10% — reset 2d 3h ago"]);
     }
 
@@ -309,7 +367,7 @@ mod tests {
             ),
         ];
         for (phase, expected) in cases {
-            let model = menu_model(&state(phase, Staleness::Missing, None), now());
+            let model = menu_model(&state(phase, Staleness::Missing, None), now(), &all_shown());
             assert_eq!(model.status_line, expected);
         }
 
@@ -328,18 +386,22 @@ mod tests {
             ),
         ];
         for (phase, expected) in aged_cases {
-            let model = menu_model(&state(phase, Staleness::Stale, Some(old.clone())), now());
+            let model = menu_model(
+                &state(phase, Staleness::Stale, Some(old.clone())),
+                now(),
+                &all_shown(),
+            );
             assert_eq!(model.status_line, expected);
         }
 
         let degraded = state(Phase::Degraded, Staleness::Fresh, Some(snapshot()));
         assert_eq!(
-            menu_model(&degraded, now()).status_line,
+            menu_model(&degraded, now(), &all_shown()).status_line,
             "Connection trouble — data from under 1m ago"
         );
         let degraded_empty = state(Phase::Degraded, Staleness::Missing, None);
         assert_eq!(
-            menu_model(&degraded_empty, now()).status_line,
+            menu_model(&degraded_empty, now(), &all_shown()).status_line,
             "Connection trouble — retrying"
         );
     }
@@ -350,7 +412,7 @@ mod tests {
         snap.fetched_at = now() - SignedDuration::from_secs(25 * 60);
         let stale = state(Phase::Polling, Staleness::Stale, Some(snap));
         assert_eq!(
-            menu_model(&stale, now()).status_line,
+            menu_model(&stale, now(), &all_shown()).status_line,
             "Stale — updated 25m ago"
         );
     }
@@ -399,7 +461,7 @@ mod tests {
     fn identical_states_debounce_to_a_noop_once_committed() {
         let mut diff = TrayDiff::default();
         let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
-        let menu = menu_model(&healthy(), now());
+        let menu = menu_model(&healthy(), now(), &all_shown());
 
         let first = diff.plan(icon, &menu);
         assert_eq!(first.icon, Some(icon));
@@ -421,7 +483,7 @@ mod tests {
     fn uncommitted_plan_is_replanned_so_failed_applies_are_retried() {
         let mut diff = TrayDiff::default();
         let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
-        let menu = menu_model(&healthy(), now());
+        let menu = menu_model(&healthy(), now(), &all_shown());
 
         // The caller failed to apply (render/rebuild error) and committed
         // nothing — the same state must be planned again, not swallowed.
@@ -442,13 +504,13 @@ mod tests {
     fn menu_only_change_leaves_the_icon_untouched() {
         let mut diff = TrayDiff::default();
         let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
-        let menu = menu_model(&healthy(), now());
+        let menu = menu_model(&healthy(), now(), &all_shown());
         diff.commit_icon(icon);
         diff.commit_menu(menu);
 
         // A minute later the icon key is identical but the age text moved.
         let later = now() + SignedDuration::from_secs(60);
-        let plan = diff.plan(icon, &menu_model(&healthy(), later));
+        let plan = diff.plan(icon, &menu_model(&healthy(), later, &all_shown()));
         assert_eq!(plan.icon, None);
         assert_eq!(plan.menu.unwrap().status_line, "Updated 1m ago".to_owned());
     }
@@ -456,7 +518,7 @@ mod tests {
     #[test]
     fn icon_change_is_planned_even_when_the_menu_is_identical() {
         let mut diff = TrayDiff::default();
-        let menu = menu_model(&healthy(), now());
+        let menu = menu_model(&healthy(), now(), &all_shown());
         let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
         diff.commit_icon(icon);
         diff.commit_menu(menu.clone());
