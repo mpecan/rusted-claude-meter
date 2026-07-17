@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   refresh_interval: "one_minute",
   warning_threshold: 75,
   critical_threshold: 90,
+  notify_on_reset: false,
   icon_style: "battery",
   monochrome: false,
 };

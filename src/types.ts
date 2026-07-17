@@ -71,6 +71,9 @@ export interface AppSettings {
   warning_threshold: number;
   /** Utilization percentage (0-100) at which a notification is critical. */
   critical_threshold: number;
+  /** Whether a window resetting fires its own "limit reset" notification
+   * (issue #7). Threshold-crossing notifications are always on. */
+  notify_on_reset: boolean;
   icon_style: IconStyle;
   monochrome: boolean;
 }

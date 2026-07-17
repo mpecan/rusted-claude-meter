@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::status::UsageStatus;
 
 /// The rolling window a limit applies to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LimitWindow {
     FiveHour,

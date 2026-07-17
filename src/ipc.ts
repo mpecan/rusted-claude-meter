@@ -59,6 +59,8 @@ export interface UsageBackend {
   setMonochrome(monochrome: boolean): Promise<void>;
   /** Update the notification thresholds; resolves with the clamped values. */
   setThresholds(warning: number, critical: number): Promise<AppSettings>;
+  /** Toggle the extra "limit reset" notification. */
+  setNotifyOnReset(enabled: boolean): Promise<AppSettings>;
 }
 
 class TauriBackend implements UsageBackend {
@@ -112,6 +114,10 @@ class TauriBackend implements UsageBackend {
 
   setThresholds(warning: number, critical: number): Promise<AppSettings> {
     return invoke<AppSettings>("set_thresholds", { warning, critical });
+  }
+
+  setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
+    return invoke<AppSettings>("set_notify_on_reset", { enabled });
   }
 }
 
@@ -203,6 +209,11 @@ class DemoBackend implements UsageBackend {
       warning_threshold: Math.min(Math.max(warning, 0), 100),
       critical_threshold: Math.min(Math.max(critical, 0), 100),
     };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
+    this.settings = { ...this.settings, notify_on_reset: enabled };
     return Promise.resolve({ ...this.settings });
   }
 }

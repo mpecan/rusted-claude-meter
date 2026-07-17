@@ -22,6 +22,7 @@ meter-api = { path = "../crates/meter-api" }
 meter-render = { path = "../crates/meter-render" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

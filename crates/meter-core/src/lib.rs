@@ -4,6 +4,7 @@
 //! model-scoped limits, status thresholds and pacing risk, and nothing about
 //! HTTP, trays or webviews. Everything here must stay trivially testable.
 
+pub mod notify;
 mod pacing;
 mod session;
 mod snapshot;

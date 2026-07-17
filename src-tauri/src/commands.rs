@@ -215,6 +215,15 @@ pub fn set_thresholds(
     })
 }
 
+/// Toggle the extra "limit reset" notification (issue #7) on or off.
+/// Threshold-crossing notifications are always on; this only gates the
+/// noisier reset notice.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_notify_on_reset(settings: State<'_, SettingsState>, enabled: bool) -> AppSettings {
+    settings.update(|s| s.notify_on_reset = enabled)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]

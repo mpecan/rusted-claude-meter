@@ -62,6 +62,11 @@ pub struct AppSettings {
     /// Utilization percentage (0-100) at which a notification is considered
     /// critical.
     pub critical_threshold: f64,
+    /// Whether a window resetting ("5-hour limit reset") fires its own
+    /// notification (issue #7). Threshold-crossing notifications are always
+    /// on; this only gates the extra, noisier reset notice. Off by default —
+    /// the 5-hour window resets several times a day.
+    pub notify_on_reset: bool,
     pub icon_style: IconStyle,
     pub monochrome: bool,
 }
@@ -73,6 +78,7 @@ impl Default for AppSettings {
             refresh_interval: RefreshInterval::default(),
             warning_threshold: 75.0,
             critical_threshold: 90.0,
+            notify_on_reset: false,
             icon_style: IconStyle::Battery,
             monochrome: default_monochrome(),
         }
@@ -197,6 +203,7 @@ mod tests {
             refresh_interval: RefreshInterval::FiveMinutes,
             warning_threshold: 60.0,
             critical_threshold: 85.0,
+            notify_on_reset: true,
             icon_style: IconStyle::Gauge,
             monochrome: !default_monochrome(),
         }
@@ -268,6 +275,7 @@ mod tests {
         assert_eq!(loaded.refresh_interval, RefreshInterval::default());
         assert_eq!(loaded.warning_threshold, 75.0);
         assert_eq!(loaded.critical_threshold, 90.0);
+        assert!(!loaded.notify_on_reset);
         assert_eq!(loaded.icon_style, IconStyle::Battery);
         assert_eq!(loaded.monochrome, default_monochrome());
     }
@@ -359,5 +367,16 @@ mod tests {
         let state = SettingsState::new(None, AppSettings::default());
         let result = state.update(|s| s.monochrome = !s.monochrome);
         assert_eq!(state.get().monochrome, result.monochrome);
+    }
+
+    #[test]
+    fn notify_on_reset_defaults_to_off_and_round_trips() {
+        assert!(!AppSettings::default().notify_on_reset);
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        let mut settings = sample();
+        settings.notify_on_reset = true;
+        save(&path, &settings).unwrap();
+        assert!(load(&path).notify_on_reset);
     }
 }

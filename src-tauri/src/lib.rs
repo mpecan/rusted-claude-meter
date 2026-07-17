@@ -9,6 +9,7 @@
 
 mod cache;
 mod commands;
+mod notifier;
 mod scheduler;
 mod settings;
 mod store;
@@ -20,6 +21,7 @@ use std::sync::{Arc, Mutex};
 
 use commands::SessionStoreState;
 use jiff::Timestamp;
+use notifier::NotifierState;
 use scheduler::{
     LiveTransport, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT, run_loop,
 };
@@ -36,6 +38,7 @@ pub fn run() -> tauri::Result<()> {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(SessionStoreState(session_store))
         .invoke_handler(tauri::generate_handler![
             commands::set_session_key,
@@ -49,6 +52,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_monochrome,
             commands::set_shown_scoped_models,
             commands::set_thresholds,
+            commands::set_notify_on_reset,
         ])
         .setup(move |app| {
             // Menu-bar-only on macOS: no Dock icon, no app switcher entry.
@@ -80,6 +84,11 @@ pub fn run() -> tauri::Result<()> {
                 shown,
             )?;
             app.manage(SettingsState::new(settings_path, app_settings));
+            // Managed before the scheduler starts broadcasting (mirrors the
+            // tray init-before-scheduler ordering above), so the tracker's
+            // very first observation establishes its startup baseline
+            // instead of a broadcast racing ahead of it.
+            app.manage(NotifierState::default());
             spawn_scheduler(app, scheduler_store, core, cache_path);
             Ok(())
         })
@@ -141,6 +150,10 @@ fn spawn_scheduler(
             // The tray subscribes to the same broadcast: icon and menu
             // reflect every state change within the same tick.
             tray::apply_state(&emitter, &state);
+            // So does the notifier (issue #7): threshold crossings and
+            // resets are decided from the very same state, one tick behind
+            // nothing.
+            notifier::apply_state(&emitter, &state);
         },
     ));
 }
