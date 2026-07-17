@@ -23,6 +23,7 @@ import type {
   RefreshInterval,
   SessionCommandError,
   SessionStatus,
+  WizardSessionResult,
 } from "./types";
 
 const USAGE_STATE_EVENT = "usage-state";
@@ -70,6 +71,20 @@ export interface UsageBackend {
   setThresholds(warning: number, critical: number): Promise<AppSettings>;
   /** Toggle the extra "limit reset" notification. */
   setNotifyOnReset(enabled: boolean): Promise<AppSettings>;
+  /** Whether the setup wizard (issue #11) should open automatically on this
+   * launch — `settings.json` did not exist before this launch loaded it. */
+  wizardShouldRun(): Promise<boolean>;
+  /** Parse, store and validate a pasted session key for the wizard's
+   * "session" step, the same rollback-on-rejection way browser import
+   * validates an imported one. Rejects with a `WizardSessionError`-shaped
+   * value on failure. */
+  wizardSubmitSessionKey(input: string): Promise<WizardSessionResult>;
+  /** Mark the wizard complete by writing settings to disk even if nothing
+   * changed, so "absence of settings" stops being true on the next launch. */
+  wizardComplete(): Promise<void>;
+  /** Whether this Linux session is GNOME, which hides the tray unless the
+   * AppIndicator extension is installed. Always `false` off Linux. */
+  isGnomeDesktop(): Promise<boolean>;
 }
 
 class TauriBackend implements UsageBackend {
@@ -136,6 +151,22 @@ class TauriBackend implements UsageBackend {
   setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
     return invoke<AppSettings>("set_notify_on_reset", { enabled });
   }
+
+  wizardShouldRun(): Promise<boolean> {
+    return invoke<boolean>("wizard_should_run");
+  }
+
+  wizardSubmitSessionKey(input: string): Promise<WizardSessionResult> {
+    return invoke<WizardSessionResult>("wizard_submit_session_key", { input });
+  }
+
+  wizardComplete(): Promise<void> {
+    return invoke<void>("wizard_complete");
+  }
+
+  isGnomeDesktop(): Promise<boolean> {
+    return invoke<boolean>("is_gnome_desktop");
+  }
 }
 
 /** Subscribe to a Tauri event, tolerating an unsubscribe requested before
@@ -165,6 +196,7 @@ function subscribe<T>(event: string, callback: (payload: T) => void): () => void
 class DemoBackend implements UsageBackend {
   private settings: AppSettings = { ...DEFAULT_SETTINGS };
   private sessionPresent = false;
+  private wizardCompleted = false;
 
   initialState(): Promise<MeterState> {
     return Promise.resolve(DEMO_STATE);
@@ -257,6 +289,24 @@ class DemoBackend implements UsageBackend {
   setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
     this.settings = { ...this.settings, notify_on_reset: enabled };
     return Promise.resolve({ ...this.settings });
+  }
+
+  wizardShouldRun(): Promise<boolean> {
+    return Promise.resolve(!this.wizardCompleted);
+  }
+
+  wizardSubmitSessionKey(): Promise<WizardSessionResult> {
+    this.sessionPresent = true;
+    return Promise.resolve({ validated: true });
+  }
+
+  wizardComplete(): Promise<void> {
+    this.wizardCompleted = true;
+    return Promise.resolve();
+  }
+
+  isGnomeDesktop(): Promise<boolean> {
+    return Promise.resolve(false);
   }
 }
 

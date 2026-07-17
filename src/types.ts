@@ -106,6 +106,20 @@ export type RefreshInterval = "one_minute" | "five_minutes" | "ten_minutes";
 /** Mirrors `meter_render::IconStyle` (issue #9's six tray styles). */
 export type IconStyle = "battery" | "circular" | "minimal" | "segments" | "dual_bar" | "gauge";
 
+/** Mirrors `wizard::WizardSessionResult` (issue #11). */
+export interface WizardSessionResult {
+  validated: boolean;
+}
+
+/** Mirrors `wizard::WizardSessionError`'s `{ tag = "kind", content =
+ * "message" }` serde representation. Shares `describeError`'s handling with
+ * `SessionCommandError` / `BrowserImportError` since all three are
+ * `{ kind, message }`. */
+export interface WizardSessionError {
+  kind: "Validation" | "Rejected" | "Store";
+  message: string;
+}
+
 /** Mirrors `settings::AppSettings`. `shown_scoped_models` is opt-in and
  * empty by default: a scoped model reported in a snapshot is not shown in
  * the popover or the Linux tray menu until its `display_name` is added

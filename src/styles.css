@@ -418,3 +418,79 @@ body {
 .browser-import-settings {
   align-self: flex-start;
 }
+
+.primary-button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.45rem 0.7rem;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-accent);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+/* Setup wizard (issue #11): a modal-style overlay above everything else,
+   including the Settings panel — "Run setup again" opens it from there —
+   for the same reason the Settings panel itself is an overlay rather than a
+   second native window (see that section's comment above). */
+.wizard-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  background: rgb(0 0 0 / 45%);
+  overflow-y: auto;
+}
+
+.wizard-panel[hidden] {
+  display: none;
+}
+
+.wizard-card {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.wizard-step-indicator {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.wizard-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.wizard-step[hidden] {
+  display: none;
+}
+
+.wizard-step h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.wizard-step p {
+  margin: 0;
+}
+
+.wizard-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}

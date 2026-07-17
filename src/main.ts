@@ -15,6 +15,7 @@ import { renderModelToggles } from "./settings-render";
 import { DEFAULT_SETTINGS, scopedModelNames, toggleModel } from "./settings-view-model";
 import type { AppSettings, Browser, IconStyle, MeterState, RefreshInterval } from "./types";
 import { buildViewModel } from "./view-model";
+import { createWizard } from "./wizard";
 
 /** How often the reset countdowns re-render. A minute-granularity display
  * only needs to tick once a minute, but a second is cheap and keeps
@@ -57,6 +58,7 @@ function main(): void {
   const browserImportList = requireElement<HTMLElement>("browser-import-list");
   const browserImportStatus = requireElement<HTMLElement>("browser-import-status");
   const browserImportError = requireElement<HTMLElement>("browser-import-error");
+  const runSetupAgainButton = requireElement<HTMLButtonElement>("run-setup-again-button");
 
   const backend = createBackend();
 
@@ -156,6 +158,27 @@ function main(): void {
       render(latestState);
     }
   }
+
+  const wizard = createWizard(backend, {
+    onIconStyleChange(style) {
+      settings = { ...settings, icon_style: style };
+      applySettingsToForm();
+    },
+    onRefreshIntervalChange(interval) {
+      settings = { ...settings, refresh_interval: interval };
+      applySettingsToForm();
+    },
+    onClose() {
+      // The wizard may have changed the session (imported or pasted) or the
+      // browser list's permission state; refresh both so the popover and an
+      // already-open Settings panel reflect it without waiting for the user
+      // to reopen Settings.
+      refreshSessionStatus();
+      loadBrowserList();
+    },
+  });
+  runSetupAgainButton.addEventListener("click", () => wizard.open());
+  wizard.maybeAutoOpen();
 
   backend
     .getSettings()

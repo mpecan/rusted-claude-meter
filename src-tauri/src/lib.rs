@@ -18,8 +18,10 @@ mod scheduler;
 mod settings;
 mod store;
 mod tray;
+mod wizard;
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use commands::SessionStoreState;
@@ -59,6 +61,10 @@ pub fn run() -> tauri::Result<()> {
             commands::set_shown_scoped_models,
             commands::set_thresholds,
             commands::set_notify_on_reset,
+            wizard::wizard_should_run,
+            wizard::wizard_submit_session_key,
+            wizard::wizard_complete,
+            wizard::is_gnome_desktop,
         ])
         .setup(move |app| {
             // Menu-bar-only on macOS: no Dock icon, no app switcher entry.
@@ -82,6 +88,11 @@ pub fn run() -> tauri::Result<()> {
                 .ok()
                 .map(|dir| export::export_path(&dir));
             let settings_path = data_dir.map(|dir| dir.join(settings::SETTINGS_FILE));
+            // Captured before `settings::load` (which always returns
+            // *something*, defaulted or not): "first run" per issue #11 is
+            // "no settings.json existed yet", not "settings failed to
+            // parse", so this must observe the file, not the load result.
+            let settings_existed = settings_path.as_deref().is_some_and(Path::exists);
             let app_settings = settings_path
                 .as_deref()
                 .map_or_else(settings::AppSettings::default, settings::load);
@@ -100,6 +111,7 @@ pub fn run() -> tauri::Result<()> {
                 shown,
             )?;
             app.manage(SettingsState::new(settings_path, app_settings));
+            app.manage(wizard::FirstRunState(!settings_existed));
             // Managed before the scheduler starts broadcasting (mirrors the
             // tray init-before-scheduler ordering above), so the tracker's
             // very first observation establishes its startup baseline

@@ -179,11 +179,57 @@ const fn current_os() -> Os {
     }
 }
 
+/// Outcome of [`store_and_validate`] when the key could not be kept.
+///
+/// Deliberately generic over *why* the caller wanted the key stored (a
+/// browser import here, a pasted key in the setup wizard — issue #11) so
+/// both paths share one rollback implementation instead of duplicating it.
+pub enum StoreAndValidateError {
+    /// The credential store refused to persist the key.
+    Store(String),
+    /// claude.ai rejected the key (401): it is expired or otherwise invalid.
+    /// The previously stored key (if any) has already been restored by the
+    /// time this is returned.
+    Rejected,
+}
+
+/// Persist `key`, then confirm it with claude.ai. A rejection (401) is
+/// rolled back: the key that was stored before this call is restored (or the
+/// store cleared if there was none), so a failed validation never destroys a
+/// working session and an invalid key never lingers. A network hiccup keeps
+/// the key — it might still be good, and the scheduler validates it on its
+/// next poll — and resolves to `Ok(false)` ("stored, not yet confirmed").
+pub async fn store_and_validate(
+    store: &dyn SessionStore,
+    validator: &impl SessionValidator,
+    key: &SessionKey,
+) -> Result<bool, StoreAndValidateError> {
+    // Hold on to whatever key was stored before, so a rejection can put it
+    // back instead of destroying a working session. Best-effort: if the
+    // store can't be read, there is nothing to restore.
+    let previous = store.load().unwrap_or_default();
+
+    store
+        .save(key)
+        .map_err(|error| StoreAndValidateError::Store(error.to_string()))?;
+
+    match validator.validate(key).await {
+        Ok(()) => Ok(true),
+        Err(ValidationError::Unauthorized) => {
+            // Best-effort: don't leave a rejected key behind.
+            let _ = previous
+                .as_ref()
+                .map_or_else(|| store.clear(), |previous_key| store.save(previous_key));
+            Err(StoreAndValidateError::Rejected)
+        }
+        Err(ValidationError::Transient) => Ok(false),
+    }
+}
+
 /// The whole import flow, isolated from Tauri so every branch is unit-tested:
 /// availability → read → extract → persist → validate. A key rejected by
-/// claude.ai is rolled back: the previously stored key is restored (or the
-/// store cleared if there was none), so a failed import never destroys a
-/// working session and nothing invalid lingers.
+/// claude.ai is rolled back (see [`store_and_validate`]), so a failed import
+/// never destroys a working session and nothing invalid lingers.
 async fn import_impl(
     reader: &dyn BrowserCookieReader,
     validator: &impl SessionValidator,
@@ -213,39 +259,21 @@ async fn import_impl(
     // Drop every other claude.ai cookie the moment the key is in hand.
     drop(cookies);
 
-    // Hold on to whatever key was stored before, so a rejected import can put
-    // it back instead of destroying a working session. Best-effort: if the
-    // store can't be read, there is nothing to restore.
-    let previous = store.load().unwrap_or_default();
-
-    store
-        .save(&key)
-        .map_err(|error| BrowserImportError::Store(error.to_string()))?;
-
     let display_name = browser.display_name().to_owned();
-    match validator.validate(&key).await {
-        Ok(()) => Ok(ImportSummary {
-            browser: display_name,
-            validated: true,
-        }),
-        Err(ValidationError::Unauthorized) => {
-            // Best-effort: don't leave a rejected key behind — restore the
-            // key that was working before, or clear if there was none.
-            let _ = previous
-                .as_ref()
-                .map_or_else(|| store.clear(), |previous_key| store.save(previous_key));
-            Err(BrowserImportError::Rejected(format!(
-                "claude.ai rejected the session imported from {display_name} — it may have \
+    let validated =
+        store_and_validate(store, validator, &key)
+            .await
+            .map_err(|error| match error {
+                StoreAndValidateError::Store(message) => BrowserImportError::Store(message),
+                StoreAndValidateError::Rejected => BrowserImportError::Rejected(format!(
+                    "claude.ai rejected the session imported from {display_name} — it may have \
                  expired. Sign in again there and retry."
-            )))
-        }
-        // Network hiccup: keep the key; the scheduler validates on its next
-        // poll once it can reach claude.ai.
-        Err(ValidationError::Transient) => Ok(ImportSummary {
-            browser: display_name,
-            validated: false,
-        }),
-    }
+                )),
+            })?;
+    Ok(ImportSummary {
+        browser: display_name,
+        validated,
+    })
 }
 
 /// List the browsers the user can import a session from on this platform,
