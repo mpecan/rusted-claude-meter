@@ -58,6 +58,8 @@ function main(): void {
   const criticalValue = requireElement<HTMLElement>("critical-threshold-value");
   const iconStyleSelect = requireElement<HTMLSelectElement>("icon-style-select");
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
+  const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
+  const autostartError = requireElement<HTMLElement>("autostart-error");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
   const settingsSessionForm = requireElement<HTMLFormElement>("settings-session-form");
   const settingsSessionInput = requireElement<HTMLInputElement>("settings-session-input");
@@ -120,6 +122,22 @@ function main(): void {
       });
   }
 
+  /** Read the live OS registration state and reflect it in the toggle
+   * (issue #12). Called every time Settings opens, same as
+   * `refreshSessionStatus`, since the registration can be changed outside
+   * the app and a cached value would go stale. */
+  function refreshAutostartStatus(): void {
+    autostartError.hidden = true;
+    backend
+      .autostartStatus()
+      .then((enabled) => {
+        autostartToggle.checked = enabled;
+      })
+      .catch((error: unknown) => {
+        console.error("failed to read autostart status", error);
+      });
+  }
+
   function loadBrowserList(): void {
     backend
       .listBrowserSessions()
@@ -157,6 +175,7 @@ function main(): void {
     settingsPanel.hidden = false;
     refreshSessionStatus();
     loadBrowserList();
+    refreshAutostartStatus();
   }
 
   function handleModelToggle(name: string, enabled: boolean): void {
@@ -281,6 +300,25 @@ function main(): void {
     backend.setMonochrome(monochromeToggle.checked).catch((error: unknown) => {
       console.error("failed to persist monochrome setting", error);
     });
+  });
+
+  autostartToggle.addEventListener("change", () => {
+    const requested = autostartToggle.checked;
+    autostartError.hidden = true;
+    backend
+      .setAutostart(requested)
+      .then((actual) => {
+        // Reconcile against what the OS actually reports rather than
+        // trusting `requested` — the toggle must always show ground truth.
+        autostartToggle.checked = actual;
+      })
+      .catch((error: unknown) => {
+        // Registration failed (e.g. no permission to write the Launch
+        // Agent / autostart entry): revert the checkbox and surface why.
+        autostartToggle.checked = !requested;
+        autostartError.textContent = describeError(error);
+        autostartError.hidden = false;
+      });
   });
 
   settingsSessionForm.addEventListener("submit", (event) => {

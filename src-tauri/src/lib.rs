@@ -7,6 +7,7 @@
 //! every change as a `usage-state` event — the single source of truth the
 //! tray and UI subscribe to.
 
+mod autostart;
 mod browser_import;
 mod cache;
 mod commands;
@@ -34,6 +35,7 @@ use scheduler::{
 use settings::SettingsState;
 use store::{KeyringSessionStore, SessionStore};
 use tauri::{Emitter, Manager};
+use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::Notify;
 
 /// Build and run the app. Errors bubble to `main` instead of panicking so
@@ -45,6 +47,10 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        // `args: None` — the main window already starts hidden on every
+        // launch (see the module docs on `autostart`), so autostart needs no
+        // extra CLI flag to detect a login launch.
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .manage(SessionStoreState(session_store))
         .invoke_handler(tauri::generate_handler![
             commands::set_session_key,
@@ -61,6 +67,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_shown_scoped_models,
             commands::set_thresholds,
             commands::set_notify_on_reset,
+            autostart::autostart_status,
+            autostart::set_autostart,
             wizard::wizard_should_run,
             wizard::wizard_submit_session_key,
             wizard::wizard_complete,

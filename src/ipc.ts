@@ -85,6 +85,15 @@ export interface UsageBackend {
   /** Whether this Linux session is GNOME, which hides the tray unless the
    * AppIndicator extension is installed. Always `false` off Linux. */
   isGnomeDesktop(): Promise<boolean>;
+  /** Whether launch-at-login is currently registered with the OS (issue
+   * #12). Queried fresh every call — never cached — because the
+   * registration can be flipped from outside the app (System Settings on
+   * macOS, a user editing the XDG autostart entry on Linux). */
+  autostartStatus(): Promise<boolean>;
+  /** Enable or disable launch-at-login, and resolve with the resulting
+   * registration state so the toggle can reconcile itself against whatever
+   * actually happened rather than just echoing `enabled` back. */
+  setAutostart(enabled: boolean): Promise<boolean>;
 }
 
 class TauriBackend implements UsageBackend {
@@ -167,6 +176,14 @@ class TauriBackend implements UsageBackend {
   isGnomeDesktop(): Promise<boolean> {
     return invoke<boolean>("is_gnome_desktop");
   }
+
+  autostartStatus(): Promise<boolean> {
+    return invoke<boolean>("autostart_status");
+  }
+
+  setAutostart(enabled: boolean): Promise<boolean> {
+    return invoke<boolean>("set_autostart", { enabled });
+  }
 }
 
 /** Subscribe to a Tauri event, tolerating an unsubscribe requested before
@@ -197,6 +214,7 @@ class DemoBackend implements UsageBackend {
   private settings: AppSettings = { ...DEFAULT_SETTINGS };
   private sessionPresent = false;
   private wizardCompleted = false;
+  private autostartEnabled = false;
 
   initialState(): Promise<MeterState> {
     return Promise.resolve(DEMO_STATE);
@@ -307,6 +325,15 @@ class DemoBackend implements UsageBackend {
 
   isGnomeDesktop(): Promise<boolean> {
     return Promise.resolve(false);
+  }
+
+  autostartStatus(): Promise<boolean> {
+    return Promise.resolve(this.autostartEnabled);
+  }
+
+  setAutostart(enabled: boolean): Promise<boolean> {
+    this.autostartEnabled = enabled;
+    return Promise.resolve(this.autostartEnabled);
   }
 }
 
