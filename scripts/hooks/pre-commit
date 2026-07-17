@@ -27,10 +27,9 @@ out=$(cargo deny check 2>&1) || {
     exit 1
 }
 
-# Keep these flags in sync with the `dupes` recipe in justfile.
-out=$(cargo dupes check --exclude-tests \
-    --exclude 'target/*' --exclude 'node_modules/*' --exclude 'dist/*' --exclude 'src-tauri/gen/*' \
-    --max-exact 13 --max-near 4 --max-exact-percent 6.0 --max-near-percent 2.5 2>&1) || {
+# Runs the same `dupes` recipe (and ratchet numbers) defined once in
+# justfile, so this can't silently drift from CI/the `dupes` recipe.
+out=$(just dupes 2>&1) || {
     echo "cargo-dupes duplication check failed. Run 'just dupes' for the full report."
     echo "$out"
     exit 1

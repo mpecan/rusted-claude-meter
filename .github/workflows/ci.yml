@@ -72,6 +72,8 @@ jobs:
         with:
           cache-bin: true
 
+      - uses: extractions/setup-just@v2
+
       # cargo-deny and cargo-dupes only read Cargo.lock/manifests and source
       # text respectively — no compilation, so no Tauri system deps needed.
       - name: cargo-deny check (licenses, advisories, bans, sources)
@@ -79,14 +81,17 @@ jobs:
         with:
           command: check
 
+      # Pinned to the version validated against the ratchet numbers below —
+      # bump deliberately, alongside re-baselining `dupes_max_*` in justfile,
+      # not as a side effect of a routine Cargo.lock/cache rotation.
       - name: Install cargo-dupes
-        run: cargo install cargo-dupes
+        run: cargo install cargo-dupes --locked --version 0.2.1
 
+      # Runs the same `dupes` recipe (and ratchet numbers) defined once in
+      # justfile, so this can't silently drift from `just dupes`/the
+      # pre-commit hook.
       - name: Duplication check
-        run: |
-          cargo dupes check --exclude-tests \
-            --exclude 'target/*' --exclude 'node_modules/*' --exclude 'dist/*' --exclude 'src-tauri/gen/*' \
-            --max-exact 13 --max-near 4 --max-exact-percent 6.0 --max-near-percent 2.5
+        run: just dupes
 
   coverage:
     name: Coverage
@@ -115,22 +120,22 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - uses: extractions/setup-just@v2
+
       - name: Build frontend (required by tauri-build)
         run: |
           npm ci
           npm run build
 
-      # Ratcheting coverage floor: these numbers must only ever go up (as
-      # coverage improves) and are kept in sync with the `coverage` recipe
-      # in justfile. Never lower them to make a change pass — add tests
-      # instead, or get explicit sign-off for an intentional decrease.
+      # Runs the same `coverage` recipe (and ratchet floor) defined once in
+      # justfile, so the numbers here can't silently drift from `just
+      # coverage`. Ratcheting floor: these numbers must only ever go up (as
+      # coverage improves). Never lower them to make a change pass — add
+      # tests instead, or get explicit sign-off for an intentional decrease.
       - name: Coverage (ratchet-gated)
         run: |
           set +e
-          cargo llvm-cov --workspace \
-            --fail-under-lines 87 \
-            --fail-under-functions 87 \
-            --fail-under-regions 87 > coverage.txt 2>&1
+          just coverage > coverage.txt 2>&1
           status=$?
           {
             echo "## Coverage report"

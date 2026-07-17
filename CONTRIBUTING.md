@@ -12,7 +12,8 @@ This installs npm dependencies, builds the frontend once (`tauri-build` needs `d
 
 ```sh
 rustup component add llvm-tools-preview
-cargo install cargo-deny cargo-llvm-cov cargo-dupes
+cargo install cargo-deny cargo-llvm-cov
+cargo install cargo-dupes --locked --version 0.2.1
 ```
 
 ## Before pushing
@@ -27,12 +28,15 @@ The pre-commit hook (`just install-hooks`) runs the fast subset — fmt, clippy,
 
 ### Quality ratchets
 
-Two of the gates are ratchets, not fixed bars:
+Two of the gates are ratchets, not fixed bars. Their numbers live in exactly
+one place — `justfile` — and CI and the pre-commit hook run the `just`
+recipes directly (`just dupes`, `just coverage`) rather than restating the
+thresholds, so there is nothing to keep in sync:
 
-- **Coverage floor** (`coverage_min_lines`/`_functions`/`_regions` in `justfile`, mirrored in `.github/workflows/ci.yml`'s `coverage` job): only ever raise these as coverage improves. Never lower them to make a change pass — add tests instead.
-- **Duplication ceiling** (`dupes_max_exact`/`_near`/`_percent` in `justfile`, mirrored in the `quality` CI job): only ever lower these as duplication is cleaned up. Never raise them to let new duplication in.
+- **Coverage floor** (`coverage_min_lines`/`_functions`/`_regions` in `justfile`): only ever raise these as coverage improves. Never lower them to make a change pass — add tests instead.
+- **Duplication ceiling** (`dupes_max_exact`/`_near`/`_percent` in `justfile`): only ever lower these as duplication is cleaned up. Never raise them to let new duplication in.
 
-If a change is going to move either number, update both `justfile` and `ci.yml` in the same commit so they stay in sync, and say so in the commit message.
+If a change is going to move either number, update `justfile` only, and say so in the commit message.
 
 ## Ground rules
 

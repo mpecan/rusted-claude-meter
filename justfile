@@ -15,7 +15,7 @@ dupes_max_near_percent := "2.5"
 dupes_excludes := "--exclude 'target/*' --exclude 'node_modules/*' --exclude 'dist/*' --exclude 'src-tauri/gen/*'"
 
 # Run all checks (what CI runs)
-check: fmt-check lint test file-size deny dupes coverage frontend-test
+check: fmt-check lint test file-size deny dupes coverage frontend-typecheck frontend-test
 
 # One-time setup after cloning
 setup:
