@@ -1,6 +1,7 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
+use crate::pacing::PacingAssessment;
 use crate::status::UsageStatus;
 use crate::window::UsageWindow;
 
@@ -41,6 +42,13 @@ impl UsageSnapshot {
             .unwrap_or(UsageStatus::Safe)
     }
 
+    /// True when any window — headline or scoped — is pacing at risk at
+    /// `now`. Drives the tray icon's at-risk badge.
+    pub fn at_risk(&self, now: Timestamp) -> bool {
+        self.windows()
+            .any(|window| PacingAssessment::for_window(window, now).is_some_and(|p| p.at_risk))
+    }
+
     /// The scoped limit for a given API display name, if reported.
     pub fn scoped_named(&self, display_name: &str) -> Option<&ScopedLimit> {
         self.scoped
@@ -49,7 +57,7 @@ impl UsageSnapshot {
     }
 
     /// Every reported window: headline first, then scoped, in API order.
-    pub fn windows(&self) -> impl Iterator<Item = &UsageWindow> {
+    fn windows(&self) -> impl Iterator<Item = &UsageWindow> {
         self.five_hour
             .iter()
             .chain(self.seven_day.iter())
@@ -108,6 +116,24 @@ mod tests {
             fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
         };
         assert_eq!(empty.overall_status(), UsageStatus::Safe);
+    }
+
+    #[test]
+    fn at_risk_when_any_window_is_pacing_hot() {
+        let now: Timestamp = "2026-07-17T12:00:00Z".parse().unwrap();
+        // The helper's seven-day windows reset 24h out (~86% elapsed), so
+        // even 100% used stays under the 1.2 risk ratio: calm all round.
+        assert!(!snapshot(10.0, 20.0, 100.0).at_risk(now));
+
+        // A single scoped window burning hot (90% used, 4 of 7 days left →
+        // ratio 2.1) flips the snapshot even with calm headline windows.
+        let mut hot = snapshot(10.0, 20.0, 0.0);
+        hot.scoped[0].usage = UsageWindow {
+            utilization: 90.0,
+            resets_at: "2026-07-21T12:00:00Z".parse().unwrap(),
+            window: LimitWindow::SevenDay,
+        };
+        assert!(hot.at_risk(now));
     }
 
     #[test]

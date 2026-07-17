@@ -1,5 +1,5 @@
 use jiff::Timestamp;
-use meter_core::{PacingAssessment, UsageSnapshot, UsageStatus};
+use meter_core::{UsageSnapshot, UsageStatus};
 
 /// Logical icon size in CSS pixels: the common menu-bar/tray glyph size on
 /// both macOS (22pt menu bar) and Linux (22/24px trays scale it well).
@@ -87,14 +87,11 @@ impl IconState {
                     .max_by(f64::total_cmp)
             })
             .unwrap_or(0.0);
-        let at_risk = snapshot.windows().any(|window| {
-            PacingAssessment::for_window(window, now).is_some_and(|pacing| pacing.at_risk)
-        });
         Self {
             style,
             percent: round_percent(percent),
             status: snapshot.overall_status(),
-            at_risk,
+            at_risk: snapshot.at_risk(now),
             mono,
             scale,
         }
@@ -200,6 +197,21 @@ mod tests {
             fetched_at: now(),
         };
         assert!(!state(&calm).at_risk);
+
+        // A scoped limit pacing hot (90% used, 4 of 7 days left → ratio 2.1)
+        // lights the badge even when the five-hour headline is calm.
+        let hot_scoped = UsageSnapshot {
+            five_hour: Some(window(50.0, 150, LimitWindow::FiveHour)),
+            seven_day: None,
+            scoped: vec![ScopedLimit {
+                display_name: "Fable".to_owned(),
+                model_id: None,
+                usage: window(90.0, 4 * 24 * 60, LimitWindow::SevenDay),
+                is_active: true,
+            }],
+            fetched_at: now(),
+        };
+        assert!(state(&hot_scoped).at_risk);
     }
 
     #[test]
