@@ -84,7 +84,7 @@ pub fn set_session_key(
     input: String,
 ) -> Result<(), SessionCommandError> {
     set_session_key_impl(state.0.as_ref(), &input)?;
-    scheduler.request_refresh();
+    scheduler.resume_polling();
     Ok(())
 }
 
@@ -97,8 +97,9 @@ pub fn session_status(
     session_status_impl(state.0.as_ref())
 }
 
-/// Remove the stored session key and wake the polling loop so the broadcast
-/// state flips to "awaiting session" promptly.
+/// Remove the stored session key and tell the scheduler directly, so the
+/// broadcast state flips to "awaiting session" immediately instead of on
+/// the next scheduled tick.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn clear_session_key(
@@ -106,7 +107,7 @@ pub fn clear_session_key(
     scheduler: State<'_, SchedulerHandle>,
 ) -> Result<(), SessionCommandError> {
     clear_session_key_impl(state.0.as_ref())?;
-    scheduler.request_refresh();
+    scheduler.mark_no_session();
     Ok(())
 }
 

@@ -81,9 +81,25 @@ impl SchedulerHandle {
         Self { core, notify }
     }
 
-    /// Wake the loop for a TTL-guarded refresh attempt, resuming from a
-    /// paused (expired/awaiting-session) phase if needed.
+    /// Wake the loop for a TTL-guarded refresh attempt. The loop broadcasts
+    /// state after every wakeup, even when the TTL serves it from memory.
     pub fn request_refresh(&self) {
+        self.notify.notify_one();
+    }
+
+    /// The user stored a new session key: clear any parked
+    /// (expired/awaiting-session) or backoff phase, then wake the loop for a
+    /// TTL-guarded attempt with the new key.
+    pub fn resume_polling(&self) {
+        lock(&self.core).resume();
+        self.notify.notify_one();
+    }
+
+    /// The session key is gone: record it directly — no fetch is needed to
+    /// learn it — and wake the loop so the awaiting-session state is
+    /// broadcast immediately instead of on the next scheduled tick.
+    pub fn mark_no_session(&self) {
+        lock(&self.core).record(FetchOutcome::NoSession);
         self.notify.notify_one();
     }
 
@@ -137,16 +153,19 @@ pub async fn run_loop<T: UsageTransport, C: Clock>(
                 let _ = cache::save(path, snapshot);
             }
             lock(&core).record(outcome);
-            on_state(lock(&core).state(clock.wall()));
         }
+        // Broadcast unconditionally: even a wakeup the TTL served from
+        // memory may carry a local state change (session key cleared or
+        // replaced), and it must become observable now, not next tick.
+        on_state(lock(&core).state(clock.wall()));
 
         let delay = lock(&core).next_delay(wall_jitter(clock.wall()));
         forced = match delay {
-            // Paused: nothing to retry until a new key or manual refresh.
+            // Paused: nothing to retry until an external wakeup. The wakeup
+            // itself decides whether polling resumes (`resume_polling`) —
+            // a plain refresh request on a dead session stays parked.
             None => {
                 notify.notified().await;
-                lock(&core).resume();
-                on_state(lock(&core).state(clock.wall()));
                 true
             }
             Some(delay) => wait_for_next_tick(&clock, &core, &notify, delay).await,
@@ -167,10 +186,7 @@ async fn wait_for_next_tick<C: Clock>(
     while !remaining.is_zero() {
         let slice = remaining.min(DRIFT_CHECK_SLICE);
         tokio::select! {
-            () = notify.notified() => {
-                lock(core).resume();
-                return true;
-            }
+            () = notify.notified() => return true,
             () = tokio::time::sleep(slice) => {}
         }
         if lock(core).observe_clocks(clock.wall(), clock.monotonic()) {
@@ -187,16 +203,56 @@ mod tests {
 
     use super::core::Phase;
     use super::*;
+    use jiff::SignedDuration;
     use meter_core::UsageSnapshot;
     use pretty_assertions::assert_eq;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    fn empty_snapshot() -> UsageSnapshot {
+    fn base() -> Timestamp {
+        "2026-07-17T12:00:00Z".parse().unwrap()
+    }
+
+    fn snapshot_at(fetched_at: Timestamp) -> UsageSnapshot {
         UsageSnapshot {
             five_hour: None,
             seven_day: None,
             scoped: vec![],
-            fetched_at: Timestamp::now(),
+            fetched_at,
+        }
+    }
+
+    fn empty_snapshot() -> UsageSnapshot {
+        snapshot_at(Timestamp::now())
+    }
+
+    /// Test clock with independently advancing wall and monotonic readings —
+    /// unequal advances simulate system sleep (monotonic pauses, wall runs).
+    #[derive(Clone)]
+    struct FakeClock {
+        now: Arc<Mutex<(Timestamp, Duration)>>,
+    }
+
+    impl FakeClock {
+        fn new(wall: Timestamp) -> Self {
+            Self {
+                now: Arc::new(Mutex::new((wall, Duration::ZERO))),
+            }
+        }
+
+        fn advance(&self, wall_secs: i64, monotonic_secs: u64) {
+            let mut now = self.now.lock().unwrap();
+            now.0 += SignedDuration::from_secs(wall_secs);
+            now.1 += Duration::from_secs(monotonic_secs);
+        }
+    }
+
+    impl Clock for FakeClock {
+        fn wall(&self) -> Timestamp {
+            self.now.lock().unwrap().0
+        }
+
+        fn monotonic(&self) -> Duration {
+            self.now.lock().unwrap().1
         }
     }
 
@@ -234,12 +290,22 @@ mod tests {
         core: Arc<Mutex<SchedulerCore>>,
         notify: Arc<Notify>,
     ) -> tokio::task::JoinHandle<()> {
+        spawn_loop_with(transport, SystemClock::default(), core, notify, |_| {})
+    }
+
+    fn spawn_loop_with<C: Clock + 'static>(
+        transport: ScriptedTransport,
+        clock: C,
+        core: Arc<Mutex<SchedulerCore>>,
+        notify: Arc<Notify>,
+        on_state: impl Fn(MeterState) + Send + Sync + 'static,
+    ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(run_loop(
             transport,
-            SystemClock::default(),
+            clock,
             SchedulerHandle::new(core, notify),
             None,
-            |_| {},
+            on_state,
         ))
     }
 
@@ -298,7 +364,7 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 1);
 
         // A new session key wakes it and polling resumes.
-        notify.notify_one();
+        SchedulerHandle::new(Arc::clone(&core), Arc::clone(&notify)).resume_polling();
         wait_until(|| count.load(Ordering::SeqCst) >= 2).await;
         wait_until(|| lock(&core).state(Timestamp::now()).phase == Phase::Polling).await;
         task.abort();
@@ -334,6 +400,105 @@ mod tests {
             after_1h <= 30,
             "expected capped backoff, got {after_1h} attempts in an hour"
         );
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn clock_jump_mid_wait_forces_an_early_refresh() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let clock = FakeClock::new(base());
+        let core = Arc::new(Mutex::new(SchedulerCore::new(
+            RefreshInterval::TenMinutes,
+            None,
+        )));
+        let notify = Arc::new(Notify::new());
+        let transport = ScriptedTransport {
+            count: Arc::clone(&count),
+            script: vec![FetchOutcome::Success(snapshot_at(base()))],
+        };
+        let task = spawn_loop_with(
+            transport,
+            clock.clone(),
+            Arc::clone(&core),
+            Arc::clone(&notify),
+            |_| {},
+        );
+
+        wait_until(|| count.load(Ordering::SeqCst) == 1).await;
+        // One drift-check slice with matched (zero) advances: no refresh.
+        tokio::time::sleep(DRIFT_CHECK_SLICE).await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+
+        // Asleep for ten minutes: wall runs ahead, monotonic stands still.
+        // The next slice notices the drift and forces a refresh mid-wait,
+        // long before the 10-minute interval would have elapsed.
+        clock.advance(600, 0);
+        tokio::time::sleep(DRIFT_CHECK_SLICE).await;
+        wait_until(|| count.load(Ordering::SeqCst) == 2).await;
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refresh_request_mid_wait_fetches_early_once_ttl_expires() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let clock = FakeClock::new(base());
+        let core = Arc::new(Mutex::new(SchedulerCore::new(
+            RefreshInterval::TenMinutes,
+            None,
+        )));
+        let notify = Arc::new(Notify::new());
+        let handle = SchedulerHandle::new(Arc::clone(&core), Arc::clone(&notify));
+        let transport = ScriptedTransport {
+            count: Arc::clone(&count),
+            script: vec![FetchOutcome::Success(snapshot_at(base()))],
+        };
+        let task = spawn_loop_with(transport, clock.clone(), core, notify, |_| {});
+
+        wait_until(|| count.load(Ordering::SeqCst) == 1).await;
+        // Fresh snapshot: the request is served from memory, no fetch.
+        handle.request_refresh();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+
+        // Once the snapshot ages past the TTL, the same request interrupts
+        // the in-progress wait instead of waiting out the full interval.
+        clock.advance(60, 60);
+        handle.request_refresh();
+        wait_until(|| count.load(Ordering::SeqCst) == 2).await;
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cleared_session_broadcasts_awaiting_state_without_a_fetch() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let clock = FakeClock::new(base());
+        let core = Arc::new(Mutex::new(SchedulerCore::new(
+            RefreshInterval::OneMinute,
+            None,
+        )));
+        let notify = Arc::new(Notify::new());
+        let handle = SchedulerHandle::new(Arc::clone(&core), Arc::clone(&notify));
+        let phases = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&phases);
+        let transport = ScriptedTransport {
+            count: Arc::clone(&count),
+            script: vec![FetchOutcome::Success(snapshot_at(base()))],
+        };
+        let task = spawn_loop_with(transport, clock.clone(), core, notify, move |state| {
+            sink.lock().unwrap().push(state.phase);
+        });
+
+        wait_until(|| count.load(Ordering::SeqCst) == 1).await;
+        // The snapshot is fresh, so the wakeup fetches nothing — but the
+        // cleared session must still be broadcast immediately, not on the
+        // next scheduled tick.
+        handle.mark_no_session();
+        wait_until(|| phases.lock().unwrap().last() == Some(&Phase::AwaitingSession)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+
+        // And the loop parks: hours pass with no further attempts.
+        tokio::time::sleep(Duration::from_hours(1)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
         task.abort();
     }
 
