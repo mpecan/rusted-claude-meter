@@ -10,6 +10,8 @@
 pub mod core;
 #[cfg(test)]
 mod mock_integration;
+#[cfg(test)]
+mod test_support;
 pub mod transport;
 
 use std::path::PathBuf;

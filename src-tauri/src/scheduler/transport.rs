@@ -134,31 +134,11 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+    use crate::scheduler::test_support::{USAGE_BODY, mount_org_discovery, store_with_key};
     use crate::store::FakeSessionStore;
-    use meter_core::SessionKey;
     use pretty_assertions::assert_eq;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    const RAW_KEY: &str = "sk-ant-sid01-abcDEF123456_-xyz789";
-    const USAGE_BODY: &str = r#"{"five_hour":{"utilization":10.0,"resets_at":"2026-07-17T15:00:00Z"},"seven_day":null,"limits":[]}"#;
-
-    fn store_with_key() -> Arc<FakeSessionStore> {
-        Arc::new(FakeSessionStore::with_key(
-            SessionKey::parse(RAW_KEY).unwrap(),
-        ))
-    }
-
-    async fn mount_org_discovery(server: &MockServer) {
-        Mock::given(method("GET"))
-            .and(path("/organizations"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!([{ "uuid": "org-1", "name": "Acme" }])),
-            )
-            .mount(server)
-            .await;
-    }
 
     /// A `LiveTransport` pointed at a mock server end to end: real
     /// `UsageClient` requests over loopback, no live claude.ai access — the

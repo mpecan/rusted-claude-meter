@@ -27,7 +27,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 jiff = { workspace = true }
-tokio = { version = "1", features = ["sync", "time", "macros"] }
+tokio = { workspace = true, features = ["sync", "time", "macros"] }
 keyring-core = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -39,8 +39,8 @@ zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
-tokio = { version = "1", features = ["rt", "test-util"] }
-wiremock = "0.6"
+tokio = { workspace = true, features = ["rt", "test-util"] }
+wiremock = { workspace = true }
 
 [lints]
 workspace = true

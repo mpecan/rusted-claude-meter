@@ -26,35 +26,14 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use meter_core::SessionKey;
 use tokio::sync::Notify;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::core::{FetchOutcome, Phase};
+use super::test_support::{USAGE_BODY, mount_org_discovery, store_with_key};
 use super::transport::{LiveTransport, UsageTransport};
 use super::{PersistPaths, RefreshInterval, SchedulerCore, SchedulerHandle, SystemClock, run_loop};
-use crate::store::FakeSessionStore;
-
-const RAW_KEY: &str = "sk-ant-sid01-abcDEF123456_-xyz789";
-const USAGE_BODY: &str = r#"{"five_hour":{"utilization":10.0,"resets_at":"2026-07-17T15:00:00Z"},"seven_day":null,"limits":[]}"#;
-
-fn store() -> Arc<FakeSessionStore> {
-    Arc::new(FakeSessionStore::with_key(
-        SessionKey::parse(RAW_KEY).unwrap(),
-    ))
-}
-
-async fn mount_org_discovery(server: &MockServer) {
-    Mock::given(method("GET"))
-        .and(path("/organizations"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!([{ "uuid": "org-1", "name": "Acme" }])),
-        )
-        .mount(server)
-        .await;
-}
 
 fn phase_of(core: &Mutex<SchedulerCore>) -> Phase {
     core.lock()
@@ -120,7 +99,7 @@ async fn real_http_backoff_sequence_matches_the_core_formula() {
         .mount(&server)
         .await;
 
-    let transport = LiveTransport::with_base_url(store(), server.uri());
+    let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
     let mut core = SchedulerCore::new(RefreshInterval::OneMinute, None);
     let mut delays = Vec::new();
 
@@ -178,7 +157,7 @@ async fn real_http_401_propagates_to_session_expired_and_recovers_on_resume() {
     let notify = Arc::new(Notify::new());
     let handle = SchedulerHandle::new(Arc::clone(&core), Arc::clone(&notify));
     let task = tokio::spawn(run_loop(
-        LiveTransport::with_base_url(store(), server.uri()),
+        LiveTransport::with_base_url(store_with_key(), server.uri()),
         SystemClock::default(),
         SchedulerHandle::new(Arc::clone(&core), notify),
         PersistPaths::default(),
@@ -225,7 +204,7 @@ async fn run_loop_completes_a_real_fetch_through_the_full_stack() {
     )));
     let notify = Arc::new(Notify::new());
     let task = tokio::spawn(run_loop(
-        LiveTransport::with_base_url(store(), server.uri()),
+        LiveTransport::with_base_url(store_with_key(), server.uri()),
         SystemClock::default(),
         SchedulerHandle::new(Arc::clone(&core), notify),
         PersistPaths::default(),
