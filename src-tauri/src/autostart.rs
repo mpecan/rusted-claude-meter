@@ -52,7 +52,18 @@ fn set_autostart_impl(controller: &dyn AutostartController, enabled: bool) -> Re
     }
     // Re-read rather than trust `enabled`: the OS call is what's real, and
     // the frontend uses the returned value to reconcile the checkbox.
-    controller.is_enabled()
+    //
+    // But a failure here is a *read* failure, not a *write* failure — the
+    // enable()/disable() above already succeeded, so it must not be folded
+    // into the same `Err`. The frontend treats an `Err` as "the toggle
+    // failed" and reverts the checkbox to the opposite of `enabled`, which
+    // would then contradict the OS registration this call just successfully
+    // changed. Fall back to the requested value (known-good) and log the
+    // read failure instead of surfacing it as if the write itself failed.
+    controller.is_enabled().or_else(|error| {
+        eprintln!("autostart: write succeeded but confirmatory read failed: {error}");
+        Ok(enabled)
+    })
 }
 
 /// Whether launch-at-login is currently registered with the OS, for the
@@ -88,6 +99,7 @@ mod tests {
     struct FakeController {
         enabled: Mutex<bool>,
         fail: bool,
+        fail_read: bool,
     }
 
     impl FakeController {
@@ -95,6 +107,7 @@ mod tests {
             Self {
                 enabled: Mutex::new(initial),
                 fail: false,
+                fail_read: false,
             }
         }
 
@@ -102,6 +115,18 @@ mod tests {
             Self {
                 enabled: Mutex::new(false),
                 fail: true,
+                fail_read: false,
+            }
+        }
+
+        /// `enable()`/`disable()` succeed and actually flip the backing
+        /// state, but the confirmatory `is_enabled()` read fails — the
+        /// scenario `set_autostart_impl` must not fold into a single `Err`.
+        fn read_fails(initial: bool) -> Self {
+            Self {
+                enabled: Mutex::new(initial),
+                fail: false,
+                fail_read: true,
             }
         }
     }
@@ -124,7 +149,7 @@ mod tests {
         }
 
         fn is_enabled(&self) -> Result<bool, String> {
-            if self.fail {
+            if self.fail || self.fail_read {
                 return Err("boom".to_owned());
             }
             Ok(*self.enabled.lock().unwrap())
@@ -182,5 +207,17 @@ mod tests {
             set_autostart_impl(&FakeController::failing(), true),
             Err("boom".to_owned())
         );
+    }
+
+    #[test]
+    fn set_autostart_falls_back_to_requested_value_when_confirmatory_read_fails() {
+        let controller = FakeController::read_fails(false);
+        // The write succeeded (the fake's backing state actually flipped);
+        // only the read-back afterward fails. That must not surface as an
+        // `Err`, which the frontend would treat as "the write failed" and
+        // revert the checkbox to contradict the registration this call just
+        // made.
+        assert_eq!(set_autostart_impl(&controller, true), Ok(true));
+        assert!(*controller.enabled.lock().unwrap());
     }
 }

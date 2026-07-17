@@ -134,7 +134,12 @@ function main(): void {
         autostartToggle.checked = enabled;
       })
       .catch((error: unknown) => {
+        // Unlike the write path below, a failed read leaves the checkbox at
+        // its previous value with nothing on screen to say it might not
+        // reflect the real OS registration — surface it the same way.
         console.error("failed to read autostart status", error);
+        autostartError.textContent = describeError(error);
+        autostartError.hidden = false;
       });
   }
 
@@ -305,6 +310,12 @@ function main(): void {
   autostartToggle.addEventListener("change", () => {
     const requested = autostartToggle.checked;
     autostartError.hidden = true;
+    // Guard against overlapping enable/disable IPC calls against the same
+    // OS-level Launch Agent / .desktop entry: without this, rapid
+    // re-toggling can fire two requests whose responses arrive out of
+    // order, leaving the checkbox showing whichever settled last rather
+    // than the actual final OS registration.
+    autostartToggle.disabled = true;
     backend
       .setAutostart(requested)
       .then((actual) => {
@@ -318,6 +329,9 @@ function main(): void {
         autostartToggle.checked = !requested;
         autostartError.textContent = describeError(error);
         autostartError.hidden = false;
+      })
+      .finally(() => {
+        autostartToggle.disabled = false;
       });
   });
 
