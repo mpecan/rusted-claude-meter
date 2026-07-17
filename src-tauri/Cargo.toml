@@ -24,6 +24,8 @@ tauri-plugin-opener = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+jiff = { workspace = true }
+tokio = { version = "1", features = ["sync", "time"] }
 keyring-core = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -34,6 +36,14 @@ zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] 
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { version = "1", features = [
+    "sync",
+    "time",
+    "macros",
+    "rt",
+    "test-util",
+] }
 
 [lints]
 workspace = true
