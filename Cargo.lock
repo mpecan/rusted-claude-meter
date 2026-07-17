@@ -2282,6 +2282,7 @@ dependencies = [
  "png 0.18.1",
  "pretty_assertions",
  "resvg",
+ "serde",
  "thiserror 2.0.18",
 ]
 

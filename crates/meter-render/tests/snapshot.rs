@@ -31,53 +31,101 @@ const GRID: u32 = 8;
 /// resolve to 0 deterministically.
 const DEAD_ZONE: f64 = 3.0;
 
-fn cases() -> Vec<(&'static str, IconState)> {
+fn cases() -> Vec<(String, IconState)> {
     let state = |percent, status, at_risk, mono, scale| IconState {
         style: IconStyle::Battery,
         percent,
+        secondary_percent: percent,
         status,
         at_risk,
         mono,
         scale,
     };
-    vec![
+    let mut cases = matrix_cases();
+    cases.extend([
         (
-            "battery_000_safe",
+            "battery_000_safe".to_owned(),
             state(0, UsageStatus::Safe, false, false, Scale::X1),
         ),
         (
-            "battery_035_safe",
+            "battery_035_safe".to_owned(),
             state(35, UsageStatus::Safe, false, false, Scale::X1),
         ),
         (
-            "battery_035_safe_2x",
+            "battery_035_safe_2x".to_owned(),
             state(35, UsageStatus::Safe, false, false, Scale::X2),
         ),
         (
-            "battery_065_warning",
+            "battery_065_warning".to_owned(),
             state(65, UsageStatus::Warning, false, false, Scale::X1),
         ),
         (
-            "battery_065_warning_at_risk",
+            "battery_065_warning_at_risk".to_owned(),
             state(65, UsageStatus::Warning, true, false, Scale::X1),
         ),
         (
-            "battery_092_critical",
+            "battery_092_critical".to_owned(),
             state(92, UsageStatus::Critical, false, false, Scale::X1),
         ),
         (
-            "battery_092_critical_mono",
+            "battery_092_critical_mono".to_owned(),
             state(92, UsageStatus::Critical, false, true, Scale::X1),
         ),
         (
-            "battery_100_critical_at_risk_2x",
+            "battery_100_critical_at_risk_2x".to_owned(),
             state(100, UsageStatus::Critical, true, false, Scale::X2),
         ),
         (
-            "battery_050_warning_mono_at_risk",
+            "battery_050_warning_mono_at_risk".to_owned(),
             state(50, UsageStatus::Warning, true, true, Scale::X1),
         ),
-    ]
+    ]);
+    cases
+}
+
+/// One snapshot per style × status × mono — the full matrix issue #9 asks
+/// for. Each combination gets a representative percent (35/65/92, mirroring
+/// the hand-picked Battery cases above) and, for Dual Bar, a distinct
+/// secondary percent so its second bar is exercised too.
+fn matrix_cases() -> Vec<(String, IconState)> {
+    const STYLES: [(&str, IconStyle); 6] = [
+        ("battery", IconStyle::Battery),
+        ("circular", IconStyle::Circular),
+        ("minimal", IconStyle::Minimal),
+        ("segments", IconStyle::Segments),
+        ("dual_bar", IconStyle::DualBar),
+        ("gauge", IconStyle::Gauge),
+    ];
+    const STATUSES: [(&str, UsageStatus, u8); 3] = [
+        ("safe", UsageStatus::Safe, 35),
+        ("warning", UsageStatus::Warning, 65),
+        ("critical", UsageStatus::Critical, 92),
+    ];
+
+    let mut cases = Vec::with_capacity(STYLES.len() * STATUSES.len() * 2);
+    for (style_name, style) in STYLES {
+        for (status_name, status, percent) in STATUSES {
+            for mono in [false, true] {
+                let name = format!(
+                    "matrix_{style_name}_{status_name}_{}",
+                    if mono { "mono" } else { "color" }
+                );
+                cases.push((
+                    name,
+                    IconState {
+                        style,
+                        percent,
+                        secondary_percent: 100 - percent,
+                        status,
+                        at_risk: false,
+                        mono,
+                        scale: Scale::X1,
+                    },
+                ));
+            }
+        }
+    }
+    cases
 }
 
 #[test]
@@ -87,7 +135,7 @@ fn rendered_icons_match_snapshots() {
 
     for (name, state) in cases() {
         let icon = render_icon(&state).unwrap();
-        let path = snapshot_path(name);
+        let path = snapshot_path(&name);
 
         if update {
             write_png(&path, &icon);
@@ -127,6 +175,7 @@ fn distinct_states_hash_differently() {
         render_icon(&IconState {
             style: IconStyle::Battery,
             percent,
+            secondary_percent: percent,
             status,
             at_risk: false,
             mono,
@@ -149,6 +198,7 @@ fn scales_are_perceptually_equivalent() {
         render_icon(&IconState {
             style: IconStyle::Battery,
             percent: 65,
+            secondary_percent: 65,
             status: UsageStatus::Warning,
             at_risk: true,
             mono: false,

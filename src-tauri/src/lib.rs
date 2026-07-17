@@ -42,6 +42,7 @@ pub fn run() -> tauri::Result<()> {
             commands::usage_state,
             commands::refresh_usage,
             commands::set_refresh_interval,
+            commands::set_icon_style,
         ])
         .setup(move |app| {
             // Menu-bar-only on macOS: no Dock icon, no app switcher entry.

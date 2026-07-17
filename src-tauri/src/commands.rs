@@ -8,11 +8,13 @@
 use std::sync::Arc;
 
 use meter_core::{SessionKey, SessionKeyError};
+use meter_render::IconStyle;
 use serde::Serialize;
 use tauri::State;
 
 use crate::scheduler::{MeterState, RefreshInterval, SchedulerHandle};
 use crate::store::{SessionStore, StoreError};
+use crate::tray;
 
 /// Managed Tauri state wrapping the active [`SessionStore`].
 pub struct SessionStoreState(pub Arc<dyn SessionStore>);
@@ -132,6 +134,18 @@ pub fn refresh_usage(scheduler: State<'_, SchedulerHandle>) {
 #[tauri::command]
 pub fn set_refresh_interval(scheduler: State<'_, SchedulerHandle>, interval: RefreshInterval) {
     scheduler.set_interval(interval);
+}
+
+/// Change the tray icon style (Settings, issue #9) and apply it
+/// immediately, so switching styles never needs a restart.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_icon_style(
+    app: tauri::AppHandle,
+    scheduler: State<'_, SchedulerHandle>,
+    style: IconStyle,
+) {
+    tray::set_style(&app, style, &scheduler.state_now());
 }
 
 #[cfg(test)]

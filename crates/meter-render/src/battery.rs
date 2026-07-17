@@ -7,16 +7,8 @@
 
 use std::fmt::Write as _;
 
-use meter_core::UsageStatus;
-
+use crate::palette::{CRITICAL, MONO, ink};
 use crate::state::IconState;
-
-/// Apple system green / orange / red, matching the original `ClaudeMeter`.
-const SAFE: &str = "#34C759";
-const WARNING: &str = "#FF9500";
-const CRITICAL: &str = "#FF3B30";
-/// Monochrome / template artwork is alpha-only black.
-const MONO: &str = "#000000";
 
 /// Charge fill geometry: inset inside the stroked body.
 const FILL_X: f64 = 3.0;
@@ -25,11 +17,7 @@ const FILL_MAX_WIDTH: f64 = 14.0;
 const FILL_MIN_WIDTH: f64 = 1.0;
 
 pub fn svg(state: IconState) -> String {
-    let ink = if state.mono {
-        MONO
-    } else {
-        status_color(state.status)
-    };
+    let ink = ink(state.mono, state.status);
     let badge = if state.mono { MONO } else { CRITICAL };
 
     let mut out = String::with_capacity(640);
@@ -58,23 +46,18 @@ pub fn svg(state: IconState) -> String {
     out
 }
 
-const fn status_color(status: UsageStatus) -> &'static str {
-    match status {
-        UsageStatus::Safe => SAFE,
-        UsageStatus::Warning => WARNING,
-        UsageStatus::Critical => CRITICAL,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::palette::{SAFE, WARNING};
     use crate::state::{IconStyle, Scale};
+    use meter_core::UsageStatus;
 
     fn state(percent: u8, status: UsageStatus, at_risk: bool, mono: bool) -> IconState {
         IconState {
             style: IconStyle::Battery,
             percent,
+            secondary_percent: 0,
             status,
             at_risk,
             mono,

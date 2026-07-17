@@ -1,18 +1,23 @@
 use jiff::Timestamp;
 use meter_core::{UsageSnapshot, UsageStatus};
+use serde::{Deserialize, Serialize};
 
 /// Logical icon size in CSS pixels: the common menu-bar/tray glyph size on
 /// both macOS (22pt menu bar) and Linux (22/24px trays scale it well).
 pub const BASE_SIZE: u32 = 22;
 
-/// Tray icon visual style.
-///
-/// Battery is the MVP style; Circular, Minimal, Segments, Dual Bar and Gauge
-/// arrive with issue #9, which is why this enum is `non_exhaustive`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
+/// Tray icon visual style — the six styles `ClaudeMeter` offers, selectable
+/// live in Settings (issue #9). `Serialize`/`Deserialize` let the Tauri
+/// command surface accept and persist a plain string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IconStyle {
     Battery,
+    Circular,
+    Minimal,
+    Segments,
+    DualBar,
+    Gauge,
 }
 
 /// Raster scale factor over [`BASE_SIZE`]: 1x for standard density, 2x for
@@ -51,6 +56,11 @@ pub struct IconState {
     /// Displayed percentage, rounded to the nearest whole number and clamped
     /// to `0..=100` (the API can report utilization above 100).
     pub percent: u8,
+    /// A second percentage for styles that show two windows at once (Dual
+    /// Bar: 5-hour on top, 7-day on the bottom). Ignored by every other
+    /// style, but still part of the cache key so it never causes a stale
+    /// render to be reused. `0` when the snapshot has no 7-day window.
+    pub secondary_percent: u8,
     pub status: UsageStatus,
     /// Pacing at-risk indicator (the badge dot), from [`PacingAssessment`].
     pub at_risk: bool,
@@ -65,8 +75,10 @@ impl IconState {
     ///
     /// The displayed percentage is the five-hour headline window (the number
     /// the original `ClaudeMeter` gauges), falling back to seven-day and then
-    /// to the busiest scoped limit. Status is the worst across every window,
-    /// and the at-risk badge lights up when any window is pacing at risk.
+    /// to the busiest scoped limit. `secondary_percent` is specifically the
+    /// seven-day window (0 when the snapshot has none), for Dual Bar's second
+    /// row. Status is the worst across every window, and the at-risk badge
+    /// lights up when any window is pacing at risk.
     pub fn from_snapshot(
         snapshot: &UsageSnapshot,
         now: Timestamp,
@@ -87,9 +99,14 @@ impl IconState {
                     .max_by(f64::total_cmp)
             })
             .unwrap_or(0.0);
+        let secondary_percent = snapshot
+            .seven_day
+            .as_ref()
+            .map_or(0.0, |window| window.utilization);
         Self {
             style,
             percent: round_percent(percent),
+            secondary_percent: round_percent(secondary_percent),
             status: snapshot.overall_status(),
             at_risk: snapshot.at_risk(now),
             mono,
@@ -152,6 +169,30 @@ mod tests {
         assert_eq!(s.percent, 30);
         // ...but status is still the worst window.
         assert_eq!(s.status, UsageStatus::Critical);
+    }
+
+    #[test]
+    fn secondary_percent_is_the_seven_day_window_independent_of_the_headline() {
+        let snapshot = UsageSnapshot {
+            five_hour: Some(window(30.0, 150, LimitWindow::FiveHour)),
+            seven_day: Some(window(64.0, 5000, LimitWindow::SevenDay)),
+            scoped: vec![],
+            fetched_at: now(),
+        };
+        let s = state(&snapshot);
+        assert_eq!(s.percent, 30);
+        assert_eq!(s.secondary_percent, 64);
+    }
+
+    #[test]
+    fn secondary_percent_is_zero_without_a_seven_day_window() {
+        let snapshot = UsageSnapshot {
+            five_hour: Some(window(30.0, 150, LimitWindow::FiveHour)),
+            seven_day: None,
+            scoped: vec![],
+            fetched_at: now(),
+        };
+        assert_eq!(state(&snapshot).secondary_percent, 0);
     }
 
     #[test]

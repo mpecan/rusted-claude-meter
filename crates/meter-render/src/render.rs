@@ -1,8 +1,8 @@
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
-use crate::battery;
 use crate::state::{BASE_SIZE, IconState, IconStyle};
+use crate::{battery, circular, dual_bar, gauge, minimal, segments};
 
 /// Rendering failure.
 ///
@@ -34,6 +34,11 @@ pub struct RenderedIcon {
 pub fn render_icon(state: &IconState) -> Result<RenderedIcon, RenderError> {
     let svg = match state.style {
         IconStyle::Battery => battery::svg(*state),
+        IconStyle::Circular => circular::svg(*state),
+        IconStyle::Minimal => minimal::svg(*state),
+        IconStyle::Segments => segments::svg(*state),
+        IconStyle::DualBar => dual_bar::svg(*state),
+        IconStyle::Gauge => gauge::svg(*state),
     };
     let tree = Tree::from_str(&svg, &Options::default())
         .map_err(|error| RenderError::Template(error.to_string()))?;
@@ -74,10 +79,30 @@ mod tests {
     use meter_core::UsageStatus;
     use pretty_assertions::assert_eq;
 
+    const ALL_STYLES: [IconStyle; 6] = [
+        IconStyle::Battery,
+        IconStyle::Circular,
+        IconStyle::Minimal,
+        IconStyle::Segments,
+        IconStyle::DualBar,
+        IconStyle::Gauge,
+    ];
+
     fn state(percent: u8, status: UsageStatus, mono: bool, scale: Scale) -> IconState {
+        style_state(IconStyle::Battery, percent, status, mono, scale)
+    }
+
+    fn style_state(
+        style: IconStyle,
+        percent: u8,
+        status: UsageStatus,
+        mono: bool,
+        scale: Scale,
+    ) -> IconState {
         IconState {
-            style: IconStyle::Battery,
+            style,
             percent,
+            secondary_percent: percent,
             status,
             at_risk: false,
             mono,
@@ -134,5 +159,71 @@ mod tests {
         };
         assert!(count(100) > count(50));
         assert!(count(50) > count(0));
+    }
+
+    // --- every style, not just Battery -------------------------------------
+    //
+    // Issue #9's acceptance criteria call for every style to stay legible at
+    // 22px and in monochrome/template mode. These loop over `ALL_STYLES` so a
+    // future seventh style is covered automatically; the perceptual-hash
+    // snapshot matrix in `tests/snapshot.rs` covers the visual shape.
+
+    #[test]
+    fn every_style_renders_at_both_scales() {
+        for style in ALL_STYLES {
+            let x1 = render_icon(&style_state(
+                style,
+                65,
+                UsageStatus::Warning,
+                false,
+                Scale::X1,
+            ))
+            .unwrap();
+            assert_eq!((x1.width, x1.height), (22, 22), "{style:?} at 1x");
+
+            let x2 = render_icon(&style_state(
+                style,
+                65,
+                UsageStatus::Warning,
+                false,
+                Scale::X2,
+            ))
+            .unwrap();
+            assert_eq!((x2.width, x2.height), (44, 44), "{style:?} at 2x");
+        }
+    }
+
+    #[test]
+    fn every_style_is_pure_black_ink_in_mono() {
+        for style in ALL_STYLES {
+            let icon = render_icon(&style_state(
+                style,
+                80,
+                UsageStatus::Critical,
+                true,
+                Scale::X1,
+            ))
+            .unwrap();
+            assert!(icon.is_template, "{style:?} must be a template in mono");
+            for px in opaque_pixels(&icon) {
+                assert_eq!(&px[..3], [0, 0, 0], "{style:?} mono ink must be black");
+            }
+        }
+    }
+
+    #[test]
+    fn every_style_renders_some_ink_at_a_nonzero_percent() {
+        for style in ALL_STYLES {
+            let icon = render_icon(&style_state(
+                style,
+                45,
+                UsageStatus::Warning,
+                false,
+                Scale::X1,
+            ))
+            .unwrap();
+            let opaque = icon.rgba.chunks_exact(4).filter(|px| px[3] > 0).count();
+            assert!(opaque > 0, "{style:?} produced no visible ink at all");
+        }
     }
 }

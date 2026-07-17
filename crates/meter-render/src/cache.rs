@@ -5,11 +5,14 @@ use crate::render::{RenderError, RenderedIcon, render_icon};
 use crate::state::IconState;
 
 /// Memoized icon renders, keyed on the full [`IconState`] — style, rounded
-/// percent, status, at-risk badge, mono and scale — mirroring `ClaudeMeter`'s
-/// `IconCache`.
+/// percent (and secondary percent, for Dual Bar), status, at-risk badge, mono
+/// and scale — mirroring `ClaudeMeter`'s `IconCache`.
 ///
-/// The key space is inherently bounded (101 percents x a handful of flags per
-/// style), so entries are never evicted.
+/// The theoretical key space is large (two independent 0–100 percentages ×
+/// six styles × a handful of flags), but style, mono and scale are
+/// effectively fixed for a running process and the two percentages only ever
+/// take the values actually observed from live usage — in practice this
+/// stays a small, slowly-growing set, so entries are never evicted.
 #[derive(Debug, Default)]
 pub struct IconCache {
     entries: HashMap<IconState, Arc<RenderedIcon>>,
@@ -53,6 +56,7 @@ mod tests {
         IconState {
             style: IconStyle::Battery,
             percent,
+            secondary_percent: 0,
             status: UsageStatus::Safe,
             at_risk: false,
             mono: false,

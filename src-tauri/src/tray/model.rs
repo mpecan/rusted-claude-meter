@@ -25,18 +25,27 @@ pub struct MenuModel {
 }
 
 /// The icon to render for a state: the live gauge when a snapshot exists,
-/// an empty safe gauge otherwise.
-pub fn icon_state(state: &MeterState, now: Timestamp, mono: bool, scale: Scale) -> IconState {
+/// an empty safe gauge otherwise. `style` is the user's current choice from
+/// Settings — passed in rather than hardcoded so switching styles takes
+/// effect on the very next state (no restart needed).
+pub fn icon_state(
+    state: &MeterState,
+    now: Timestamp,
+    style: IconStyle,
+    mono: bool,
+    scale: Scale,
+) -> IconState {
     state.snapshot.as_ref().map_or(
         IconState {
-            style: IconStyle::Battery,
+            style,
             percent: 0,
+            secondary_percent: 0,
             status: meter_core::UsageStatus::Safe,
             at_risk: false,
             mono,
             scale,
         },
-        |snapshot| IconState::from_snapshot(snapshot, now, IconStyle::Battery, mono, scale),
+        |snapshot| IconState::from_snapshot(snapshot, now, style, mono, scale),
     )
 }
 
@@ -357,7 +366,7 @@ mod tests {
 
     #[test]
     fn icon_state_uses_the_snapshot_when_present() {
-        let icon = icon_state(&healthy(), now(), true, Scale::X2);
+        let icon = icon_state(&healthy(), now(), IconStyle::Battery, true, Scale::X2);
         assert_eq!(icon.percent, 42);
         assert!(icon.mono);
         // Fable at ~100% drives the worst-window status.
@@ -367,16 +376,29 @@ mod tests {
     #[test]
     fn icon_state_is_an_empty_safe_gauge_without_a_snapshot() {
         let empty = state(Phase::AwaitingSession, Staleness::Missing, None);
-        let icon = icon_state(&empty, now(), false, Scale::X1);
+        let icon = icon_state(&empty, now(), IconStyle::Battery, false, Scale::X1);
         assert_eq!(icon.percent, 0);
         assert_eq!(icon.status, UsageStatus::Safe);
         assert!(!icon.at_risk);
     }
 
     #[test]
+    fn icon_state_carries_the_requested_style_through_snapshot_and_empty_paths() {
+        // A style switch (Settings, issue #9) must show up in the very next
+        // `icon_state`, with or without a live snapshot — that is what lets
+        // the tray apply it live without a restart.
+        let icon = icon_state(&healthy(), now(), IconStyle::Gauge, false, Scale::X2);
+        assert_eq!(icon.style, IconStyle::Gauge);
+
+        let empty = state(Phase::AwaitingSession, Staleness::Missing, None);
+        let icon = icon_state(&empty, now(), IconStyle::Segments, false, Scale::X1);
+        assert_eq!(icon.style, IconStyle::Segments);
+    }
+
+    #[test]
     fn identical_states_debounce_to_a_noop_once_committed() {
         let mut diff = TrayDiff::default();
-        let icon = icon_state(&healthy(), now(), false, Scale::X2);
+        let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
         let menu = menu_model(&healthy(), now());
 
         let first = diff.plan(icon, &menu);
@@ -398,7 +420,7 @@ mod tests {
     #[test]
     fn uncommitted_plan_is_replanned_so_failed_applies_are_retried() {
         let mut diff = TrayDiff::default();
-        let icon = icon_state(&healthy(), now(), false, Scale::X2);
+        let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
         let menu = menu_model(&healthy(), now());
 
         // The caller failed to apply (render/rebuild error) and committed
@@ -419,7 +441,7 @@ mod tests {
     #[test]
     fn menu_only_change_leaves_the_icon_untouched() {
         let mut diff = TrayDiff::default();
-        let icon = icon_state(&healthy(), now(), false, Scale::X2);
+        let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
         let menu = menu_model(&healthy(), now());
         diff.commit_icon(icon);
         diff.commit_menu(menu);
@@ -435,7 +457,7 @@ mod tests {
     fn icon_change_is_planned_even_when_the_menu_is_identical() {
         let mut diff = TrayDiff::default();
         let menu = menu_model(&healthy(), now());
-        let icon = icon_state(&healthy(), now(), false, Scale::X2);
+        let icon = icon_state(&healthy(), now(), IconStyle::Battery, false, Scale::X2);
         diff.commit_icon(icon);
         diff.commit_menu(menu.clone());
 

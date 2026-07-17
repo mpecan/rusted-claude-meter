@@ -6,11 +6,18 @@
 //! `src-tauri` wraps the bytes in a tray image and applies macOS template
 //! semantics using [`RenderedIcon::is_template`].
 //!
-//! Battery is the only style for now; the remaining five styles are issue #9.
+//! All six `ClaudeMeter` styles are implemented: Battery, Circular, Minimal,
+//! Segments, Dual Bar and Gauge (issue #9).
 
 mod battery;
 mod cache;
+mod circular;
+mod dual_bar;
+mod gauge;
+mod minimal;
+mod palette;
 mod render;
+mod segments;
 mod state;
 
 pub use cache::IconCache;

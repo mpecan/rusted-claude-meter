@@ -26,7 +26,7 @@ mod popover;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use jiff::Timestamp;
-use meter_render::{IconCache, RenderedIcon, Scale};
+use meter_render::{IconCache, IconStyle, RenderedIcon, Scale};
 use tauri::image::Image;
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
@@ -51,6 +51,10 @@ const MONO: bool = cfg!(target_os = "macos");
 struct TrayResources<R: Runtime> {
     cache: IconCache,
     diff: TrayDiff,
+    /// The user's current style choice (Settings, issue #6). Read fresh on
+    /// every [`apply_state`], so [`set_style`] changing it takes effect on
+    /// the very next render — no restart, no tray/menu rebuild.
+    style: IconStyle,
     status_item: MenuItem<R>,
     usage_items: Vec<MenuItem<R>>,
 }
@@ -99,7 +103,8 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Resu
     // retries the real gauge.
     let mut cache = IconCache::new();
     let mut diff = TrayDiff::default();
-    let icon = model::icon_state(initial, now, MONO, Scale::X2);
+    let style = IconStyle::Battery;
+    let icon = model::icon_state(initial, now, style, MONO, Scale::X2);
     match cache.get_or_render(icon) {
         Ok(rendered) => {
             tray = tray
@@ -121,10 +126,21 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Resu
     app.manage(TrayUpdater(Mutex::new(TrayResources {
         cache,
         diff,
+        style,
         status_item,
         usage_items,
     })));
     Ok(())
+}
+
+/// Change the tray's icon style and re-render the current state under it
+/// immediately — the live-switch path Settings drives (issue #9). A no-op if
+/// the tray has not been initialized yet.
+pub fn set_style<R: Runtime>(app: &AppHandle<R>, style: IconStyle, state: &MeterState) {
+    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
+        lock(&updater).style = style;
+    }
+    apply_state(app, state);
 }
 
 /// Live update path: fold one broadcast [`MeterState`] into the tray.
@@ -142,10 +158,10 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
     };
 
     let now = Timestamp::now();
-    let icon = model::icon_state(state, now, MONO, Scale::X2);
     let menu = model::menu_model(state, now);
 
     let mut resources = lock(&updater);
+    let icon = model::icon_state(state, now, resources.style, MONO, Scale::X2);
     let plan = resources.diff.plan(icon, &menu);
     if let Some(icon) = plan.icon {
         match resources.cache.get_or_render(icon) {
