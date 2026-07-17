@@ -4,7 +4,7 @@
 // `settings-view-model.ts` and `browser-import.ts` use. The DOM wiring lives
 // in `wizard.ts`.
 
-import type { WizardSessionResult } from "./types";
+import type { AppSettings, IconStyle, RefreshInterval, WizardSessionResult } from "./types";
 
 /** The wizard's steps, in the order the user walks through them. */
 export type WizardStep = "welcome" | "session" | "validate" | "customize" | "done";
@@ -31,4 +31,15 @@ export function describeWizardValidation(result: WizardSessionResult): string {
     ? "Your session is connected and verified with claude.ai."
     : "Your session is saved. claude.ai couldn't be reached to confirm it just now — it will " +
         "be verified on the next refresh.";
+}
+
+/** What the customize step's icon-style / refresh-interval selects should
+ * show when the wizard opens: the caller's *actual* current settings, not
+ * the step's hard-coded HTML defaults (Battery / Every minute). Matters most
+ * when the wizard is reopened via Settings' "Run setup again" rather than on
+ * first run, where those defaults and the real settings coincide anyway. */
+export function wizardCustomizeDefaults(
+  settings: Pick<AppSettings, "icon_style" | "refresh_interval">,
+): { iconStyle: IconStyle; refreshInterval: RefreshInterval } {
+  return { iconStyle: settings.icon_style, refreshInterval: settings.refresh_interval };
 }

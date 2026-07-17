@@ -5,6 +5,7 @@ import {
   describeWizardValidation,
   stepIndicatorLabel,
   stepNumber,
+  wizardCustomizeDefaults,
 } from "./wizard-view-model";
 
 describe("stepNumber", () => {
@@ -32,5 +33,19 @@ describe("describeWizardValidation", () => {
     const message = describeWizardValidation({ validated: false });
     expect(message).toContain("saved");
     expect(message).toContain("next refresh");
+  });
+});
+
+describe("wizardCustomizeDefaults", () => {
+  it("echoes the caller's actual current settings, not hard-coded defaults", () => {
+    expect(
+      wizardCustomizeDefaults({ icon_style: "gauge", refresh_interval: "ten_minutes" }),
+    ).toEqual({ iconStyle: "gauge", refreshInterval: "ten_minutes" });
+  });
+
+  it("reflects a different combination too, so it isn't just passing one fixed value through", () => {
+    expect(
+      wizardCustomizeDefaults({ icon_style: "battery", refresh_interval: "one_minute" }),
+    ).toEqual({ iconStyle: "battery", refreshInterval: "one_minute" });
   });
 });

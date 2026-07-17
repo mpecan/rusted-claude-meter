@@ -11,9 +11,17 @@ import { describeImportSummary } from "./browser-import";
 import { renderBrowserList } from "./browser-import-render";
 import { createBackend, describeError } from "./ipc";
 import { applyBanner, renderCards, tickCountdowns } from "./render";
-import { renderModelToggles } from "./settings-render";
+import { renderModelToggles, renderSelectOptions } from "./settings-render";
 import { DEFAULT_SETTINGS, scopedModelNames, toggleModel } from "./settings-view-model";
-import type { AppSettings, Browser, IconStyle, MeterState, RefreshInterval } from "./types";
+import {
+  ICON_STYLE_OPTIONS,
+  REFRESH_INTERVAL_OPTIONS,
+  type AppSettings,
+  type Browser,
+  type IconStyle,
+  type MeterState,
+  type RefreshInterval,
+} from "./types";
 import { buildViewModel } from "./view-model";
 import { createWizard } from "./wizard";
 
@@ -59,6 +67,9 @@ function main(): void {
   const browserImportStatus = requireElement<HTMLElement>("browser-import-status");
   const browserImportError = requireElement<HTMLElement>("browser-import-error");
   const runSetupAgainButton = requireElement<HTMLButtonElement>("run-setup-again-button");
+
+  renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
+  renderSelectOptions(iconStyleSelect, ICON_STYLE_OPTIONS);
 
   const backend = createBackend();
 

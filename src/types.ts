@@ -106,6 +106,33 @@ export type RefreshInterval = "one_minute" | "five_minutes" | "ten_minutes";
 /** Mirrors `meter_render::IconStyle` (issue #9's six tray styles). */
 export type IconStyle = "battery" | "circular" | "minimal" | "segments" | "dual_bar" | "gauge";
 
+/** A `<select>` option's value/label pair. */
+export interface SelectOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+/** The tray icon style choices, in display order. Single source of truth for
+ * both the Settings panel's `#icon-style-select` and the wizard's customize
+ * step's `#wizard-icon-style-select` — see `settings-render.ts::renderSelectOptions`,
+ * which both `main.ts` and `wizard.ts` use to populate their `<select>`. */
+export const ICON_STYLE_OPTIONS: readonly SelectOption<IconStyle>[] = [
+  { value: "battery", label: "Battery" },
+  { value: "circular", label: "Circular" },
+  { value: "minimal", label: "Minimal" },
+  { value: "segments", label: "Segments" },
+  { value: "dual_bar", label: "Dual Bar" },
+  { value: "gauge", label: "Gauge" },
+];
+
+/** The refresh interval choices, in display order. Single source of truth
+ * for both `#refresh-interval-select` and `#wizard-refresh-interval-select`. */
+export const REFRESH_INTERVAL_OPTIONS: readonly SelectOption<RefreshInterval>[] = [
+  { value: "one_minute", label: "Every minute" },
+  { value: "five_minutes", label: "Every 5 minutes" },
+  { value: "ten_minutes", label: "Every 10 minutes" },
+];
+
 /** Mirrors `wizard::WizardSessionResult` (issue #11). */
 export interface WizardSessionResult {
   validated: boolean;

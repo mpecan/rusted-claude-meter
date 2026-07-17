@@ -1,7 +1,28 @@
-// DOM rendering for the Settings panel's per-model visibility toggles. Kept
-// separate from `main.ts` for the same reason `render.ts` is: markup
+// DOM rendering for the Settings panel's per-model visibility toggles, plus
+// a small shared helper for populating `<select>` elements from a data list.
+// Kept separate from `main.ts` for the same reason `render.ts` is: markup
 // construction shouldn't tangle with event wiring, and separate from the
 // pure `settings-view-model.ts` so *that* stays DOM-free and testable.
+
+import type { SelectOption } from "./types";
+
+/** Rebuild a `<select>`'s `<option>` list from a single shared data source
+ * (see `types.ts::ICON_STYLE_OPTIONS` / `REFRESH_INTERVAL_OPTIONS`), so the
+ * Settings panel's selects and the wizard's customize-step selects can't
+ * drift out of sync with each other. */
+export function renderSelectOptions<T extends string>(
+  select: HTMLSelectElement,
+  options: readonly SelectOption<T>[],
+): void {
+  select.replaceChildren(
+    ...options.map((option) => {
+      const el = document.createElement("option");
+      el.value = option.value;
+      el.textContent = option.label;
+      return el;
+    }),
+  );
+}
 
 /** Rebuild the model-toggle list from scratch — called once per snapshot
  * update or Settings-panel open, cheap enough not to matter (mirrors

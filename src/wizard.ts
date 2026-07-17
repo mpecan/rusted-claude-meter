@@ -21,8 +21,15 @@ import { describeImportSummary } from "./browser-import";
 import { renderBrowserList } from "./browser-import-render";
 import { describeError } from "./ipc";
 import type { UsageBackend } from "./ipc";
+import { renderSelectOptions } from "./settings-render";
+import { ICON_STYLE_OPTIONS, REFRESH_INTERVAL_OPTIONS } from "./types";
 import type { Browser, IconStyle, RefreshInterval } from "./types";
-import { type WizardStep, describeWizardValidation, stepIndicatorLabel } from "./wizard-view-model";
+import {
+  type WizardStep,
+  describeWizardValidation,
+  stepIndicatorLabel,
+  wizardCustomizeDefaults,
+} from "./wizard-view-model";
 
 /** Callbacks so the wizard's "customize" step, which drives the very same
  * live-apply-and-persist commands the Settings panel does, keeps the
@@ -91,6 +98,9 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
 
   const gnomeHint = requireElement<HTMLElement>("wizard-gnome-hint");
   const finishButton = requireElement<HTMLButtonElement>("wizard-finish-button");
+
+  renderSelectOptions(iconStyleSelect, ICON_STYLE_OPTIONS);
+  renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
 
   function goToStep(step: WizardStep): void {
     for (const [name, el] of Object.entries(steps)) {
@@ -220,10 +230,30 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     callbacks.onClose();
   }
 
+  /** Preselect the customize step's icon-style / refresh-interval selects
+   * from the caller's actual current settings, so reopening the wizard
+   * (Settings' "Run setup again") shows the app's real configuration rather
+   * than the customize step's hard-coded HTML defaults (Battery / Every
+   * minute) — mirrors `main.ts`'s `applySettingsToForm()`. Best-effort: if
+   * this fails the selects just keep whatever they last showed. */
+  function loadCustomizeDefaults(): void {
+    backend
+      .getSettings()
+      .then((settings) => {
+        const defaults = wizardCustomizeDefaults(settings);
+        iconStyleSelect.value = defaults.iconStyle;
+        refreshIntervalSelect.value = defaults.refreshInterval;
+      })
+      .catch((error: unknown) => {
+        console.error("failed to load current settings for the customize step", error);
+      });
+  }
+
   function open(): void {
     panel.hidden = false;
     sessionInput.value = "";
     sessionError.hidden = true;
+    loadCustomizeDefaults();
     goToStep("welcome");
   }
 
