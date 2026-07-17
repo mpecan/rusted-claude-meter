@@ -43,21 +43,20 @@ pub fn proportional_fill(max_width: f64, min_width: f64, percent: u8) -> f64 {
     (max_width * f64::from(percent) / 100.0).max(min_width)
 }
 
-/// The pacing at-risk badge dot, shared geometry across every style: a small
-/// filled circle tucked into the very top-right corner of the (style-specific
-/// width) canvas, clear of the main artwork. Empty when `at_risk` is false.
-pub fn risk_badge(at_risk: bool, mono: bool, canvas_width: f64) -> String {
+/// Append the pacing at-risk badge dot to `out`, shared geometry across every
+/// style: a small filled circle tucked into the very top-right corner of the
+/// (style-specific width) canvas, clear of the main artwork. A no-op when
+/// `at_risk` is false.
+pub fn risk_badge(out: &mut String, at_risk: bool, mono: bool, canvas_width: f64) {
     if !at_risk {
-        return String::new();
+        return;
     }
     let badge = if mono { MONO } else { CRITICAL };
     let cx = canvas_width - 3.0;
-    let mut out = String::with_capacity(48);
     let _ = write!(
         out,
         r#"<circle cx="{cx:.2}" cy="3" r="2.2" fill="{badge}"/>"#
     );
-    out
 }
 
 #[cfg(test)]
@@ -72,10 +71,15 @@ mod tests {
 
     #[test]
     fn risk_badge_is_empty_unless_at_risk() {
-        assert_eq!(risk_badge(false, false, 63.0), "");
-        assert!(risk_badge(true, false, 63.0).contains(CRITICAL));
-        assert!(risk_badge(true, true, 63.0).contains(MONO));
+        let badge = |at_risk, mono| {
+            let mut out = String::new();
+            risk_badge(&mut out, at_risk, mono, 63.0);
+            out
+        };
+        assert_eq!(badge(false, false), "");
+        assert!(badge(true, false).contains(CRITICAL));
+        assert!(badge(true, true).contains(MONO));
         // The badge tracks the right edge of the (style-specific) canvas.
-        assert!(risk_badge(true, false, 63.0).contains(r#"cx="60.00""#));
+        assert!(badge(true, false).contains(r#"cx="60.00""#));
     }
 }

@@ -47,7 +47,7 @@ pub fn svg(state: IconState) -> String {
             out,
             r#"<line x1="{CENTER_X}" y1="{CENTER_Y}" x2="{needle_x:.2}" y2="{needle_y:.2}" stroke="{ink}" stroke-width="1.4" stroke-linecap="round"/><circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{HUB_RADIUS}" fill="{ink}"/>"#
         );
-        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
+        risk_badge(out, state.at_risk, state.mono, canvas_w);
     })
 }
 

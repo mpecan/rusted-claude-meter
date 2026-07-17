@@ -79,6 +79,20 @@ fn cases() -> Vec<(String, IconState)> {
             "battery_050_warning_mono_at_risk".to_owned(),
             state(50, UsageStatus::Warning, true, true, Scale::X1),
         ),
+        // Circular at 100% is the three-digit case: the centre `100` must stay
+        // legible inside the ring (it shrinks to clear the donut stroke).
+        (
+            "circular_100_critical".to_owned(),
+            IconState {
+                style: IconStyle::Circular,
+                percent: 100,
+                secondary_percent: 100,
+                status: UsageStatus::Critical,
+                at_risk: false,
+                mono: false,
+                scale: Scale::X1,
+            },
+        ),
     ]);
     cases
 }

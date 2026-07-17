@@ -55,11 +55,7 @@ pub fn svg(state: IconState) -> String {
         // Proportional charge fill (gradient in colour, solid black in mono).
         if state.percent > 0 {
             let fill_w = proportional_fill(TRACK_W, FILL_MIN_WIDTH, state.percent);
-            let fill = if state.mono {
-                MONO.to_owned()
-            } else {
-                "url(#bg)".to_owned()
-            };
+            let fill: &str = if state.mono { MONO } else { "url(#bg)" };
             let _ = write!(
                 out,
                 r#"<rect x="{TRACK_X}" y="{TRACK_Y}" width="{fill_w:.2}" height="{TRACK_H}" clip-path="url(#bc)" fill="{fill}"/>"#
@@ -70,7 +66,7 @@ pub fn svg(state: IconState) -> String {
         let label = format!("{}%", state.percent);
         centered_text(out, (NUMBER_CX, NUMBER_CY), NUMBER_FS, number_ink, &label);
 
-        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
+        risk_badge(out, state.at_risk, state.mono, canvas_w);
     })
 }
 

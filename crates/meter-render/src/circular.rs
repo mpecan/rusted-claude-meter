@@ -20,6 +20,11 @@ const CIRCUMFERENCE: f64 = 2.0 * std::f64::consts::PI * RADIUS;
 const MIN_ARC: f64 = 1.5;
 /// The centre number is small so it fits inside the ring.
 const NUMBER_FS: f64 = 7.0;
+/// A narrower size for the three-digit `100` case: at `NUMBER_FS` the monospaced
+/// `100` (three 0.6em glyphs ≈ 12.6px) is wider than the ring's inner chord and
+/// its outer strokes collide with the donut, so 3-digit labels shrink to clear
+/// it. Two-digit labels keep the larger size.
+const NUMBER_FS_WIDE: f64 = 5.5;
 
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();
@@ -42,10 +47,17 @@ pub fn svg(state: IconState) -> String {
             );
         }
         // The percentage number in the centre (no `%`, like the reference).
+        // Three-digit labels (only `100`) shrink so their outer strokes clear
+        // the surrounding ring; two-digit labels keep the larger size.
         let label = state.percent.to_string();
-        centered_text(out, (CENTER_X, CENTER_Y), NUMBER_FS, arc_ink, &label);
+        let font_size = if label.len() > 2 {
+            NUMBER_FS_WIDE
+        } else {
+            NUMBER_FS
+        };
+        centered_text(out, (CENTER_X, CENTER_Y), font_size, arc_ink, &label);
 
-        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
+        risk_badge(out, state.at_risk, state.mono, canvas_w);
     })
 }
 
@@ -88,6 +100,24 @@ mod tests {
     fn full_ring_draws_the_whole_circumference() {
         let svg = svg(state(100, UsageStatus::Critical, false, false));
         assert!(svg.contains(&format!("{CIRCUMFERENCE:.2} 0.00")));
+    }
+
+    #[test]
+    fn three_digit_label_shrinks_to_clear_the_ring() {
+        // `100` is the only three-digit case; it must render at the narrower
+        // size so its outer strokes do not collide with the surrounding ring,
+        // while two-digit labels keep the larger size.
+        let full = svg(state(100, UsageStatus::Critical, false, false));
+        assert!(full.contains(">100<"));
+        assert!(
+            full.contains(&format!(r#"font-size="{NUMBER_FS_WIDE}""#)),
+            "100 must use the narrow font size: {full}"
+        );
+        let two_digit = svg(state(92, UsageStatus::Critical, false, false));
+        assert!(
+            two_digit.contains(&format!(r#"font-size="{NUMBER_FS}""#)),
+            "two-digit labels keep the larger size: {two_digit}"
+        );
     }
 
     #[test]

@@ -45,8 +45,8 @@ impl IconStyle {
     }
 }
 
-/// Raster scale factor over [`BASE_SIZE`]: 1x for standard density, 2x for
-/// `HiDPI` (Retina menu bars, scaled Linux trays).
+/// Raster scale factor applied uniformly to a style's logical size: 1x for
+/// standard density, 2x for `HiDPI` (Retina menu bars, scaled Linux trays).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Scale {
     X1,

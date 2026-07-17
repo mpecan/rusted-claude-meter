@@ -39,7 +39,7 @@ pub fn svg(state: IconState) -> String {
         let label = format!("{}%", state.percent);
         centered_text(out, (NUMBER_CX, NUMBER_CY), NUMBER_FS, primary_ink, &label);
 
-        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
+        risk_badge(out, state.at_risk, state.mono, canvas_w);
     })
 }
 

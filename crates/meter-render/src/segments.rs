@@ -49,7 +49,7 @@ pub fn svg(state: IconState) -> String {
                 );
             }
         }
-        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
+        risk_badge(out, state.at_risk, state.mono, canvas_w);
     })
 }
 
