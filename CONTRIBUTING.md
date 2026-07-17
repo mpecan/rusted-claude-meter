@@ -22,7 +22,9 @@ cargo install cargo-dupes --locked --version 0.2.1
 just check
 ```
 
-That is exactly what CI runs: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, the file-size gate, `cargo deny check`, `cargo dupes check`, `cargo llvm-cov` (coverage floor), and the frontend suite (`tsc --noEmit` + `vitest`).
+That is what CI runs: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, the file-size gate, `cargo deny check`, `cargo dupes check`, `cargo llvm-cov` (coverage floor), and the frontend suite (`tsc --noEmit` + `vitest`).
+
+Two checks are CI-only and not covered by `just check`: [actionlint](https://github.com/rhysd/actionlint) over `.github/workflows/*.yml`, and a second clippy pass on the macOS runner that lints the `#[cfg(target_os = "macos")]` surface (tray, keychain store, Safari cookie reader) a Linux `just check` never compiles. If you touch workflow files or macOS-cfg'd code from Linux, expect CI to be the first honest verdict.
 
 The pre-commit hook (`just install-hooks`) runs the fast subset — fmt, clippy, file-size, `cargo deny`, `cargo dupes` — on every commit. It skips coverage and the full test/frontend suites since those are slower; run `just check` yourself before pushing to catch those.
 

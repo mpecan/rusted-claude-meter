@@ -6,7 +6,7 @@ It polls `claude.ai/api/organizations/{org}/usage` with your browser session key
 
 ## Status
 
-Scaffold. The workspace layout, domain model, API decoding contract and quality gates are in place; the implementation is tracked in [the issues](https://github.com/mpecan/rusted-claude-meter/issues).
+Feature-complete port, actively developed. The tray icon (six styles), macOS popover, Linux tray menu, Settings panel, threshold notifications, `usage.json` export, browser session import, first-run wizard, launch-at-login, and packaging/release CI are all implemented. Bugs and follow-ups are tracked in [the issues](https://github.com/mpecan/rusted-claude-meter/issues).
 
 ## Architecture
 
@@ -14,6 +14,7 @@ Scaffold. The workspace layout, domain model, API decoding contract and quality 
 |---|---|
 | `crates/meter-core` | Platform-neutral domain: usage windows, scoped limits, status thresholds, pacing risk, session-key parsing. No I/O. |
 | `crates/meter-api` | claude.ai API client: browser-header spoofing, response decoding, mapping into domain types. |
+| `crates/meter-render` | Pure tray-icon rendering: `IconState` → parameterized SVG → RGBA pixels. No platform code. |
 | `src-tauri` | Application shell: tray, windows, scheduler, notifications, secure storage, settings. |
 | `src/` | Webview frontend (popover cards, settings, wizard) — vanilla TypeScript + Vite. |
 
