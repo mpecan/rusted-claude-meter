@@ -68,7 +68,7 @@ pub fn menu_model(state: &MeterState, now: Timestamp, shown: &HashSet<String>) -
             usage_lines.push(usage_line(window_label(window.window), window, now));
         }
         for limit in &snapshot.scoped {
-            if !shown.contains(&limit.display_name) {
+            if !limit.is_active || !shown.contains(&limit.display_name) {
                 continue;
             }
             let label = format!(
@@ -305,6 +305,44 @@ mod tests {
                 "7-day: 63% — resets in 3d 4h",
                 "Fable (7-day): 100% — resets in under 1m",
             ]
+        );
+    }
+
+    #[test]
+    fn requires_both_is_active_and_opt_in_either_gate_alone_is_not_enough() {
+        // Mirrors src/view-model.test.ts's "requires both is_active and
+        // opt-in" case: both models are opted in, but "CodeOnly" is not
+        // `is_active`, so it must not produce a usage line even though it's
+        // in `shown`.
+        let mut snap = snapshot();
+        snap.five_hour = None;
+        snap.seven_day = None;
+        snap.scoped = vec![
+            ScopedLimit {
+                display_name: "Sonnet".to_owned(),
+                model_id: None,
+                usage: window(12.0, 3 * 86_400, LimitWindow::SevenDay),
+                is_active: true,
+            },
+            ScopedLimit {
+                display_name: "CodeOnly".to_owned(),
+                model_id: None,
+                usage: window(50.0, 3 * 86_400, LimitWindow::SevenDay),
+                is_active: false,
+            },
+        ];
+        let shown: HashSet<String> = ["Sonnet", "CodeOnly"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let model = menu_model(
+            &state(Phase::Polling, Staleness::Fresh, Some(snap)),
+            now(),
+            &shown,
+        );
+        assert_eq!(
+            model.usage_lines,
+            vec!["Sonnet (7-day): 12% — resets in 3d 0h"]
         );
     }
 

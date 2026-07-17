@@ -109,11 +109,13 @@ struct DiskSettingsRef<'a> {
 /// optimization over sane defaults, not a source of truth the app cannot
 /// run without.
 pub fn load(path: &Path) -> AppSettings {
-    fs::read_to_string(path)
+    let mut settings = fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str::<DiskSettings>(&raw).ok())
         .filter(|decoded| decoded.version == SETTINGS_VERSION)
-        .map_or_else(AppSettings::default, |decoded| decoded.settings)
+        .map_or_else(AppSettings::default, |decoded| decoded.settings);
+    settings.normalize();
+    settings
 }
 
 /// Persist `settings`, replacing any previous file. Writes to a sibling temp
@@ -321,6 +323,24 @@ mod tests {
         assert_eq!(result.shown_scoped_models, vec!["Fable".to_owned()]);
         assert_eq!(state.get().shown_scoped_models, vec!["Fable".to_owned()]);
         assert_eq!(load(&path).shown_scoped_models, vec!["Fable".to_owned()]);
+    }
+
+    #[test]
+    fn load_clamps_out_of_range_thresholds_from_disk() {
+        // A hand-edited (or future buggy) settings.json can carry an
+        // out-of-range threshold; `load()` must clamp it just like
+        // `SettingsState::update` does, so the guarantee `normalize`'s
+        // docstring makes actually holds on the load path too.
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(
+            &path,
+            r#"{"version":1,"settings":{"warning_threshold":-10.0,"critical_threshold":250.0}}"#,
+        )
+        .unwrap();
+        let loaded = load(&path);
+        assert_eq!(loaded.warning_threshold, 0.0);
+        assert_eq!(loaded.critical_threshold, 100.0);
     }
 
     #[test]
