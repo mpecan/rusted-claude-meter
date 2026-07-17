@@ -12,7 +12,7 @@ use crate::palette::{ink, risk_badge};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
-const CENTER_X: f64 = 11.0;
+const CENTER_X: f64 = 13.0;
 const CENTER_Y: f64 = 15.0;
 const RADIUS: f64 = 7.0;
 const NEEDLE_LENGTH: f64 = 6.0;
@@ -24,9 +24,11 @@ const HALF_CIRCUMFERENCE: f64 = std::f64::consts::PI * RADIUS;
 const MIN_ARC: f64 = 1.2;
 
 pub fn svg(state: IconState) -> String {
+    let (width, height) = state.style.logical_size();
+    let canvas_w = f64::from(width);
     let ink = ink(state.mono, state.status);
 
-    svg_document(768, |out| {
+    svg_document(width, height, 768, |out| {
         // Background track: the top half of the circle, faint.
         let _ = write!(
             out,
@@ -45,7 +47,7 @@ pub fn svg(state: IconState) -> String {
             out,
             r#"<line x1="{CENTER_X}" y1="{CENTER_Y}" x2="{needle_x:.2}" y2="{needle_y:.2}" stroke="{ink}" stroke-width="1.4" stroke-linecap="round"/><circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{HUB_RADIUS}" fill="{ink}"/>"#
         );
-        out.push_str(&risk_badge(state.at_risk, state.mono));
+        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
     })
 }
 

@@ -1,45 +1,58 @@
-//! Dual Bar SVG template: the 5-hour headline (top) and 7-day window
-//! (bottom) shown as two stacked fill bars simultaneously, mirroring
-//! `ClaudeMeter`'s `DualBarIcon`. The bottom bar always uses the accent
-//! colour in colour mode (matching the original's violet weekly bar) so the
-//! two rows read as distinct series even when both are calm.
+//! Dual-bar icon: the 5-hour session window (top, status colour) and the
+//! 7-day weekly window (bottom, violet accent) shown as two stacked
+//! proportional bars, followed by the session percentage number — mirroring
+//! `ClaudeMeter`'s `DualBarIcon`. The weekly bar always uses the accent colour
+//! so the two rows read as distinct series. Monochrome collapses everything to
+//! pure black.
 
 use std::fmt::Write as _;
 
-use crate::palette::{ACCENT, ink, proportional_fill, risk_badge};
+use crate::font::centered_text;
+use crate::palette::{ACCENT, GRAY, MONO, ink, proportional_fill, risk_badge};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
-const BAR_X: f64 = 2.0;
-const BAR_WIDTH: f64 = 18.0;
+const BAR_X: f64 = 3.0;
+const BAR_WIDTH: f64 = 32.0;
 const BAR_HEIGHT: f64 = 5.0;
 const TOP_Y: f64 = 5.0;
 const GAP: f64 = 2.0;
 const BOTTOM_Y: f64 = TOP_Y + BAR_HEIGHT + GAP;
 /// The thinnest visible sliver, so 1–3% does not round away to nothing.
-const MIN_FILL_WIDTH: f64 = 1.0;
+const MIN_FILL_WIDTH: f64 = 1.5;
+const NUMBER_CX: f64 = 53.0;
+const NUMBER_CY: f64 = 11.0;
+const NUMBER_FS: f64 = 11.0;
 
 pub fn svg(state: IconState) -> String {
+    let (width, height) = state.style.logical_size();
+    let canvas_w = f64::from(width);
     let primary_ink = ink(state.mono, state.status);
-    let secondary_ink = if state.mono { primary_ink } else { ACCENT };
+    let secondary_ink = if state.mono { MONO } else { ACCENT };
+    let track = if state.mono { MONO } else { GRAY };
 
-    svg_document(896, |out| {
-        write_bar(out, TOP_Y, state.percent, primary_ink);
-        write_bar(out, BOTTOM_Y, state.secondary_percent, secondary_ink);
-        out.push_str(&risk_badge(state.at_risk, state.mono));
+    svg_document(width, height, 1024, |out| {
+        write_bar(out, TOP_Y, state.percent, primary_ink, track);
+        write_bar(out, BOTTOM_Y, state.secondary_percent, secondary_ink, track);
+
+        // Session percentage number (the primary metric), status-coloured.
+        let label = format!("{}%", state.percent);
+        centered_text(out, (NUMBER_CX, NUMBER_CY), NUMBER_FS, primary_ink, &label);
+
+        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
     })
 }
 
-fn write_bar(out: &mut String, y: f64, percent: u8, fill: &str) {
+fn write_bar(out: &mut String, y: f64, percent: u8, fill: &str, track: &str) {
     let _ = write!(
         out,
-        r#"<rect x="{BAR_X}" y="{y}" width="{BAR_WIDTH}" height="{BAR_HEIGHT}" rx="1.5" fill="{fill}" fill-opacity="0.2"/>"#
+        r#"<rect x="{BAR_X}" y="{y}" width="{BAR_WIDTH}" height="{BAR_HEIGHT}" rx="1.5" fill="{track}" fill-opacity="0.3"/>"#
     );
     if percent > 0 {
-        let width = proportional_fill(BAR_WIDTH, MIN_FILL_WIDTH, percent);
+        let bar_w = proportional_fill(BAR_WIDTH, MIN_FILL_WIDTH, percent);
         let _ = write!(
             out,
-            r#"<rect x="{BAR_X}" y="{y}" width="{width:.2}" height="{BAR_HEIGHT}" rx="1.5" fill="{fill}"/>"#
+            r#"<rect x="{BAR_X}" y="{y}" width="{bar_w:.2}" height="{BAR_HEIGHT}" rx="1.5" fill="{fill}"/>"#
         );
     }
 }
@@ -70,16 +83,24 @@ mod tests {
     }
 
     #[test]
+    fn draws_the_session_percentage_number() {
+        let svg = svg(state(65, 40, UsageStatus::Warning, false, false));
+        assert!(svg.contains("<text"));
+        assert!(svg.contains(">65%<"), "session number: {svg}");
+    }
+
+    #[test]
     fn both_bars_are_tracks_only_when_both_windows_are_empty() {
         let svg = svg(state(0, 0, UsageStatus::Safe, false, false));
+        // Two gray tracks, no fills; the number is a <text>, not a <rect>.
         assert_eq!(svg.matches("<rect").count(), 2, "two tracks, no fills");
     }
 
     #[test]
     fn each_bar_fills_proportionally_and_independently() {
         let svg = svg(state(50, 25, UsageStatus::Warning, false, false));
-        assert!(svg.contains(r#"width="9.00""#), "top 50% of 18: {svg}");
-        assert!(svg.contains(r#"width="4.50""#), "bottom 25% of 18: {svg}");
+        assert!(svg.contains(r#"width="16.00""#), "top 50% of 32: {svg}");
+        assert!(svg.contains(r#"width="8.00""#), "bottom 25% of 32: {svg}");
     }
 
     #[test]
@@ -95,6 +116,7 @@ mod tests {
         assert!(!svg.contains(CRITICAL));
         assert!(!svg.contains(ACCENT));
         assert!(!svg.contains(SAFE));
+        assert!(!svg.contains(GRAY));
         assert!(svg.contains(MONO));
     }
 

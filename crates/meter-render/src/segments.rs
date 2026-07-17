@@ -1,53 +1,55 @@
-//! Segments SVG template: a signal-strength-style row of quantized blocks,
-//! mirroring `ClaudeMeter`'s `SegmentedBarIcon`. Five segments, each covering
-//! a 20-point band; a segment lights up once `percent` reaches its band's
-//! floor, so the display always quantizes to whole segments rather than a
-//! continuous fill.
+//! Segmented-bar icon: a signal-strength-style row of five quantized blocks,
+//! mirroring `ClaudeMeter`'s `SegmentedBarIcon`. Each segment covers a
+//! 20-point band and lights once `percent` reaches its band's floor. The
+//! reference shows no number for this style, so neither do we. Lit segments
+//! shade green → orange → red by position; unlit ones are a faint gray track.
 
 use std::fmt::Write as _;
 
 use meter_core::UsageStatus;
 
-use crate::palette::{ink, risk_badge, status_color};
+use crate::palette::{GRAY, MONO, ink, risk_badge, status_color};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
 const COUNT: u32 = 5;
-const WIDTH: f64 = 2.6;
-const GAP: f64 = 1.0;
-const START_X: f64 = 2.5;
-const BASE_HEIGHT: f64 = 6.0;
+const SEG_WIDTH: f64 = 4.0;
+const GAP: f64 = 2.0;
+const START_X: f64 = 3.0;
+const BASE_SEG_HEIGHT: f64 = 6.0;
 const HEIGHT_STEP: f64 = 2.0;
 /// Segments sit on this baseline, growing upward.
 const BASELINE: f64 = 18.0;
 
 pub fn svg(state: IconState) -> String {
+    let (width, height) = state.style.logical_size();
+    let canvas_w = f64::from(width);
     let ink = ink(state.mono, state.status);
+    let track = if state.mono { MONO } else { GRAY };
     // How many of the five segments are lit — matching the original's
-    // `percentage >= index * 20` quantization exactly, which always lights
-    // the first segment (`percentage >= 0 * 20` is trivially true), even at
-    // 0%.
+    // `percentage >= index * 20` quantization exactly, which always lights the
+    // first segment (`percentage >= 0` is trivially true), even at 0%.
     let lit = (1 + u32::from(state.percent) / 20).min(COUNT);
 
-    svg_document(768, |out| {
+    svg_document(width, height, 768, |out| {
         for index in 0..COUNT {
-            let x = f64::from(index).mul_add(WIDTH + GAP, START_X);
-            let height = HEIGHT_STEP.mul_add(f64::from(index), BASE_HEIGHT);
-            let y = BASELINE - height;
+            let x = f64::from(index).mul_add(SEG_WIDTH + GAP, START_X);
+            let seg_height = HEIGHT_STEP.mul_add(f64::from(index), BASE_SEG_HEIGHT);
+            let y = BASELINE - seg_height;
             if index < lit {
                 let fill = segment_color(state.mono, index, ink);
                 let _ = write!(
                     out,
-                    r#"<rect x="{x:.2}" y="{y:.2}" width="{WIDTH}" height="{height:.2}" rx="1" fill="{fill}"/>"#
+                    r#"<rect x="{x:.2}" y="{y:.2}" width="{SEG_WIDTH}" height="{seg_height:.2}" rx="1" fill="{fill}"/>"#
                 );
             } else {
                 let _ = write!(
                     out,
-                    r#"<rect x="{x:.2}" y="{y:.2}" width="{WIDTH}" height="{height:.2}" rx="1" fill="{ink}" fill-opacity="0.2"/>"#
+                    r#"<rect x="{x:.2}" y="{y:.2}" width="{SEG_WIDTH}" height="{seg_height:.2}" rx="1" fill="{track}" fill-opacity="0.3"/>"#
                 );
             }
         }
-        out.push_str(&risk_badge(state.at_risk, state.mono));
+        out.push_str(&risk_badge(state.at_risk, state.mono, canvas_w));
     })
 }
 
@@ -87,8 +89,6 @@ mod tests {
 
     #[test]
     fn zero_percent_still_lights_the_first_segment() {
-        // Matches the original's `percentage >= index * 20`: for index 0
-        // that's `percentage >= 0`, always true.
         assert_eq!(
             lit_count(&svg(state(0, UsageStatus::Safe, false, false))),
             1
@@ -120,15 +120,17 @@ mod tests {
     }
 
     #[test]
-    fn always_renders_five_segments() {
+    fn always_renders_five_segments_and_no_number() {
         let svg = svg(state(37, UsageStatus::Safe, false, false));
         assert_eq!(svg.matches("<rect").count(), 5);
+        assert!(!svg.contains("<text"), "reference segments has no number");
     }
 
     #[test]
     fn mono_wins_over_the_position_gradient() {
         let mono = svg(state(100, UsageStatus::Critical, false, true));
         assert!(!mono.contains(crate::palette::SAFE));
+        assert!(!mono.contains(GRAY));
         assert!(mono.contains(MONO));
     }
 

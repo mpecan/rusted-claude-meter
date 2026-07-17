@@ -1,8 +1,8 @@
 use resvg::tiny_skia::{Pixmap, Transform};
-use resvg::usvg::{Options, Tree};
+use resvg::usvg::Tree;
 
-use crate::state::{BASE_SIZE, IconState, IconStyle};
-use crate::{battery, circular, dual_bar, gauge, minimal, segments};
+use crate::state::{IconState, IconStyle};
+use crate::{battery, circular, dual_bar, font, gauge, minimal, segments};
 
 /// Rendering failure.
 ///
@@ -13,8 +13,8 @@ use crate::{battery, circular, dual_bar, gauge, minimal, segments};
 pub enum RenderError {
     #[error("icon SVG template failed to parse: {0}")]
     Template(String),
-    #[error("could not allocate a {0}x{0} pixmap")]
-    Pixmap(u32),
+    #[error("could not allocate a {0}x{1} pixmap")]
+    Pixmap(u32, u32),
 }
 
 /// A rasterized icon: straight-alpha RGBA, row-major, `width * height * 4`
@@ -40,11 +40,13 @@ pub fn render_icon(state: &IconState) -> Result<RenderedIcon, RenderError> {
         IconStyle::DualBar => dual_bar::svg(*state),
         IconStyle::Gauge => gauge::svg(*state),
     };
-    let tree = Tree::from_str(&svg, &Options::default())
+    let tree = Tree::from_str(&svg, font::options())
         .map_err(|error| RenderError::Template(error.to_string()))?;
 
-    let size = BASE_SIZE * state.scale.factor();
-    let mut pixmap = Pixmap::new(size, size).ok_or(RenderError::Pixmap(size))?;
+    let (logical_w, logical_h) = state.style.logical_size();
+    let scale = state.scale.factor();
+    let (width, height) = (logical_w * scale, logical_h * scale);
+    let mut pixmap = Pixmap::new(width, height).ok_or(RenderError::Pixmap(width, height))?;
     let factor = state.scale.factor_f32();
     resvg::render(
         &tree,
@@ -63,8 +65,8 @@ pub fn render_icon(state: &IconState) -> Result<RenderedIcon, RenderError> {
         .collect();
 
     Ok(RenderedIcon {
-        width: size,
-        height: size,
+        width,
+        height,
         rgba,
         is_template: state.mono,
     })
@@ -115,25 +117,43 @@ mod tests {
     }
 
     #[test]
-    fn dimensions_match_scale() {
+    fn dimensions_are_wider_than_tall_and_scale() {
+        // Battery is a number-bearing style: wide (glyph + percentage), 22 tall.
+        let (lw, lh) = IconStyle::Battery.logical_size();
+        assert!(lw > lh, "number styles must be wider than tall");
+
         let x1 = render_icon(&state(50, UsageStatus::Warning, false, Scale::X1)).unwrap();
-        assert_eq!((x1.width, x1.height), (22, 22));
-        assert_eq!(x1.rgba.len(), 22 * 22 * 4);
+        assert_eq!((x1.width, x1.height), (lw, lh));
+        assert_eq!(x1.rgba.len(), (lw * lh * 4) as usize);
 
         let x2 = render_icon(&state(50, UsageStatus::Warning, false, Scale::X2)).unwrap();
-        assert_eq!((x2.width, x2.height), (44, 44));
-        assert_eq!(x2.rgba.len(), 44 * 44 * 4);
+        assert_eq!((x2.width, x2.height), (lw * 2, lh * 2));
+        assert_eq!(x2.rgba.len(), (lw * 2 * lh * 2 * 4) as usize);
     }
 
     #[test]
-    fn safe_icon_is_green_where_opaque() {
-        let icon = render_icon(&state(80, UsageStatus::Safe, false, Scale::X1)).unwrap();
+    fn safe_minimal_number_is_green_where_opaque() {
+        // Minimal is just the percentage number in the status colour, so every
+        // opaque pixel is the safe green — a direct check that text renders in
+        // the status colour (Battery's fill is a multi-hue gradient, so it
+        // can't make this all-green guarantee).
+        let icon = render_icon(&style_state(
+            IconStyle::Minimal,
+            80,
+            UsageStatus::Safe,
+            false,
+            Scale::X1,
+        ))
+        .unwrap();
         let mut seen = 0_usize;
         for px in opaque_pixels(&icon) {
             assert!(px[1] > px[0] && px[1] > px[2], "expected green, got {px:?}");
             seen += 1;
         }
-        assert!(seen > 20, "icon should have substantial opaque coverage");
+        assert!(
+            seen > 20,
+            "the number should have substantial opaque coverage"
+        );
     }
 
     #[test]
@@ -169,8 +189,11 @@ mod tests {
     // snapshot matrix in `tests/snapshot.rs` covers the visual shape.
 
     #[test]
-    fn every_style_renders_at_both_scales() {
+    fn every_style_renders_at_its_logical_size_and_scales() {
         for style in ALL_STYLES {
+            let (lw, lh) = style.logical_size();
+            assert_eq!(lh, 22, "{style:?} height is the menu-bar height");
+
             let x1 = render_icon(&style_state(
                 style,
                 65,
@@ -179,7 +202,7 @@ mod tests {
                 Scale::X1,
             ))
             .unwrap();
-            assert_eq!((x1.width, x1.height), (22, 22), "{style:?} at 1x");
+            assert_eq!((x1.width, x1.height), (lw, lh), "{style:?} at 1x");
 
             let x2 = render_icon(&style_state(
                 style,
@@ -189,7 +212,7 @@ mod tests {
                 Scale::X2,
             ))
             .unwrap();
-            assert_eq!((x2.width, x2.height), (44, 44), "{style:?} at 2x");
+            assert_eq!((x2.width, x2.height), (lw * 2, lh * 2), "{style:?} at 2x");
         }
     }
 

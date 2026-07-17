@@ -2,9 +2,13 @@ use jiff::Timestamp;
 use meter_core::{UsageSnapshot, UsageStatus};
 use serde::{Deserialize, Serialize};
 
-/// Logical icon size in CSS pixels: the common menu-bar/tray glyph size on
+/// Logical icon height in CSS pixels: the common menu-bar/tray glyph height on
 /// both macOS (22pt menu bar) and Linux (22/24px trays scale it well).
-pub const BASE_SIZE: u32 = 22;
+///
+/// Width is style-dependent — the number-bearing styles are wider than tall,
+/// like `ClaudeMeter`'s horizontal glyph-plus-percentage layout — so it lives
+/// on [`IconStyle::logical_size`] rather than here.
+pub const BASE_HEIGHT: u32 = 22;
 
 /// Tray icon visual style — the six styles `ClaudeMeter` offers, selectable
 /// live in Settings (issue #9). `Serialize`/`Deserialize` let the Tauri
@@ -18,6 +22,27 @@ pub enum IconStyle {
     Segments,
     DualBar,
     Gauge,
+}
+
+impl IconStyle {
+    /// Logical `(width, height)` of this style's canvas, in viewBox units.
+    ///
+    /// Height is always [`BASE_HEIGHT`]. Width varies: the styles that bake in
+    /// a monospaced percentage number (Battery, Minimal, Dual Bar) are wide to
+    /// fit their glyph plus the number; the glyph-only styles (Circular,
+    /// Segments, Gauge) stay near-square. Mirrors the reference app, whose
+    /// menu-bar icons are a horizontal `HStack` and so wider than tall.
+    pub const fn logical_size(self) -> (u32, u32) {
+        let width = match self {
+            Self::Battery => 63,
+            Self::Minimal => 40,
+            Self::Segments => 34,
+            Self::DualBar => 68,
+            // The glyph-only styles stay near-square around the 22px height.
+            Self::Circular | Self::Gauge => 26,
+        };
+        (width, BASE_HEIGHT)
+    }
 }
 
 /// Raster scale factor over [`BASE_SIZE`]: 1x for standard density, 2x for

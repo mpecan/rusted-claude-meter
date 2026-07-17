@@ -13,6 +13,7 @@ mod battery;
 mod cache;
 mod circular;
 mod dual_bar;
+mod font;
 mod gauge;
 mod minimal;
 mod palette;
@@ -23,4 +24,4 @@ mod svg;
 
 pub use cache::IconCache;
 pub use render::{RenderError, RenderedIcon, render_icon};
-pub use state::{BASE_SIZE, IconState, IconStyle, Scale, round_percent};
+pub use state::{BASE_HEIGHT, IconState, IconStyle, Scale, round_percent};

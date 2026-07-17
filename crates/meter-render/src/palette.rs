@@ -10,8 +10,13 @@ use meter_core::UsageStatus;
 pub const SAFE: &str = "#34C759";
 pub const WARNING: &str = "#FF9500";
 pub const CRITICAL: &str = "#FF3B30";
+/// Apple system yellow — the mid-scale stop of the Battery fill gradient.
+pub const YELLOW: &str = "#FFCC00";
 /// Monochrome / template artwork is alpha-only black.
 pub const MONO: &str = "#000000";
+/// Apple system gray, used (at low opacity) for the unfilled track/background
+/// of the bar-style icons, matching the reference's `Color.gray.opacity(...)`.
+pub const GRAY: &str = "#8E8E93";
 /// Secondary-series accent (the 7-day bar in Dual Bar), matching
 /// `ClaudeMeter`'s violet weekly bar. Color mode only — mono ignores it.
 pub const ACCENT: &str = "#AF52DE";
@@ -39,15 +44,19 @@ pub fn proportional_fill(max_width: f64, min_width: f64, percent: u8) -> f64 {
 }
 
 /// The pacing at-risk badge dot, shared geometry across every style: a small
-/// filled circle tucked into the top-right corner, outside the 0–18 area
-/// every style keeps its main artwork within. Empty when `at_risk` is false.
-pub fn risk_badge(at_risk: bool, mono: bool) -> String {
+/// filled circle tucked into the very top-right corner of the (style-specific
+/// width) canvas, clear of the main artwork. Empty when `at_risk` is false.
+pub fn risk_badge(at_risk: bool, mono: bool, canvas_width: f64) -> String {
     if !at_risk {
         return String::new();
     }
     let badge = if mono { MONO } else { CRITICAL };
+    let cx = canvas_width - 3.0;
     let mut out = String::with_capacity(48);
-    let _ = write!(out, r#"<circle cx="19" cy="3" r="2.2" fill="{badge}"/>"#);
+    let _ = write!(
+        out,
+        r#"<circle cx="{cx:.2}" cy="3" r="2.2" fill="{badge}"/>"#
+    );
     out
 }
 
@@ -63,8 +72,10 @@ mod tests {
 
     #[test]
     fn risk_badge_is_empty_unless_at_risk() {
-        assert_eq!(risk_badge(false, false), "");
-        assert!(risk_badge(true, false).contains(CRITICAL));
-        assert!(risk_badge(true, true).contains(MONO));
+        assert_eq!(risk_badge(false, false, 63.0), "");
+        assert!(risk_badge(true, false, 63.0).contains(CRITICAL));
+        assert!(risk_badge(true, true, 63.0).contains(MONO));
+        // The badge tracks the right edge of the (style-specific) canvas.
+        assert!(risk_badge(true, false, 63.0).contains(r#"cx="60.00""#));
     }
 }
