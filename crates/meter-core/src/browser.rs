@@ -134,13 +134,14 @@ impl Browser {
         }
     }
 
-    /// Whether this browser's cookie store can exist on `os` at all. Safari is
-    /// macOS-only; every other supported browser exists on both macOS and
+    /// Whether this browser's cookie store can exist on `os` at all. Safari
+    /// is macOS-only, and Arc — though Chromium-family — has never shipped a
+    /// Linux build; every other supported browser exists on both macOS and
     /// Linux. On an unsupported platform nothing is available.
     pub const fn available_on(self, os: Os) -> bool {
         match os {
             Os::MacOs => true,
-            Os::Linux => !matches!(self.family(), BrowserFamily::Safari),
+            Os::Linux => !matches!(self, Self::Safari | Self::Arc),
             Os::Other => false,
         }
     }
@@ -275,6 +276,16 @@ mod tests {
         assert!(Browser::Safari.available_on(Os::MacOs));
         assert!(!Browser::Safari.available_on(Os::Linux));
         assert!(!Browser::Safari.available_on(Os::Other));
+    }
+
+    #[test]
+    fn arc_is_macos_only_despite_being_chromium_family() {
+        // Arc has no Linux build, so offering it as a Linux import source
+        // could only ever fail with a confusing cookie-store error.
+        assert_eq!(Browser::Arc.family(), BrowserFamily::Chromium);
+        assert!(Browser::Arc.available_on(Os::MacOs));
+        assert!(!Browser::Arc.available_on(Os::Linux));
+        assert!(!Browser::Arc.available_on(Os::Other));
     }
 
     #[test]

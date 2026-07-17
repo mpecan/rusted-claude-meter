@@ -12,29 +12,29 @@
 //! fakes and never touches a real browser, the network, or the OS keyring in
 //! tests:
 //!
-//! * [`BrowserCookieReader`] — reads a browser's claude.ai cookies;
-//!   [`RookieCookieReader`] is the production `rookie`-backed implementation.
+//! * [`BrowserCookieReader`] — reads a browser's claude.ai cookies (see
+//!   [`crate::cookie_reader`], which also holds the production
+//!   `rookie`-backed [`RookieCookieReader`] and the panic guard that keeps a
+//!   locked or undecryptable store from ever crashing the app).
 //! * [`SessionValidator`] — confirms a key with claude.ai;
 //!   [`LiveSessionValidator`] calls `organizations()`.
 //! * [`crate::store::SessionStore`] — persists the key (issue #1).
 //!
-//! Per the issue's security bar: a locked or undecryptable cookie store
-//! degrades to a per-browser error and can never crash the app (the `rookie`
-//! call is both `Result`-checked and panic-guarded), and no cookie value other
-//! than the claude.ai `sessionKey` is kept in memory longer than the moment it
-//! takes to pick it out.
+//! Per the issue's security bar, no cookie value other than the claude.ai
+//! `sessionKey` is kept in memory longer than the moment it takes to pick it
+//! out.
 
 use std::sync::Arc;
 
 use meter_api::{ApiError, DEFAULT_BASE_URL, UsageClient};
 use meter_core::{
-    Browser, BrowserCookie, BrowserFamily, CookieImportError, Os, SessionKey,
-    session_key_from_cookies,
+    Browser, BrowserFamily, CookieImportError, Os, SessionKey, session_key_from_cookies,
 };
 use serde::Serialize;
 use tauri::State;
 
 use crate::commands::SessionStoreState;
+use crate::cookie_reader::{BrowserCookieReader, RookieCookieReader};
 use crate::scheduler::SchedulerHandle;
 use crate::store::SessionStore;
 
@@ -87,30 +87,6 @@ pub enum BrowserImportError {
     Store(String),
 }
 
-/// A per-browser failure reading the cookie store. The message is always safe
-/// to surface: it describes the failure, never a cookie value.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CookieStoreError(String);
-
-impl CookieStoreError {
-    fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
-    }
-
-    fn into_message(self) -> String {
-        self.0
-    }
-}
-
-/// Reads a browser's claude.ai cookies. The seam the import flow is generic
-/// over, so tests drive it with a fake and never touch a real browser.
-pub trait BrowserCookieReader: Send + Sync {
-    /// Read only the claude.ai cookies from `browser`'s store. Failures are
-    /// per-browser and must never propagate as a panic.
-    fn read_claude_cookies(&self, browser: Browser)
-    -> Result<Vec<BrowserCookie>, CookieStoreError>;
-}
-
 /// Confirms a session key with claude.ai. The seam the import flow is generic
 /// over, so tests validate without network access.
 pub trait SessionValidator: Send + Sync {
@@ -128,85 +104,6 @@ pub enum ValidationError {
     /// A transient failure (network down, 5xx): the key might still be good,
     /// so it is kept and the scheduler retries.
     Transient,
-}
-
-/// Production reader backed by the `rookie` crate.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RookieCookieReader;
-
-impl BrowserCookieReader for RookieCookieReader {
-    fn read_claude_cookies(
-        &self,
-        browser: Browser,
-    ) -> Result<Vec<BrowserCookie>, CookieStoreError> {
-        // Scope the query to claude.ai so no unrelated cookie value is ever
-        // read into memory. `rookie` filters with `host_key LIKE '%claude.ai%'`,
-        // so the exact-host check in `session_key_from_cookies` still matters.
-        let domains = Some(vec![meter_core::CLAUDE_HOST.to_owned()]);
-        // A locked or corrupt store can make `rookie` panic (e.g. an empty
-        // Firefox `installs` list), not just return `Err`. Guard both so a bad
-        // store degrades to a per-browser error and never takes the app down.
-        let raw = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            read_rookie_cookies(browser, domains)
-        }))
-        .map_err(|_| {
-            CookieStoreError::new(format!(
-                "Reading {}'s cookie store failed unexpectedly.",
-                browser.display_name()
-            ))
-        })?
-        .map_err(|error| {
-            CookieStoreError::new(format!(
-                "Could not read cookies from {}: {error}",
-                browser.display_name()
-            ))
-        })?;
-        Ok(raw
-            .into_iter()
-            .map(|cookie| BrowserCookie::new(cookie.domain, cookie.name, cookie.value))
-            .collect())
-    }
-}
-
-/// Dispatch a [`Browser`] to its `rookie` reader function. Safari is macOS
-/// only; on Linux it is rejected before this is reached.
-fn read_rookie_cookies(
-    browser: Browser,
-    domains: Option<Vec<String>>,
-) -> rookie::Result<Vec<rookie::enums::Cookie>> {
-    match browser {
-        Browser::Chrome => rookie::chrome(domains),
-        Browser::Chromium => rookie::chromium(domains),
-        Browser::Brave => rookie::brave(domains),
-        Browser::Edge => rookie::edge(domains),
-        Browser::Vivaldi => rookie::vivaldi(domains),
-        Browser::Opera => rookie::opera(domains),
-        Browser::OperaGx => rookie::opera_gx(domains),
-        Browser::Arc => rookie::arc(domains),
-        Browser::Firefox => rookie::firefox(domains),
-        Browser::Librewolf => rookie::librewolf(domains),
-        Browser::Zen => rookie::zen(domains),
-        Browser::Safari => safari_cookies(domains),
-    }
-}
-
-/// Safari's reader only exists on macOS; elsewhere the store cannot be present.
-#[cfg(target_os = "macos")]
-fn safari_cookies(domains: Option<Vec<String>>) -> rookie::Result<Vec<rookie::enums::Cookie>> {
-    rookie::safari(domains)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn safari_cookies(_domains: Option<Vec<String>>) -> rookie::Result<Vec<rookie::enums::Cookie>> {
-    // `rookie::Result` is `eyre::Result`; a `std::io::Error` converts into its
-    // report through `eyre`'s blanket `From`, so no direct `eyre` dependency
-    // is needed. In practice this is unreachable: `import_impl` rejects Safari
-    // on non-macOS via `available_on` before the reader is called.
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "Safari is only available on macOS",
-    )
-    .into())
 }
 
 /// Production validator: a session key is valid iff `GET /organizations`
@@ -284,7 +181,9 @@ const fn current_os() -> Os {
 
 /// The whole import flow, isolated from Tauri so every branch is unit-tested:
 /// availability → read → extract → persist → validate. A key rejected by
-/// claude.ai is cleared back out of the store so nothing invalid lingers.
+/// claude.ai is rolled back: the previously stored key is restored (or the
+/// store cleared if there was none), so a failed import never destroys a
+/// working session and nothing invalid lingers.
 async fn import_impl(
     reader: &dyn BrowserCookieReader,
     validator: &impl SessionValidator,
@@ -314,6 +213,11 @@ async fn import_impl(
     // Drop every other claude.ai cookie the moment the key is in hand.
     drop(cookies);
 
+    // Hold on to whatever key was stored before, so a rejected import can put
+    // it back instead of destroying a working session. Best-effort: if the
+    // store can't be read, there is nothing to restore.
+    let previous = store.load().unwrap_or_default();
+
     store
         .save(&key)
         .map_err(|error| BrowserImportError::Store(error.to_string()))?;
@@ -325,8 +229,11 @@ async fn import_impl(
             validated: true,
         }),
         Err(ValidationError::Unauthorized) => {
-            // Best-effort: don't leave a rejected key behind.
-            let _ = store.clear();
+            // Best-effort: don't leave a rejected key behind — restore the
+            // key that was working before, or clear if there was none.
+            let _ = previous
+                .as_ref()
+                .map_or_else(|| store.clear(), |previous_key| store.save(previous_key));
             Err(BrowserImportError::Rejected(format!(
                 "claude.ai rejected the session imported from {display_name} — it may have \
                  expired. Sign in again there and retry."
@@ -380,7 +287,9 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+    use crate::cookie_reader::CookieStoreError;
     use crate::store::FakeSessionStore;
+    use meter_core::BrowserCookie;
     use pretty_assertions::assert_eq;
 
     const VALID: &str = "sk-ant-sid01-abcDEF123456_-xyz789";
@@ -519,7 +428,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_rejected_key_is_cleared_back_out_of_the_store() {
+    async fn a_rejected_key_with_no_previous_key_clears_the_store() {
         let store = FakeSessionStore::new();
         let error = import_impl(
             &FakeReader::with_session(),
@@ -534,6 +443,26 @@ mod tests {
         assert!(matches!(error, BrowserImportError::Rejected(_)));
         // The rejected key must not linger.
         assert_eq!(store.load().unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_rejected_key_restores_the_previously_stored_key() {
+        let previous = SessionKey::parse("sk-ant-sid01-previousKEY_123-456789").unwrap();
+        let store = FakeSessionStore::with_key(previous.clone());
+        let error = import_impl(
+            &FakeReader::with_session(),
+            &FakeValidator(Err(ValidationError::Unauthorized)),
+            &store,
+            Os::MacOs,
+            Browser::Chrome,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, BrowserImportError::Rejected(_)));
+        // The working key from before the import must survive the rejection —
+        // the failed import must not destroy it.
+        assert_eq!(store.load().unwrap(), Some(previous));
     }
 
     #[tokio::test]
@@ -571,9 +500,11 @@ mod tests {
     }
 
     #[test]
-    fn linux_omits_safari_but_keeps_the_rest() {
+    fn linux_omits_safari_and_arc_but_keeps_the_rest() {
         let linux = detected_browsers(Os::Linux);
         assert!(!linux.iter().any(|browser| browser.id == Browser::Safari));
+        // Arc has never shipped a Linux build, so offering it could only fail.
+        assert!(!linux.iter().any(|browser| browser.id == Browser::Arc));
         assert!(linux.iter().any(|browser| browser.id == Browser::Chrome));
         assert!(linux.iter().any(|browser| browser.id == Browser::Firefox));
     }

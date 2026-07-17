@@ -10,6 +10,7 @@
 mod browser_import;
 mod cache;
 mod commands;
+mod cookie_reader;
 mod export;
 mod io_util;
 mod notifier;
