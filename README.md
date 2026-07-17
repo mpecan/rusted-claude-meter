@@ -22,6 +22,28 @@ Interaction model is platform-idiomatic:
 - **macOS** — left-click the menu-bar icon to toggle a frameless, always-on-top popover window anchored beneath it; it hides on focus loss, and closing it keeps the app resident in the menu bar. Right-click serves the menu.
 - **Linux** — StatusNotifierItem/AppIndicator delivers **no click events and no tooltip**, so the tray menu is the primary surface: a status line plus one live line per usage window (5-hour, 7-day, and each model-scoped limit) with percent and reset time, then Open / Refresh Now / Quit. Menu text updates in place — the tray icon is never recreated, so updates don't flicker. On GNOME the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) is required for the tray icon to appear at all; KDE Plasma shows it out of the box.
 
+## External integrations
+
+After every successful fetch, the app writes `~/.claudemeter/usage.json` — a public, typed export of current usage for statusline scripts and other external tools. The write is atomic (temp file + rename), so a script never observes a truncated file, and a failed write is logged but never fails the refresh itself.
+
+The path is shared with the Swift [ClaudeMeter](https://github.com/eddmann/ClaudeMeter) app **intentionally**, so existing statusline integrations keep working unmodified when switching between the two. If both apps run at once, whichever fetches most recently wins — there is no locking or merging between them.
+
+Schema (mirrors `ClaudeMeter`'s `UsageExportPayload`, [eddmann/ClaudeMeter#32](https://github.com/eddmann/ClaudeMeter/pull/32)):
+
+```json
+{
+  "session_usage": { "utilization": 42.5, "reset_at": "2026-07-17T15:00:00Z" },
+  "weekly_usage": { "utilization": 60.0, "reset_at": "2026-07-20T00:00:00Z" },
+  "scoped_usage": [
+    { "name": "Fable", "limit": { "utilization": 12.0, "reset_at": "2026-07-20T00:00:00Z" }, "is_active": true }
+  ],
+  "sonnet_usage": null,
+  "last_updated": "2026-07-17T12:00:00Z"
+}
+```
+
+`scoped_usage` is the general, forward-compatible form — one entry per model-scoped limit the API reports. `sonnet_usage` is a deprecated alias kept for backward compatibility: it mirrors the scoped entry named "Sonnet" (case-insensitive) when one exists, or `null` otherwise, so scripts written against the older Sonnet-only export keep working.
+
 ## Development
 
 Prerequisites: Rust (pinned via `rust-toolchain.toml`), Node 24+, [`just`](https://github.com/casey/just).

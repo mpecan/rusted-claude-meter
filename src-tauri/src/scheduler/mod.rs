@@ -24,6 +24,7 @@ use self::core::FetchOutcome;
 use self::transport::UsageTransport;
 
 use crate::cache;
+use crate::export;
 
 /// Tauri event carrying a [`MeterState`] payload on every change.
 pub const USAGE_STATE_EVENT: &str = "usage-state";
@@ -119,6 +120,17 @@ fn lock(core: &Mutex<SchedulerCore>) -> MutexGuard<'_, SchedulerCore> {
     core.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Where a successful fetch is persisted, bundled into one value so
+/// [`run_loop`] stays under the workspace's `too_many_arguments` limit. Both
+/// are independently optional: the disk cache needs the app data dir to
+/// resolve, and the public export (issue #8) needs the home dir — either can
+/// fail to resolve on an unusual platform without the other being affected.
+#[derive(Debug, Clone, Default)]
+pub struct PersistPaths {
+    pub cache: Option<PathBuf>,
+    pub export: Option<PathBuf>,
+}
+
 /// Jitter in `0.0..1.0` derived from the wall clock's sub-second nanos —
 /// plenty for spreading retries without pulling in an RNG dependency.
 fn wall_jitter(wall: Timestamp) -> f64 {
@@ -126,14 +138,16 @@ fn wall_jitter(wall: Timestamp) -> f64 {
 }
 
 /// The polling loop. Runs forever; every decision is delegated to
-/// [`SchedulerCore`] via the shared `handle`. `cache_path` (when given)
+/// [`SchedulerCore`] via the shared `handle`. `persist.cache` (when given)
 /// receives the latest good snapshot after every successful fetch so
-/// restarts render instantly.
+/// restarts render instantly; `persist.export` (when given) receives the
+/// same snapshot mapped into the public `usage.json` contract for external
+/// consumers (issue #8).
 pub async fn run_loop<T: UsageTransport, C: Clock>(
     transport: T,
     clock: C,
     handle: SchedulerHandle,
-    cache_path: Option<PathBuf>,
+    persist: PersistPaths,
     on_state: impl Fn(MeterState) + Send + Sync + 'static,
 ) {
     let SchedulerHandle { core, notify } = handle;
@@ -147,10 +161,19 @@ pub async fn run_loop<T: UsageTransport, C: Clock>(
     loop {
         if lock(&core).should_fetch(clock.wall(), forced) {
             let outcome = transport.fetch().await;
-            if let (FetchOutcome::Success(snapshot), Some(path)) = (&outcome, &cache_path) {
-                // Cache write failure is not a refresh failure; the
-                // in-memory snapshot stays authoritative.
-                let _ = cache::save(path, snapshot);
+            if let FetchOutcome::Success(snapshot) = &outcome {
+                if let Some(path) = &persist.cache {
+                    // Cache write failure is not a refresh failure; the
+                    // in-memory snapshot stays authoritative.
+                    let _ = cache::save(path, snapshot);
+                }
+                if let Some(path) = &persist.export {
+                    // Same discipline: logged, never fatal to the refresh
+                    // (issue #8's acceptance criterion).
+                    if let Err(error) = export::write(path, snapshot) {
+                        eprintln!("usage.json export failed: {error}");
+                    }
+                }
             }
             lock(&core).record(outcome);
         }
@@ -304,7 +327,7 @@ mod tests {
             transport,
             clock,
             SchedulerHandle::new(core, notify),
-            None,
+            PersistPaths::default(),
             on_state,
         ))
     }
@@ -499,6 +522,42 @@ mod tests {
         // And the loop parks: hours pass with no further attempts.
         tokio::time::sleep(Duration::from_hours(1)).await;
         assert_eq!(count.load(Ordering::SeqCst), 1);
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn successful_fetch_writes_both_the_cache_and_the_public_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("usage_cache.json");
+        let export_path = dir.path().join(".claudemeter").join("usage.json");
+        let count = Arc::new(AtomicUsize::new(0));
+        let core = Arc::new(Mutex::new(SchedulerCore::new(
+            RefreshInterval::OneMinute,
+            None,
+        )));
+        let notify = Arc::new(Notify::new());
+        let handle = SchedulerHandle::new(Arc::clone(&core), Arc::clone(&notify));
+        let transport = ScriptedTransport {
+            count: Arc::clone(&count),
+            script: vec![FetchOutcome::Success(snapshot_at(base()))],
+        };
+        let task = tokio::spawn(run_loop(
+            transport,
+            FakeClock::new(base()),
+            handle,
+            PersistPaths {
+                cache: Some(cache_path.clone()),
+                export: Some(export_path.clone()),
+            },
+            |_| {},
+        ));
+
+        wait_until(|| count.load(Ordering::SeqCst) == 1).await;
+        assert!(cache_path.exists(), "disk cache was not written");
+        assert!(export_path.exists(), "public export was not written");
+        let exported: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&export_path).unwrap()).unwrap();
+        assert_eq!(exported["last_updated"], "2026-07-17T12:00:00Z");
         task.abort();
     }
 

@@ -9,6 +9,7 @@
 
 mod cache;
 mod commands;
+mod export;
 mod notifier;
 mod scheduler;
 mod settings;
@@ -16,14 +17,14 @@ mod store;
 mod tray;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use commands::SessionStoreState;
 use jiff::Timestamp;
 use notifier::NotifierState;
 use scheduler::{
-    LiveTransport, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT, run_loop,
+    LiveTransport, PersistPaths, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT,
+    run_loop,
 };
 use settings::SettingsState;
 use store::{KeyringSessionStore, SessionStore};
@@ -65,6 +66,16 @@ pub fn run() -> tauri::Result<()> {
             // first icon reflects any restored snapshot instead of flashing
             // the empty placeholder until the scheduler's first broadcast.
             let cache_path = data_dir.as_ref().map(|dir| dir.join(cache::CACHE_FILE));
+            // `~/.claudemeter/usage.json` (issue #8), not the app data dir:
+            // the path is shared with the Swift ClaudeMeter app on purpose.
+            // `None` when the home dir can't be resolved — the export is a
+            // best-effort convenience for external tools, never load-bearing
+            // for the app itself.
+            let export_path = app
+                .path()
+                .home_dir()
+                .ok()
+                .map(|dir| export::export_path(&dir));
             let settings_path = data_dir.map(|dir| dir.join(settings::SETTINGS_FILE));
             let app_settings = settings_path
                 .as_deref()
@@ -89,7 +100,15 @@ pub fn run() -> tauri::Result<()> {
             // very first observation establishes its startup baseline
             // instead of a broadcast racing ahead of it.
             app.manage(NotifierState::default());
-            spawn_scheduler(app, scheduler_store, core, cache_path);
+            spawn_scheduler(
+                app,
+                scheduler_store,
+                core,
+                PersistPaths {
+                    cache: cache_path,
+                    export: export_path,
+                },
+            );
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -133,7 +152,7 @@ fn spawn_scheduler(
     app: &tauri::App,
     session_store: Arc<dyn SessionStore>,
     core: SchedulerCore,
-    cache_path: Option<PathBuf>,
+    persist: PersistPaths,
 ) {
     let core = Arc::new(Mutex::new(core));
     let handle = SchedulerHandle::new(core, Arc::new(Notify::new()));
@@ -144,7 +163,7 @@ fn spawn_scheduler(
         LiveTransport::new(session_store),
         SystemClock::default(),
         handle,
-        cache_path,
+        persist,
         move |state| {
             let _ = emitter.emit(USAGE_STATE_EVENT, &state);
             // The tray subscribes to the same broadcast: icon and menu
