@@ -84,6 +84,10 @@ export interface UsageBackend {
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
+  /** Record that the first-run wizard has been auto-opened this process, so a
+   * rebuild of the destroy-on-close Settings window does not re-trigger it.
+   * Independent of `wizardComplete` — it must fire even when the user skips. */
+  wizardMarkOffered(): Promise<void>;
   /** Mark the wizard complete by writing settings to disk even if nothing
    * changed, so "absence of settings" stops being true on the next launch. */
   wizardComplete(): Promise<void>;
@@ -172,6 +176,10 @@ class TauriBackend implements UsageBackend {
 
   wizardShouldRun(): Promise<boolean> {
     return invoke<boolean>("wizard_should_run");
+  }
+
+  wizardMarkOffered(): Promise<void> {
+    return invoke<void>("wizard_mark_offered");
   }
 
   wizardComplete(): Promise<void> {
@@ -322,6 +330,13 @@ class DemoBackend implements UsageBackend {
 
   wizardShouldRun(): Promise<boolean> {
     return Promise.resolve(!this.wizardCompleted);
+  }
+
+  wizardMarkOffered(): Promise<void> {
+    // Same consume-once effect the real backend has: once offered, don't
+    // auto-open again this session.
+    this.wizardCompleted = true;
+    return Promise.resolve();
   }
 
   wizardComplete(): Promise<void> {

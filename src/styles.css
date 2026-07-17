@@ -422,8 +422,14 @@ body {
    above the settings sections — it auto-opens on first run (when Settings opens
    itself) and "Run setup again" reopens it. */
 .wizard-panel {
-  position: absolute;
+  /* Fixed, not absolute: the Settings window is a real, resizable, scrollable
+     window whose `.settings` content can exceed the viewport and has no
+     positioning context of its own. `position: fixed` anchors the modal to the
+     window viewport so it fully dims the visible area and keeps the dialog
+     centred regardless of how far the settings below have been scrolled. */
+  position: fixed;
   inset: 0;
+  z-index: 100;
   display: flex;
   flex-direction: column;
   padding: 1rem;

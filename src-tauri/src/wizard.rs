@@ -10,23 +10,64 @@
 //! already cover: detecting whether the wizard should run at all, the
 //! completion marker, and the GNOME `AppIndicator` hint.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::State;
 
 use crate::settings::SettingsState;
 
-/// Managed Tauri state: whether the wizard should open automatically on
-/// startup. Computed once, in `lib.rs::run`, from whether `settings.json`
+/// Managed Tauri state: whether the wizard still needs to be auto-opened this
+/// process. Seeded once, in `lib.rs::run`, from whether `settings.json`
 /// existed *before* this launch loaded (or defaulted) it — the per-issue
-/// "detect first run via absence of settings" signal. Re-opening the wizard
-/// later from Settings ("Run setup again") does not touch this; it is purely
-/// a frontend action.
-pub struct FirstRunState(pub bool);
+/// "detect first run via absence of settings" signal.
+///
+/// It is a consume-once flag (`AtomicBool`) rather than a plain `bool` because
+/// the Settings window is destroyed on close and rebuilt on the next open, so
+/// its frontend (`settings-view.ts`) runs `wizard.maybeAutoOpen()` on *every*
+/// open, not once per process. Without a way to record "already offered", a
+/// user who finished or skipped the wizard would be shown it again every time
+/// they reopened Settings in the same session. `wizard_mark_offered` clears it
+/// the moment the wizard is auto-opened, so only the very first Settings open
+/// of a first-run session shows it. Re-opening the wizard later from Settings
+/// ("Run setup again") does not touch this; it is purely a frontend action.
+pub struct FirstRunState(pub AtomicBool);
 
-/// Whether the wizard should open automatically on this launch.
+impl FirstRunState {
+    /// Seed the flag: `true` on a first run (no `settings.json` yet), `false`
+    /// otherwise.
+    pub const fn new(first_run: bool) -> Self {
+        Self(AtomicBool::new(first_run))
+    }
+
+    /// Whether the wizard should still be auto-opened. A pure read — clearing
+    /// is [`Self::mark_offered`]'s job.
+    fn should_run(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Record that the wizard has now been offered this process.
+    fn mark_offered(&self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
+/// Whether the wizard should open automatically on this launch. A pure read:
+/// both the popover (deciding whether to surface the Settings window on
+/// launch) and the Settings window's `maybeAutoOpen` observe the same flag;
+/// clearing it is `wizard_mark_offered`'s job, run once the wizard is shown.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn wizard_should_run(state: State<'_, FirstRunState>) -> bool {
-    state.0
+    state.should_run()
+}
+
+/// Record that the first-run wizard has now been offered this process, so a
+/// later rebuild of the (destroy-on-close) Settings window does not auto-open
+/// it a second time. Called by `maybeAutoOpen` the moment it opens the wizard.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn wizard_mark_offered(state: State<'_, FirstRunState>) {
+    state.mark_offered();
 }
 
 /// Mark the wizard as complete by writing the current settings to disk even
@@ -53,6 +94,32 @@ pub fn is_gnome_desktop() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::FirstRunState;
+
+    #[test]
+    fn first_run_flag_is_consumed_once_so_window_rebuilds_do_not_re_offer() {
+        // Fresh install: no settings.json -> the wizard should be offered.
+        let state = FirstRunState::new(true);
+        assert!(
+            state.should_run(),
+            "first observation must offer the wizard"
+        );
+
+        // maybeAutoOpen offers it and records that it has been offered.
+        state.mark_offered();
+
+        // The Settings window is destroy-on-close: every later open re-reads
+        // the flag. It must now stay false so the wizard is not re-shown.
+        assert!(!state.should_run());
+        assert!(!state.should_run());
+    }
+
+    #[test]
+    fn non_first_run_never_offers_the_wizard() {
+        let state = FirstRunState::new(false);
+        assert!(!state.should_run());
+    }
+
     #[test]
     fn gnome_env_value_is_classified_through_the_pure_helper() {
         // is_gnome_desktop itself reads the real process environment, so it

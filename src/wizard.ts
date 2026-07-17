@@ -264,6 +264,15 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
       .wizardShouldRun()
       .then((shouldRun) => {
         if (shouldRun) {
+          // Consume the first-run signal *before* showing the wizard: the
+          // Settings window is destroyed on close and rebuilt (re-running this)
+          // on the next open, so without recording "already offered" the wizard
+          // would auto-open again on every reopen this session — even after the
+          // user finished or skipped it. Best-effort; showing it once matters
+          // more than the record, so a failure here never blocks the open.
+          backend.wizardMarkOffered().catch((error: unknown) => {
+            console.error("failed to record first-run wizard as offered", error);
+          });
           open();
         }
       })

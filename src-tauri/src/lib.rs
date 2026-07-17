@@ -72,6 +72,7 @@ pub fn run() -> tauri::Result<()> {
             autostart::set_autostart,
             settings_window::open_settings_window,
             wizard::wizard_should_run,
+            wizard::wizard_mark_offered,
             wizard::wizard_complete,
             wizard::is_gnome_desktop,
         ])
@@ -120,7 +121,7 @@ pub fn run() -> tauri::Result<()> {
                 shown,
             )?;
             app.manage(SettingsState::new(settings_path, app_settings));
-            app.manage(wizard::FirstRunState(!settings_existed));
+            app.manage(wizard::FirstRunState::new(!settings_existed));
             // Managed before the scheduler starts broadcasting (mirrors the
             // tray init-before-scheduler ordering above), so the tracker's
             // very first observation establishes its startup baseline
