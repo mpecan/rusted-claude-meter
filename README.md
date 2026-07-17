@@ -61,6 +61,13 @@ just check   # everything CI runs: fmt, clippy -D warnings, tests, file sizes,
 
 `just check` needs a few cargo tools beyond `just setup` — see [CONTRIBUTING.md](CONTRIBUTING.md#setup).
 
+## Packaging & releases
+
+Pushing a `v*` tag builds a signed + notarized macOS DMG, a Linux AppImage
+and `.deb`, and a Homebrew cask, then publishes them to a GitHub Release —
+see [`docs/packaging.md`](docs/packaging.md) for the release process, the
+Apple signing secrets it needs, and the Flatpak evaluation findings.
+
 ## Quality bar
 
 - `cargo clippy --workspace --all-targets -- -D warnings` with `pedantic` + `nursery` enabled and `unwrap_used` / `expect_used` / `panic` / `todo` **denied** (tests may opt out locally).

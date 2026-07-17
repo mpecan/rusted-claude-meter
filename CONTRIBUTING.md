@@ -46,3 +46,9 @@ If a change is going to move either number, update `justfile` only, and say so i
 - **Every change ships with tests.** API-shape changes update the fixtures in `crates/meter-api/tests/fixtures/` and the contract tests beside them.
 - **Never log secrets.** `SessionKey` redacts itself in `Debug`/`Display`; keep it that way, and mark any header carrying it as sensitive.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat(scope): ...`, `fix(scope): ...`).
+
+## Releasing
+
+Push a `v*` tag; `.github/workflows/release.yml` builds and publishes signed
+macOS + Linux artifacts from it with no further manual steps. See
+[`docs/packaging.md`](docs/packaging.md).

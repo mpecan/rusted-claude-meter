@@ -52,6 +52,11 @@ jobs:
       - name: Check file sizes
         run: bash scripts/check-file-sizes.sh
 
+      - name: Lint GitHub Actions workflows
+        uses: reviewdog/action-actionlint@v1
+        with:
+          fail_level: error
+
       - name: Frontend typecheck (strict tsc)
         run: npx tsc --noEmit
 

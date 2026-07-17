@@ -27,13 +27,34 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg", "deb", "appimage"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "Utility",
+    "copyright": "Copyright © 2026 Matjaz Domen Pecan",
+    "shortDescription": "Claude plan usage meter in your tray",
+    "longDescription": "Rusted Claude Meter shows Claude.ai plan usage — the 5-hour session window, the 7-day window, and every named model-scoped limit — as a colour-coded gauge in the menu bar (macOS) or system tray (Linux). Import a session key straight from your browser, tune thresholds and refresh interval, and get notified on threshold crossings and resets.",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libayatana-appindicator3-1",
+          "librsvg2-2",
+          "libxdo3",
+          "libgtk-3-0"
+        ],
+        "section": "utils",
+        "priority": "optional"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "hardenedRuntime": true
+    }
   }
 }
