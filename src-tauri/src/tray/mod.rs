@@ -16,6 +16,8 @@
 //! and the tray icon itself is never recreated — that is what avoids
 //! flicker.
 
+#[cfg(target_os = "macos")]
+mod geometry;
 mod model;
 
 #[cfg(target_os = "macos")]
@@ -62,11 +64,12 @@ fn lock<R: Runtime>(updater: &TrayUpdater<R>) -> MutexGuard<'_, TrayResources<R>
 
 /// Build the tray icon and its menu, and manage the [`TrayUpdater`] so
 /// [`apply_state`] can drive live updates. Must run before the scheduler
-/// starts broadcasting, or early states would be dropped.
-pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+/// starts broadcasting, or early states would be dropped. `initial` is the
+/// state to render right away — the caller passes the cache-restored state
+/// so a restart never flashes an empty gauge.
+pub fn init<R: Runtime>(app: &AppHandle<R>, initial: &MeterState) -> tauri::Result<()> {
     let now = Timestamp::now();
-    let initial = MeterState::empty();
-    let menu_model = model::menu_model(&initial, now);
+    let menu_model = model::menu_model(initial, now);
     let (menu, status_item, usage_items) = build_menu(app, &menu_model)?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -91,31 +94,30 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         tray = tray.on_tray_icon_event(popover::handle_tray_event);
     }
 
-    // Empty gauge until the first snapshot arrives. A render failure falls
-    // back to the bundled app icon rather than aborting startup.
+    // A render failure falls back to the bundled app icon rather than
+    // aborting startup — and stays uncommitted so the first broadcast
+    // retries the real gauge.
     let mut cache = IconCache::new();
     let mut diff = TrayDiff::default();
-    let plan = diff.plan(
-        model::icon_state(&initial, now, MONO, Scale::X2),
-        menu_model,
-    );
-    if let Some(icon) = plan.icon {
-        match cache.get_or_render(icon) {
-            Ok(rendered) => {
-                tray = tray
-                    .icon(tray_image(&rendered))
-                    .icon_as_template(rendered.is_template);
-            }
-            Err(error) => {
-                eprintln!("tray icon render failed, using default icon: {error}");
-                if let Some(icon) = app.default_window_icon() {
-                    tray = tray.icon(icon.clone());
-                }
+    let icon = model::icon_state(initial, now, MONO, Scale::X2);
+    match cache.get_or_render(icon) {
+        Ok(rendered) => {
+            tray = tray
+                .icon(tray_image(&rendered))
+                .icon_as_template(rendered.is_template);
+            diff.commit_icon(icon);
+        }
+        Err(error) => {
+            eprintln!("tray icon render failed, using default icon: {error}");
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
             }
         }
     }
 
     tray.build(app)?;
+    // The menu built above is what the tray now shows.
+    diff.commit_menu(menu_model);
     app.manage(TrayUpdater(Mutex::new(TrayResources {
         cache,
         diff,
@@ -144,44 +146,58 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
     let menu = model::menu_model(state, now);
 
     let mut resources = lock(&updater);
-    let plan = resources.diff.plan(icon, menu);
+    let plan = resources.diff.plan(icon, &menu);
     if let Some(icon) = plan.icon {
         match resources.cache.get_or_render(icon) {
             Ok(rendered) => {
-                let _ = tray.set_icon(Some(tray_image(&rendered)));
-                let _ = tray.set_icon_as_template(rendered.is_template);
+                if tray.set_icon(Some(tray_image(&rendered))).is_ok() {
+                    let _ = tray.set_icon_as_template(rendered.is_template);
+                    // Only a successful set is recorded, so a failure here
+                    // is retried on the next state instead of debounced.
+                    resources.diff.commit_icon(icon);
+                }
             }
             Err(error) => eprintln!("tray icon render failed, keeping previous icon: {error}"),
         }
     }
-    if let Some(menu) = plan.menu {
-        apply_menu(app, &tray, &mut resources, &menu);
+    if let Some(menu) = plan.menu
+        && apply_menu(app, &tray, &mut resources, &menu)
+    {
+        resources.diff.commit_menu(menu);
     }
 }
 
 /// Update menu text in place when the line count is unchanged; rebuild the
 /// menu (never the tray icon) only when usage lines appeared or vanished.
+/// Returns whether the menu now fully matches `menu`, so the caller only
+/// commits the debounce gate on success.
 fn apply_menu<R: Runtime>(
     app: &AppHandle<R>,
     tray: &TrayIcon<R>,
     resources: &mut TrayResources<R>,
     menu: &MenuModel,
-) {
+) -> bool {
     if resources.usage_items.len() == menu.usage_lines.len() {
-        let _ = resources.status_item.set_text(&menu.status_line);
+        let mut applied = resources.status_item.set_text(&menu.status_line).is_ok();
         for (item, line) in resources.usage_items.iter().zip(&menu.usage_lines) {
-            let _ = item.set_text(line);
+            applied &= item.set_text(line).is_ok();
         }
-        return;
+        return applied;
     }
     match build_menu(app, menu) {
         Ok((rebuilt, status_item, usage_items)) => {
             if tray.set_menu(Some(rebuilt)).is_ok() {
                 resources.status_item = status_item;
                 resources.usage_items = usage_items;
+                true
+            } else {
+                false
             }
         }
-        Err(error) => eprintln!("tray menu rebuild failed, keeping previous menu: {error}"),
+        Err(error) => {
+            eprintln!("tray menu rebuild failed, keeping previous menu: {error}");
+            false
+        }
     }
 }
 

@@ -13,9 +13,11 @@ mod scheduler;
 mod store;
 mod tray;
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use commands::SessionStoreState;
+use jiff::Timestamp;
 use scheduler::{
     LiveTransport, RefreshInterval, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT,
     run_loop,
@@ -47,10 +49,22 @@ pub fn run() -> tauri::Result<()> {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             configure_popover_window(app);
+            // The disk cache is loaded before the tray is wired so the very
+            // first icon reflects any restored snapshot instead of flashing
+            // the empty placeholder until the scheduler's first broadcast.
+            let cache_path = app
+                .path()
+                .app_data_dir()
+                .ok()
+                .map(|dir| dir.join(cache::CACHE_FILE));
+            let core = SchedulerCore::new(
+                RefreshInterval::default(),
+                cache_path.as_deref().and_then(cache::load),
+            );
             // Tray before scheduler: the tray must be managed before the
             // first state broadcast or early updates would be dropped.
-            tray::init(app.handle())?;
-            spawn_scheduler(app, scheduler_store);
+            tray::init(app.handle(), &core.state(Timestamp::now()))?;
+            spawn_scheduler(app, scheduler_store, core, cache_path);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -87,20 +101,16 @@ fn configure_popover_window(app: &tauri::App) {
     let _ = app;
 }
 
-/// Seed the scheduler from the disk cache, expose its handle as managed
-/// state and start the polling loop on Tauri's async runtime.
-fn spawn_scheduler(app: &tauri::App, session_store: Arc<dyn SessionStore>) {
-    let cache_path = app
-        .path()
-        .app_data_dir()
-        .ok()
-        .map(|dir| dir.join(cache::CACHE_FILE));
-    let initial = cache_path.as_deref().and_then(cache::load);
-
-    let core = Arc::new(Mutex::new(SchedulerCore::new(
-        RefreshInterval::default(),
-        initial,
-    )));
+/// Expose the already-seeded scheduler core as managed state and start the
+/// polling loop on Tauri's async runtime. The core arrives pre-loaded from
+/// the disk cache (see `setup`) so the tray could render it immediately.
+fn spawn_scheduler(
+    app: &tauri::App,
+    session_store: Arc<dyn SessionStore>,
+    core: SchedulerCore,
+    cache_path: Option<PathBuf>,
+) {
+    let core = Arc::new(Mutex::new(core));
     let handle = SchedulerHandle::new(core, Arc::new(Notify::new()));
     app.manage(handle.clone());
 

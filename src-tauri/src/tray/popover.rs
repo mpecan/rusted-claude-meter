@@ -10,7 +10,7 @@
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent};
 use tauri::{Manager, PhysicalPosition, Runtime};
 
-use super::model::{ScreenBounds, TrayRect, popover_origin};
+use super::geometry::{ScreenBounds, TrayRect, popover_origin};
 
 /// Tray click handler: left-click (on release) toggles the popover window.
 ///

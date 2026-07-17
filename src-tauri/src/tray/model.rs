@@ -4,9 +4,10 @@
 //! `now` timestamp: the icon state to render, the menu's status line and the
 //! live usage lines (one per window — 5-hour, 7-day, each scoped model).
 //! [`TrayDiff`] is the debounce gate: it remembers what the tray last
-//! applied and turns a fresh view-model into the minimal [`TrayPlan`], so
-//! identical consecutive states touch neither the icon nor the menu (no
-//! flicker, no redundant `set_icon` calls).
+//! successfully applied (the caller commits each part only after the tray
+//! call succeeded) and turns a fresh view-model into the minimal
+//! [`TrayPlan`], so identical consecutive states touch neither the icon nor
+//! the menu (no flicker, no redundant `set_icon` calls).
 
 use jiff::Timestamp;
 use meter_core::{LimitWindow, UsageWindow};
@@ -71,28 +72,47 @@ const fn window_label(window: LimitWindow) -> &'static str {
     }
 }
 
+/// A reset moment this recently in the past still reads "resets soon";
+/// beyond it the line says how long ago the window reset — the cue that the
+/// numbers come from a stale snapshot, not live data.
+const RESET_SOON_GRACE_SECS: i64 = 5 * 60;
+
 /// "5-hour: 42% — resets in 2h 15m"
 fn usage_line(label: &str, window: &UsageWindow, now: Timestamp) -> String {
     let percent = round_percent(window.utilization);
     let remaining = window.resets_at.duration_since(now).as_secs();
-    if remaining <= 0 {
-        format!("{label}: {percent}% — resets soon")
-    } else {
+    if remaining > 0 {
         format!(
             "{label}: {percent}% — resets in {}",
             short_duration(remaining)
         )
+    } else if remaining > -RESET_SOON_GRACE_SECS {
+        format!("{label}: {percent}% — resets soon")
+    } else {
+        format!(
+            "{label}: {percent}% — reset {} ago",
+            short_duration(-remaining)
+        )
     }
 }
 
+/// The one-line phase/freshness summary. Whenever a cached snapshot is
+/// still shown while polling is paused or failing, its age is surfaced
+/// here so the usage lines are never presented as current data.
 fn status_line(state: &MeterState, now: Timestamp) -> String {
     let age = state
         .snapshot
         .as_ref()
         .map(|snapshot| short_duration(now.duration_since(snapshot.fetched_at).as_secs()));
     match (state.phase, age) {
-        (Phase::AwaitingSession, _) => "No session key — choose Open to set one".to_owned(),
-        (Phase::SessionExpired, _) => "Session expired — choose Open to update it".to_owned(),
+        (Phase::AwaitingSession, None) => "No session key — choose Open to set one".to_owned(),
+        (Phase::AwaitingSession, Some(age)) => {
+            format!("No session key — showing data from {age} ago")
+        }
+        (Phase::SessionExpired, None) => "Session expired — choose Open to update it".to_owned(),
+        (Phase::SessionExpired, Some(age)) => {
+            format!("Session expired — showing data from {age} ago")
+        }
         (Phase::Degraded, None) => "Connection trouble — retrying".to_owned(),
         (Phase::Degraded, Some(age)) => format!("Connection trouble — data from {age} ago"),
         (Phase::Polling, None) => "Waiting for first update…".to_owned(),
@@ -140,64 +160,32 @@ pub struct TrayDiff {
 }
 
 impl TrayDiff {
-    /// Diff a fresh view-model against what the tray currently shows and
-    /// record it as applied.
-    pub fn plan(&mut self, icon: IconState, menu: MenuModel) -> TrayPlan {
-        let icon_changed = self.last_icon != Some(icon);
-        let menu_changed = self.last_menu.as_ref() != Some(&menu);
+    /// Diff a fresh view-model against what the tray last successfully
+    /// applied. Nothing is recorded here: the caller confirms each part via
+    /// [`Self::commit_icon`] / [`Self::commit_menu`] only after the tray
+    /// call actually succeeded, so a failed render or menu rebuild is
+    /// retried on the next state instead of silently desyncing the gate.
+    pub fn plan(&self, icon: IconState, menu: &MenuModel) -> TrayPlan {
+        TrayPlan {
+            icon: (self.last_icon != Some(icon)).then_some(icon),
+            menu: (self.last_menu.as_ref() != Some(menu)).then(|| menu.clone()),
+        }
+    }
+
+    /// Record that `icon` is now what the tray shows.
+    pub const fn commit_icon(&mut self, icon: IconState) {
         self.last_icon = Some(icon);
-        let plan = TrayPlan {
-            icon: icon_changed.then_some(icon),
-            menu: menu_changed.then(|| menu.clone()),
-        };
+    }
+
+    /// Record that `menu` is now what the tray shows.
+    pub fn commit_menu(&mut self, menu: MenuModel) {
         self.last_menu = Some(menu);
-        plan
     }
-}
-
-/// Tray icon bounds in physical pixels (origin top-left of the screen).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TrayRect {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-/// Horizontal extent of the screen the tray click landed on, physical px.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ScreenBounds {
-    pub x: f64,
-    pub width: f64,
-}
-
-/// Gap between the menu bar and the popover's top edge, physical px.
-const POPOVER_GAP: f64 = 8.0;
-/// Minimum distance the popover keeps from the screen edges, physical px.
-const POPOVER_MARGIN: f64 = 8.0;
-
-/// Top-left corner for the macOS popover window: centred under the tray
-/// icon, just below the menu bar, clamped inside the screen when its bounds
-/// are known.
-pub fn popover_origin(
-    tray: TrayRect,
-    window_width: f64,
-    screen: Option<ScreenBounds>,
-) -> (f64, f64) {
-    let mut x = tray.width.mul_add(0.5, tray.x) - window_width / 2.0;
-    if let Some(screen) = screen {
-        let min_x = screen.x + POPOVER_MARGIN;
-        let max_x = min_x.max(screen.x + screen.width - window_width - POPOVER_MARGIN);
-        x = x.clamp(min_x, max_x);
-    }
-    (x, tray.y + tray.height + POPOVER_GAP)
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
-    // Popover coordinates are exact float arithmetic on whole numbers.
-    #![allow(clippy::float_cmp)]
 
     use super::*;
     use jiff::SignedDuration;
@@ -273,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn reset_in_the_past_reads_as_resets_soon() {
+    fn reset_just_in_the_past_reads_as_resets_soon() {
         let mut snap = snapshot();
         snap.five_hour = Some(window(10.0, -5, LimitWindow::FiveHour));
         snap.seven_day = None;
@@ -283,7 +271,24 @@ mod tests {
     }
 
     #[test]
+    fn reset_long_in_the_past_reads_as_reset_ago_not_resets_soon() {
+        // A stale cached snapshot whose window elapsed days ago must not
+        // read like a window about to reset within seconds.
+        let mut snap = snapshot();
+        snap.five_hour = Some(window(
+            10.0,
+            -(2 * 86_400 + 3 * 3600),
+            LimitWindow::FiveHour,
+        ));
+        snap.seven_day = None;
+        snap.scoped.clear();
+        let model = menu_model(&state(Phase::Polling, Staleness::Stale, Some(snap)), now());
+        assert_eq!(model.usage_lines, vec!["5-hour: 10% — reset 2d 3h ago"]);
+    }
+
+    #[test]
     fn status_line_reflects_every_phase() {
+        // Without a snapshot the paused phases only point at the fix…
         let cases = [
             (
                 Phase::AwaitingSession,
@@ -295,7 +300,26 @@ mod tests {
             ),
         ];
         for (phase, expected) in cases {
-            let model = menu_model(&state(phase, Staleness::Fresh, Some(snapshot())), now());
+            let model = menu_model(&state(phase, Staleness::Missing, None), now());
+            assert_eq!(model.status_line, expected);
+        }
+
+        // …but with a cached snapshot still on display, its age is surfaced
+        // so the usage lines are never mistaken for live data.
+        let mut old = snapshot();
+        old.fetched_at = now() - SignedDuration::from_secs(2 * 86_400 + 3600);
+        let aged_cases = [
+            (
+                Phase::AwaitingSession,
+                "No session key — showing data from 2d 1h ago",
+            ),
+            (
+                Phase::SessionExpired,
+                "Session expired — showing data from 2d 1h ago",
+            ),
+        ];
+        for (phase, expected) in aged_cases {
+            let model = menu_model(&state(phase, Staleness::Stale, Some(old.clone())), now());
             assert_eq!(model.status_line, expected);
         }
 
@@ -350,16 +374,18 @@ mod tests {
     }
 
     #[test]
-    fn identical_states_debounce_to_a_noop() {
+    fn identical_states_debounce_to_a_noop_once_committed() {
         let mut diff = TrayDiff::default();
         let icon = icon_state(&healthy(), now(), false, Scale::X2);
         let menu = menu_model(&healthy(), now());
 
-        let first = diff.plan(icon, menu.clone());
+        let first = diff.plan(icon, &menu);
         assert_eq!(first.icon, Some(icon));
         assert_eq!(first.menu, Some(menu.clone()));
+        diff.commit_icon(icon);
+        diff.commit_menu(menu.clone());
 
-        let second = diff.plan(icon, menu);
+        let second = diff.plan(icon, &menu);
         assert_eq!(
             second,
             TrayPlan {
@@ -370,14 +396,37 @@ mod tests {
     }
 
     #[test]
+    fn uncommitted_plan_is_replanned_so_failed_applies_are_retried() {
+        let mut diff = TrayDiff::default();
+        let icon = icon_state(&healthy(), now(), false, Scale::X2);
+        let menu = menu_model(&healthy(), now());
+
+        // The caller failed to apply (render/rebuild error) and committed
+        // nothing — the same state must be planned again, not swallowed.
+        let first = diff.plan(icon, &menu);
+        assert_eq!(first.icon, Some(icon));
+        let second = diff.plan(icon, &menu);
+        assert_eq!(second.icon, Some(icon));
+        assert_eq!(second.menu, Some(menu.clone()));
+
+        // Committing only the icon leaves the menu pending, and vice versa.
+        diff.commit_icon(icon);
+        let third = diff.plan(icon, &menu);
+        assert_eq!(third.icon, None);
+        assert_eq!(third.menu, Some(menu));
+    }
+
+    #[test]
     fn menu_only_change_leaves_the_icon_untouched() {
         let mut diff = TrayDiff::default();
         let icon = icon_state(&healthy(), now(), false, Scale::X2);
-        diff.plan(icon, menu_model(&healthy(), now()));
+        let menu = menu_model(&healthy(), now());
+        diff.commit_icon(icon);
+        diff.commit_menu(menu);
 
         // A minute later the icon key is identical but the age text moved.
         let later = now() + SignedDuration::from_secs(60);
-        let plan = diff.plan(icon, menu_model(&healthy(), later));
+        let plan = diff.plan(icon, &menu_model(&healthy(), later));
         assert_eq!(plan.icon, None);
         assert_eq!(plan.menu.unwrap().status_line, "Updated 1m ago".to_owned());
     }
@@ -387,58 +436,13 @@ mod tests {
         let mut diff = TrayDiff::default();
         let menu = menu_model(&healthy(), now());
         let icon = icon_state(&healthy(), now(), false, Scale::X2);
-        diff.plan(icon, menu.clone());
+        diff.commit_icon(icon);
+        diff.commit_menu(menu.clone());
 
         let mut hotter = icon;
         hotter.percent = 43;
-        let plan = diff.plan(hotter, menu);
+        let plan = diff.plan(hotter, &menu);
         assert_eq!(plan.icon, Some(hotter));
         assert_eq!(plan.menu, None);
-    }
-
-    const TRAY: TrayRect = TrayRect {
-        x: 1000.0,
-        y: 0.0,
-        width: 44.0,
-        height: 24.0,
-    };
-
-    #[test]
-    fn popover_centres_under_the_tray_icon() {
-        let (x, y) = popover_origin(TRAY, 420.0, None);
-        assert_eq!(x, 1000.0 + 22.0 - 210.0);
-        assert_eq!(y, 24.0 + 8.0);
-    }
-
-    #[test]
-    fn popover_clamps_to_the_right_screen_edge() {
-        let tray = TrayRect { x: 1200.0, ..TRAY };
-        let screen = ScreenBounds {
-            x: 0.0,
-            width: 1280.0,
-        };
-        let (x, _) = popover_origin(tray, 420.0, Some(screen));
-        assert_eq!(x, 1280.0 - 420.0 - 8.0);
-    }
-
-    #[test]
-    fn popover_clamps_to_the_left_screen_edge() {
-        let tray = TrayRect { x: 4.0, ..TRAY };
-        let screen = ScreenBounds {
-            x: 0.0,
-            width: 1280.0,
-        };
-        let (x, _) = popover_origin(tray, 420.0, Some(screen));
-        assert_eq!(x, 8.0);
-    }
-
-    #[test]
-    fn popover_wider_than_the_screen_pins_to_the_left_margin() {
-        let screen = ScreenBounds {
-            x: 0.0,
-            width: 300.0,
-        };
-        let (x, _) = popover_origin(TRAY, 420.0, Some(screen));
-        assert_eq!(x, 8.0);
     }
 }

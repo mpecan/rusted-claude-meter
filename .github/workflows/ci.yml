@@ -77,6 +77,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.96.0"
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
@@ -87,6 +88,13 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      # The Lint job runs on Linux only, where all `target_os = "macos"`
+      # code (popover, tray click handling) is cfg'd out — lint it here so
+      # both platform surfaces are held to the same -D warnings gate.
+      - name: Clippy (macOS cfg surface)
+        if: runner.os == 'macOS'
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo nextest run --workspace
