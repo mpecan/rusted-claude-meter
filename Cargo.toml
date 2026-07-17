@@ -19,6 +19,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "gzip",
 ] }
+keyring = "4"
 
 # Dev dependencies
 pretty_assertions = "1"
