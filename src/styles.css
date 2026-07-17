@@ -1,4 +1,21 @@
+/* Status colors match crates/meter-render/src/palette.rs exactly, so the
+   popover and the tray icon agree on what "safe", "warning" and "critical"
+   look like. */
 :root {
+  --color-safe: #34c759;
+  --color-warning: #ff9500;
+  --color-critical: #ff3b30;
+  --color-accent: #af52de;
+
+  --bg: #f6f6f6;
+  --card-bg: #ffffff;
+  --text: #0f0f0f;
+  --text-muted: rgb(15 15 15 / 62%);
+  --border: rgb(0 0 0 / 8%);
+  --track-bg: rgb(0 0 0 / 8%);
+  --banner-bg: rgb(0 0 0 / 4%);
+  --input-bg: #ffffff;
+
   font-family:
     Inter,
     -apple-system,
@@ -7,52 +24,239 @@
     Helvetica,
     Arial,
     sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
-}
-
-.container {
-  margin: 0 auto;
-  max-width: 24rem;
-  padding: 2rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  text-align: center;
-}
-
-h1 {
-  font-size: 1.25rem;
-  margin: 0;
-}
-
-.tagline {
-  margin: 0;
-  opacity: 0.7;
-}
-
-.card {
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
-  padding: 1rem;
-}
-
-.hint {
-  font-size: 0.85rem;
-  opacity: 0.6;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    color: #f6f6f6;
-    background-color: #232323;
+    --bg: #1e1e1e;
+    --card-bg: #2a2a2a;
+    --text: #f2f2f2;
+    --text-muted: rgb(242 242 242 / 62%);
+    --border: rgb(255 255 255 / 8%);
+    --track-bg: rgb(255 255 255 / 12%);
+    --banner-bg: rgb(255 255 255 / 6%);
+    --input-bg: #232323;
   }
+}
 
-  .card {
-    background: #2f2f2f;
-  }
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.popover {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  max-width: 26rem;
+  margin: 0 auto;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.popover-header h1 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ghost-button {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+}
+
+.ghost-button:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+/* Status line / banner: colour + weight vary with the popover's coarse
+   state (mirrors src-tauri/src/tray/model.rs::status_line's phases). */
+.status-line {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: var(--banner-bg);
+  color: var(--text-muted);
+}
+
+.status-line[data-banner="ok"] {
+  background: transparent;
+  padding: 0 0.1rem;
+}
+
+.status-line[data-banner="stale"] {
+  background: rgb(255 149 0 / 14%);
+  color: var(--color-warning);
+}
+
+.status-line[data-banner="degraded"] {
+  background: rgb(255 59 48 / 14%);
+  color: var(--color-critical);
+}
+
+.status-line[data-banner="awaiting_session"],
+.status-line[data-banner="session_expired"] {
+  background: rgb(175 82 222 / 14%);
+  color: var(--color-accent);
+}
+
+.empty-state {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.card-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.card-percent {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--track-bg);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.progress-fill.status-safe {
+  background: var(--color-safe);
+}
+
+.progress-fill.status-warning {
+  background: var(--color-warning);
+}
+
+.progress-fill.status-critical {
+  background: var(--color-critical);
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.countdown {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.flame {
+  display: inline-flex;
+  color: var(--color-critical);
+}
+
+.flame-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* `.session-form` sets its own `display`, which would otherwise beat the
+   UA stylesheet's `[hidden] { display: none }` (same specificity, author
+   origin always wins) and keep the form visible even with the `hidden`
+   attribute set — hence the explicit override below. */
+.session-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 0.8rem;
+}
+
+.session-form[hidden] {
+  display: none;
+}
+
+.session-form label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.session-form input {
+  font: inherit;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.session-form button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-accent);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.session-error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-critical);
 }

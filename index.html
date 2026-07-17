@@ -9,13 +9,31 @@
   </head>
 
   <body>
-    <main class="container">
-      <h1>Rusted Claude Meter</h1>
-      <p class="tagline">Claude plan usage in your tray.</p>
-      <section id="status" class="card">
-        <p>Scaffold build — usage cards land here.</p>
-        <p class="hint">See the repository issues for the implementation plan.</p>
-      </section>
+    <main class="popover">
+      <header class="popover-header">
+        <h1>Rusted Claude Meter</h1>
+        <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+      </header>
+
+      <p id="status-line" class="status-line" data-banner="loading">Waiting for first update…</p>
+
+      <section id="cards" class="cards" aria-live="polite"></section>
+
+      <p id="empty-state" class="empty-state" hidden>No usage data yet.</p>
+
+      <form id="session-form" class="session-form" hidden>
+        <label for="session-input">Session key</label>
+        <input
+          id="session-input"
+          name="session"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="sk-ant-… or the sessionKey cookie value"
+        />
+        <button type="submit">Save</button>
+        <p id="session-error" class="session-error" role="alert" hidden></p>
+      </form>
     </main>
   </body>
 </html>
