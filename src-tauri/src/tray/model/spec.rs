@@ -122,10 +122,14 @@ fn pace_first_display_off_never_computes_a_signal_even_when_burning_hot() {
 }
 
 #[test]
-fn pace_first_display_on_without_an_off_pace_window_has_no_override() {
-    // The stock `snapshot()` fixture is on sustainable pace on both
-    // headline windows, so even with pace-first display on, neither the
-    // icon override nor the menu's pace line should appear.
+fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
+    // The stock `snapshot()` fixture is on-pace on both headline windows
+    // (session ratio 41.5/55 ≈ 0.75, weekly ≈ 1.15 — neither hot nor cold),
+    // so the hybrid `PaceSignal` is `None` and no flame/snowflake badge or
+    // tooltip appears. But pace-first display still swaps the primary metric
+    // to the ratio: upstream's `paceSignal?.ratio ?? session.paceRatio ??
+    // weekly.paceRatio` falls back to the plain session ratio, in its band
+    // colour, so the icon shows a ratio even when nothing is off pace.
     let pace = PaceOptions {
         weekly_pace_days: 7,
         pace_first_display: true,
@@ -140,8 +144,18 @@ fn pace_first_display_on_without_an_off_pace_window_has_no_override() {
         },
         pace,
     );
+    // No hybrid signal -> no badge, but the fallback session ratio drives
+    // the primary metric and its band colour.
     assert_eq!(icon.pace_kind, None);
+    let ratio = icon.pace_ratio.unwrap();
+    assert!(
+        (ratio - 41.5 / 55.0).abs() < 1e-9,
+        "expected the session pace ratio, got {ratio}"
+    );
+    assert_eq!(icon.pace_band, Some(meter_core::PaceBand::Underuse));
 
+    // The tooltip/pace line stays hybrid-signal-only (upstream `toolTip =
+    // paceSignal?.tooltip`), so an on-pace snapshot produces no pace line.
     let menu = menu_model(&healthy(), now(), &all_shown(), pace);
     assert_eq!(menu.pace_line, None);
 }

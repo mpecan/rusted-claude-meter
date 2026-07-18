@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 
 use jiff::Timestamp;
-use meter_core::{LimitWindow, PaceSignal, UsageWindow};
+use meter_core::{LimitWindow, PaceSignal, UsageWindow, weekly_pacing_duration};
 use meter_render::{IconState, IconStyle, Scale, round_percent};
 
 use crate::scheduler::{MeterState, Phase, Staleness};
@@ -73,9 +73,18 @@ fn pace_signal(state: &MeterState, now: Timestamp, pace: PaceOptions) -> Option<
 /// an empty safe gauge otherwise. `icon` (style/mono/scale) is the user's
 /// current choice from Settings — passed in rather than hardcoded so
 /// switching styles takes effect on the very next state (no restart
-/// needed). `pace` (issue #16) drives the flame/snowflake override: the
-/// pace signal is only computed, and only overlaid onto the base icon, when
-/// `pace.pace_first_display` is set.
+/// needed).
+///
+/// `pace` (issue #16) drives pace-first display. When `pace_first_display`
+/// is set, the primary metric always becomes a pace *ratio* whenever pace
+/// math is meaningful, mirroring upstream `MenuBarManager.updateIcon`'s
+/// fallback chain `paceSignal?.ratio ?? session.paceRatio ?? weekly.paceRatio`:
+/// the hybrid hot/cold [`PaceSignal`]'s ratio when it exists, else the plain
+/// session ratio, else the weekly ratio (on the chosen 5/6/7-day basis). The
+/// flame/snowflake `pace_kind` badge stays gated on the hybrid signal being
+/// present (its ratio drives the band colour regardless), so a sustainable
+/// window shows the ratio in its band colour but no badge — matching upstream,
+/// where `button.image`'s `paceKind` comes only from `paceSignal?.kind`.
 pub fn icon_state(
     state: &MeterState,
     now: Timestamp,
@@ -97,10 +106,32 @@ pub fn icon_state(
         },
         |snapshot| IconState::from_snapshot(snapshot, now, icon.style, icon.mono, icon.scale),
     );
-    match pace_signal(state, now, pace) {
-        Some(signal) => base.with_pace(Some(signal.ratio), Some(signal.kind)),
-        None => base,
+    if !pace.pace_first_display {
+        return base;
     }
+    let Some(snapshot) = state.snapshot.as_ref() else {
+        return base;
+    };
+    let signal = snapshot.pace_signal(now, pace.weekly_pace_days);
+    let weekly_pacing = weekly_pacing_duration(pace.weekly_pace_days);
+    let ratio = signal
+        .as_ref()
+        .map(|s| s.ratio)
+        .or_else(|| {
+            snapshot
+                .five_hour
+                .as_ref()
+                .and_then(|w| w.pace_ratio(now, None))
+        })
+        .or_else(|| {
+            snapshot
+                .seven_day
+                .as_ref()
+                .and_then(|w| w.pace_ratio(now, Some(weekly_pacing)))
+        });
+    ratio.map_or(base, |ratio| {
+        base.with_pace(Some(ratio), signal.map(|s| s.kind))
+    })
 }
 
 /// Build the menu view-model for a state at `now`.
