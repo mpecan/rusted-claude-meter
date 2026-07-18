@@ -2,6 +2,8 @@
   "name": "rusted-claude-meter",
   "private": true,
   "version": "0.1.0",
+  "description": "Cross-platform (macOS + Linux) tray app showing your Claude plan usage — a Tauri v2 port of ClaudeMeter.",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

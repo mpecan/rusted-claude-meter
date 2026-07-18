@@ -12,4 +12,4 @@ Model-scoped limits contract: the API's `limits` array is the source of truth fo
 
 Never log or serialize the session key in the clear: `SessionKey` redacts in `Debug`/`Display` and the Cookie header is marked sensitive.
 
-Linux tray reality: StatusNotifierItem gives no click events or tooltips — the tray menu is the primary Linux surface; the popover-style window is macOS-only behaviour.
+Linux tray reality: StatusNotifierItem gives no click events or tooltips — the tray menu is the primary Linux surface. The macOS popover is a native `NSPopover` hosting the webview (via the macOS-only `tauri-plugin-nspopover`, git dep pinned in `src-tauri/Cargo.toml` and allow-listed in `deny.toml`); it's `#[cfg(target_os = "macos")]`-gated so Linux still builds. Settings is a separate window; the popover renders one of two layouts (`popover_layout`: rows/cards) with status colours keyed to the user's warning/critical thresholds.

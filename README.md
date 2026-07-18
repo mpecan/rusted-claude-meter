@@ -6,7 +6,7 @@ It polls `claude.ai/api/organizations/{org}/usage` with your browser session key
 
 ## Status
 
-Feature-complete port, actively developed. The tray icon (six styles), macOS popover, Linux tray menu, Settings panel, threshold notifications, `usage.json` export, browser session import, first-run wizard, launch-at-login, and packaging/release CI are all implemented. Bugs and follow-ups are tracked in [the issues](https://github.com/mpecan/rusted-claude-meter/issues).
+Feature-complete port, actively developed. The tray icon (six styles), the native macOS `NSPopover` (two switchable layouts), the Linux tray menu, a dedicated Settings window with a first-run wizard, threshold notifications, `usage.json` export, browser session import, launch-at-login, and packaging/release CI are all implemented. Bugs and follow-ups are tracked in [the issues](https://github.com/mpecan/rusted-claude-meter/issues).
 
 ## Architecture
 
@@ -20,7 +20,7 @@ Feature-complete port, actively developed. The tray icon (six styles), macOS pop
 
 Interaction model is platform-idiomatic:
 
-- **macOS** — left-click the menu-bar icon to toggle a frameless, always-on-top popover window anchored beneath it; it hides on focus loss, and closing it keeps the app resident in the menu bar. Right-click serves the menu.
+- **macOS** — left-click the menu-bar icon to toggle a native `NSPopover` (via [`tauri-plugin-nspopover`](https://github.com/freethinkel/tauri-nspopover-plugin)) that hosts the webview: it drops down anchored under the status item with the arrow, slide animation and click-outside dismissal you expect. Settings open in their own dedicated window (front-most despite the accessory activation policy). Right-click serves the tray menu. The popover offers two layouts — compact **rows** or roomier **status cards** — switchable in Settings; both colour green → amber → red and raise an escalating fire glyph keyed to your configured warning/critical thresholds.
 - **Linux** — StatusNotifierItem/AppIndicator delivers **no click events and no tooltip**, so the tray menu is the primary surface: a status line plus one live line per usage window (5-hour, 7-day, and each model-scoped limit) with percent and reset time, then Open / Refresh Now / Quit. Menu text updates in place — the tray icon is never recreated, so updates don't flicker. On GNOME the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) is required for the tray icon to appear at all; KDE Plasma shows it out of the box.
 
 ## External integrations
@@ -82,4 +82,10 @@ Apple signing secrets it needs, and the Flatpak evaluation findings.
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Matjaz Domen Pecan. All crates in the workspace inherit `license = "MIT"` from the root `Cargo.toml`.
+
+Third-party notices:
+
+- The tray-icon renderer bundles a subsetted **Roboto Mono** (digits and `%` only) to bake the percentage into the icons, under the SIL Open Font License 1.1 — see [`crates/meter-render/assets/RobotoMono-LICENSE.txt`](crates/meter-render/assets/RobotoMono-LICENSE.txt).
+- The macOS `NSPopover` integration uses [`tauri-plugin-nspopover`](https://github.com/freethinkel/tauri-nspopover-plugin) (MIT), pinned by commit.
+- Dependency licenses are gated by `cargo-deny` (`deny.toml`); the allowed set is enumerated there.
