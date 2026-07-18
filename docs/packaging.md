@@ -53,6 +53,70 @@ exercised end to end. The workflow config follows the documented
 `tauri-action` contract for these env vars; the first real tagged release is
 the first point this can be verified for real.
 
+## Keychain access & avoiding re-prompts
+
+The session key is stored in the OS credential store (macOS Keychain via
+`apple-native-keyring-store`'s `keychain::Store`; see `src-tauri/src/store.rs`).
+The recurring *"…wants to use your confidential information stored in your
+keychain — enter your password"* prompt users sometimes hit is a **code-signing
+issue, not a storage bug**, and this is how we avoid it.
+
+**How silent access works.** When the app writes the key, macOS records the
+creating binary's *designated requirement* (its code signature) in the item's
+access-control list and grants **silent** access only to a binary that matches.
+So:
+
+- A **stably Developer ID-signed + notarized** build reads its own item with no
+  prompt, launch after launch. The designated requirement is anchored to your
+  **Team ID + bundle ID**, so it survives certificate *renewals* and app
+  *updates* — trust does not reset as long as those two are unchanged.
+- An **unsigned or ad-hoc-signed** build has a different (or absent) signature,
+  so it never matches the stored ACL → prompt on every access.
+
+**Therefore the fix is simply to ship signed** (the section above). No keychain
+entitlement is required for an app to read its *own* login-keychain item — the
+committed `src-tauri/entitlements.plist` is intentionally empty (hardened
+runtime with no exceptions). Our `save` updates the item in place and we only
+re-save when the key actually changes, so the ACL is never needlessly churned.
+
+**One gotcha to expect on first signed release.** The ACL is owned by whoever
+*created* the item. A user who previously ran an **unsigned** local/dev build
+has an item whose ACL trusts that old ad-hoc signature, so the first signed
+release will prompt **once**. Clicking *Always Allow* fixes it; alternatively,
+clearing and re-saving the key from the signed app re-creates the ACL under the
+trusted identity (the setup wizard's "paste a key" / re-import flow already does
+a fresh `save`).
+
+**Dev builds.** `just dev` / unsigned local builds are ad-hoc-signed and get a
+new signature each build, so they re-prompt — this is expected, not a
+regression. To avoid it while developing you can sign locally with a stable
+self-signed cert and click *Always Allow* once.
+
+**Optional upgrade — the Data Protection keychain.** For an iOS-style model
+with *no ACL prompt even on first access*, the key can move to
+`apple-native-keyring-store`'s `protected::Store`, where access is governed by a
+**keychain access group** (via the `keychain-access-groups` entitlement) plus an
+accessibility policy such as `AfterFirstUnlock` (readable by a login-launched
+instance after the first unlock per boot). This needs: (1) the entitlement with
+your literal Team ID — a template is in `src-tauri/entitlements.plist`; (2)
+swapping the store backend in `src-tauri/src/store.rs`; and (3) accepting that
+**unsigned local dev builds can't use it** (they lack the entitlement). We stay
+on the legacy keychain for now because stable signing already solves the
+prompts without breaking `just dev`.
+
+**Linux.** The key lives in the login keyring (Secret Service default
+collection), which the desktop's PAM stack unlocks automatically at login *when
+the keyring password equals the login password* (the default on most distros).
+A user only gets a per-session unlock prompt if they set a **separate** keyring
+password or use passwordless auto-login without a PAM keyring-unlock module —
+that is desktop configuration, not something the app can change. We already
+store in the default collection; there is nothing further to do app-side.
+
+**Not the app's storage.** The browser-import step (issue #10) prompts for each
+Chromium browser's own "Safe Storage" Keychain item — that item belongs to
+Chrome and its ACL will never trust us, so that prompt is unavoidable, but it is
+a **one-time import action**, unrelated to the app's own recurring reads.
+
 ## Linux: AppImage + `.deb`
 
 Built via the same `tauri-action` step, using the system deps already listed

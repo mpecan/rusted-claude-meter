@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the signed + notarized macOS build
+  (referenced from tauri.conf.json > bundle > macOS > entitlements).
+
+  Intentionally empty. As a non-sandboxed Developer ID app that only reads its
+  OWN login-keychain item (service "com.mpecan.rusted-claude-meter"), we need
+  no hardened-runtime exceptions and no keychain entitlement: silent, no-
+  re-prompt Keychain access comes purely from a STABLE Developer ID code
+  signature (the item's ACL trusts our designated requirement, which is
+  anchored to Team ID + bundle ID and survives cert renewals and app updates).
+  See docs/packaging.md > "Keychain access & avoiding re-prompts".
+
+  OPTIONAL — only if you move the session key from the legacy login keychain
+  (apple-native-keyring-store's `keychain::Store`) to the Data Protection
+  keychain (`protected::Store`) for the iOS-style, access-group-governed model
+  (no ACL prompts even on the first access): add a keychain-access-group with
+  your LITERAL 10-character Team ID (the Xcode $(TeamIdentifierPrefix) variable
+  is NOT substituted by codesign/tauri-action), e.g.
+
+      <key>keychain-access-groups</key>
+      <array><string>TEAMID.com.mpecan.rusted-claude-meter</string></array>
+
+  That path also requires the store swap in src-tauri/src/store.rs and breaks
+  unsigned local `just dev` builds — see the docs before taking it.
+-->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>
