@@ -62,10 +62,62 @@ fn headline_kinds_are_excluded_from_the_scoped_pass() {
 
 #[test]
 fn incomplete_entries_are_skipped_not_errors() {
-    // Entries without a model display name or without a usable window
-    // (null percent/resets_at) are dropped silently for forward compatibility.
+    // Entries without a model display name or without a percent are dropped
+    // silently for forward compatibility. (A missing `resets_at` alone is
+    // *not* fatal — see `headline_window_with_null_reset_is_kept_*` below.)
     let snapshot = decode();
     assert!(snapshot.scoped_named("Incomplete").is_none());
+}
+
+#[test]
+fn headline_window_with_null_reset_is_kept_with_a_fallback() {
+    // The 5-hour window with no recent usage comes back with a null
+    // `resets_at`; it must still render (0% + a synthesized reset) rather
+    // than vanish — the regression behind "the 5-hour limit isn't shown".
+    let json = r#"{
+        "five_hour": { "utilization": 0.0, "resets_at": null },
+        "seven_day": { "utilization": 56.0, "resets_at": "2026-07-19T11:00:00Z" },
+        "limits": []
+    }"#;
+    let response: UsageResponse = serde_json::from_str(json).unwrap();
+    let snapshot = response.into_snapshot(fetched_at());
+
+    let five_hour = snapshot.five_hour.unwrap();
+    assert_eq!(five_hour.window, LimitWindow::FiveHour);
+    assert!(five_hour.utilization.abs() < f64::EPSILON);
+    // Fallback reset = fetched_at + 5h = 2026-07-17T17:00:00Z.
+    assert_eq!(
+        five_hour.resets_at,
+        "2026-07-17T17:00:00Z".parse::<Timestamp>().unwrap()
+    );
+}
+
+#[test]
+fn scoped_limit_with_null_reset_is_kept_with_a_fallback() {
+    // Same rule for a model-scoped weekly cap: a null reset is filled in,
+    // not a reason to drop the model.
+    let json = r#"{
+        "five_hour": { "utilization": 3.0, "resets_at": "2026-07-17T15:00:00Z" },
+        "seven_day": { "utilization": 56.0, "resets_at": "2026-07-19T11:00:00Z" },
+        "limits": [
+            {
+                "kind": "weekly_scoped",
+                "percent": 64,
+                "resets_at": null,
+                "is_active": true,
+                "scope": { "model": { "id": null, "display_name": "Fable" } }
+            }
+        ]
+    }"#;
+    let response: UsageResponse = serde_json::from_str(json).unwrap();
+    let snapshot = response.into_snapshot(fetched_at());
+
+    let fable = snapshot.scoped_named("Fable").unwrap();
+    // Fallback reset = fetched_at + 7d = 2026-07-24T12:00:00Z.
+    assert_eq!(
+        fable.usage.resets_at,
+        "2026-07-24T12:00:00Z".parse::<Timestamp>().unwrap()
+    );
 }
 
 #[test]

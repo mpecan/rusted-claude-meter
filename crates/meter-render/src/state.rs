@@ -111,7 +111,7 @@ impl IconState {
         mono: bool,
         scale: Scale,
     ) -> Self {
-        let percent = snapshot
+        let primary = snapshot
             .five_hour
             .as_ref()
             .or(snapshot.seven_day.as_ref())
@@ -130,9 +130,13 @@ impl IconState {
             .map_or(0.0, |window| window.utilization);
         Self {
             style,
-            percent: round_percent(percent),
+            percent: round_percent(primary),
             secondary_percent: round_percent(secondary_percent),
-            status: snapshot.overall_status(),
+            // Colour follows the primary (session) window shown as the number,
+            // matching `ClaudeMeter`, whose menu-bar icon is always driven by
+            // the 5-hour session status — not the worst window overall (that
+            // still drives the popover cards and the tray status line).
+            status: UsageStatus::from_utilization(primary),
             at_risk: snapshot.at_risk(now),
             mono,
             scale,
@@ -192,8 +196,10 @@ mod tests {
         };
         let s = state(&snapshot);
         assert_eq!(s.percent, 30);
-        // ...but status is still the worst window.
-        assert_eq!(s.status, UsageStatus::Critical);
+        // ...and the icon colour follows that same session window (30% = safe),
+        // matching ClaudeMeter's session-driven menu-bar colour, even though a
+        // seven-day window is critical.
+        assert_eq!(s.status, UsageStatus::Safe);
     }
 
     #[test]

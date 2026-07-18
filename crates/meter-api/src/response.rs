@@ -60,42 +60,66 @@ impl UsageResponse {
             .limits
             .into_iter()
             .filter(|limit| !HEADLINE_KINDS.contains(&limit.kind.as_str()))
-            .filter_map(RawLimit::into_scoped)
+            .filter_map(|limit| limit.into_scoped(fetched_at))
             .collect();
         UsageSnapshot {
             five_hour: self
                 .five_hour
-                .and_then(|w| w.into_window(LimitWindow::FiveHour)),
+                .map(|w| w.into_window(LimitWindow::FiveHour, fetched_at)),
             seven_day: self
                 .seven_day
-                .and_then(|w| w.into_window(LimitWindow::SevenDay)),
+                .map(|w| w.into_window(LimitWindow::SevenDay, fetched_at)),
             scoped,
             fetched_at,
         }
     }
 }
 
+/// The reset instant to use when the API reports the window but omits
+/// `resets_at`. A window with no recent usage has nothing scheduled to reset,
+/// so the API sends `resets_at: null`; dropping the whole window there would
+/// hide, e.g., the 5-hour session card whenever usage is idle. Mirrors
+/// `ClaudeMeter`'s `UsageAPIResponse.toDomain` fallback of `now + window`.
+fn fallback_reset(window: LimitWindow, fetched_at: Timestamp) -> Timestamp {
+    fetched_at
+        .checked_add(window.duration())
+        .unwrap_or(fetched_at)
+}
+
 impl RawWindow {
-    fn into_window(self, window: LimitWindow) -> Option<UsageWindow> {
-        Some(UsageWindow {
+    /// Map a headline window, substituting a fallback reset when the API
+    /// omits `resets_at` so the window is never dropped for lack of a reset.
+    fn into_window(self, window: LimitWindow, fetched_at: Timestamp) -> UsageWindow {
+        UsageWindow {
             utilization: self.utilization,
-            resets_at: self.resets_at?,
+            resets_at: self
+                .resets_at
+                .unwrap_or_else(|| fallback_reset(window, fetched_at)),
             window,
-        })
+        }
     }
 }
 
 impl RawLimit {
-    fn into_scoped(self) -> Option<ScopedLimit> {
+    /// A scoped limit is skipped only when the essentials are missing — model
+    /// scope, display name, or percent. A missing `resets_at` is filled from
+    /// [`fallback_reset`] rather than dropping the limit, matching the
+    /// headline-window behaviour above.
+    fn into_scoped(self, fetched_at: Timestamp) -> Option<ScopedLimit> {
+        let window = window_for_kind(&self.kind);
+        let percent = self.percent?;
+        let resets_at = self
+            .resets_at
+            .unwrap_or_else(|| fallback_reset(window, fetched_at));
         let model = self.scope?.model?;
         let display_name = model.display_name?;
         Some(ScopedLimit {
             display_name,
             model_id: model.id,
             usage: UsageWindow {
-                utilization: self.percent?,
-                resets_at: self.resets_at?,
-                window: window_for_kind(&self.kind),
+                utilization: percent,
+                resets_at,
+                window,
             },
             is_active: self.is_active,
         })
