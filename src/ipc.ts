@@ -21,6 +21,7 @@ import type {
   IconStyle,
   ImportSummary,
   MeterState,
+  PopoverLayout,
   RefreshInterval,
   SessionCommandError,
   SessionStatus,
@@ -86,6 +87,8 @@ export interface UsageBackend {
   setNotifyOnReset(enabled: boolean): Promise<AppSettings>;
   /** Toggle whether cards show the exact reset wall-clock time (PR #26). */
   setShowResetTime(enabled: boolean): Promise<AppSettings>;
+  /** Switch the popover layout (redesign 1a rows / 1c cards). */
+  setPopoverLayout(layout: PopoverLayout): Promise<AppSettings>;
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
@@ -187,6 +190,10 @@ class TauriBackend implements UsageBackend {
     return invoke<AppSettings>("set_show_reset_time", { enabled });
   }
 
+  setPopoverLayout(layout: PopoverLayout): Promise<AppSettings> {
+    return invoke<AppSettings>("set_popover_layout", { layout });
+  }
+
   wizardShouldRun(): Promise<boolean> {
     return invoke<boolean>("wizard_should_run");
   }
@@ -236,8 +243,21 @@ function subscribe<T>(event: string, callback: (payload: T) => void): () => void
  * reachable without a real backend. Settings start from
  * `DEFAULT_SETTINGS` — opted out of every scoped model, same as a real
  * fresh install — so the opt-in toggle is exercisable in `npm run dev` too. */
+/** Dev/design preview overrides read from the URL (browser only). When a
+ * `?layout=` is present we also opt into the demo's scoped models so the
+ * preview shows a fuller set of meters. */
+function demoSettingOverrides(): Partial<AppSettings> {
+  const layout = new URLSearchParams(window.location.search).get("layout");
+  if (layout !== "rows" && layout !== "cards") {
+    return {};
+  }
+  return { popover_layout: layout, shown_scoped_models: ["Fable", "Sonnet"] };
+}
+
 class DemoBackend implements UsageBackend {
-  private settings: AppSettings = { ...DEFAULT_SETTINGS };
+  // Dev/design preview: outside Tauri a `?layout=rows|cards` query seeds the
+  // popover layout so both directions can be captured in a plain browser.
+  private settings: AppSettings = { ...DEFAULT_SETTINGS, ...demoSettingOverrides() };
   private sessionPresent = false;
   private wizardCompleted = false;
   private autostartEnabled = false;
@@ -370,6 +390,11 @@ class DemoBackend implements UsageBackend {
 
   setShowResetTime(enabled: boolean): Promise<AppSettings> {
     this.settings = { ...this.settings, show_reset_time: enabled };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setPopoverLayout(layout: PopoverLayout): Promise<AppSettings> {
+    this.settings = { ...this.settings, popover_layout: layout };
     return Promise.resolve({ ...this.settings });
   }
 

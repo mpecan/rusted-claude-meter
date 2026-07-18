@@ -27,7 +27,7 @@ use crate::browser_import::{
     LiveSessionValidator, SessionValidator, StoreAndValidateError, store_and_validate,
 };
 use crate::scheduler::{MeterState, RefreshInterval, SchedulerHandle};
-use crate::settings::{AppSettings, SettingsState};
+use crate::settings::{AppSettings, PopoverLayout, SettingsState};
 use crate::store::{SessionStore, StoreError, run_store_op};
 use crate::tray;
 
@@ -369,6 +369,27 @@ fn store_show_reset_time(settings: &SettingsState, enabled: bool) -> AppSettings
     settings.update(|s| s.show_reset_time = enabled)
 }
 
+/// Switch the popover layout (redesign 1a Rows / 1c Cards). Emits
+/// `settings-changed` so the popover window re-renders immediately, since the
+/// control lives in the separate Settings window.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_popover_layout(
+    app: tauri::AppHandle,
+    settings: State<'_, SettingsState>,
+    layout: PopoverLayout,
+) -> AppSettings {
+    let updated = store_popover_layout(&settings, layout);
+    let _ = app.emit(SETTINGS_CHANGED_EVENT, &updated);
+    updated
+}
+
+/// Persist the popover layout. Split from the command so the settings
+/// mutation is unit-testable without a Tauri `AppHandle`.
+fn store_popover_layout(settings: &SettingsState, layout: PopoverLayout) -> AppSettings {
+    settings.update(|s| s.popover_layout = layout)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -410,6 +431,20 @@ mod tests {
         let state = SettingsState::new(None, AppSettings::default());
         assert!(store_notify_on_reset(&state, true).notify_on_reset);
         assert!(!store_notify_on_reset(&state, false).notify_on_reset);
+    }
+
+    #[test]
+    fn popover_layout_persists() {
+        let state = SettingsState::new(None, AppSettings::default());
+        // Default is Rows; switching to Cards and back round-trips.
+        assert_eq!(
+            store_popover_layout(&state, PopoverLayout::Cards).popover_layout,
+            PopoverLayout::Cards
+        );
+        assert_eq!(
+            store_popover_layout(&state, PopoverLayout::Rows).popover_layout,
+            PopoverLayout::Rows
+        );
     }
 
     #[test]

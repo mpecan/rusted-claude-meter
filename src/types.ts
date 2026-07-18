@@ -170,4 +170,10 @@ export interface AppSettings {
   /** Whether each card appends the exact reset wall-clock time next to the
    * relative countdown (ClaudeMeter PR #26). On by default. */
   show_reset_time: boolean;
+  /** Which popover layout the frontend renders (redesign 1a/1c). */
+  popover_layout: PopoverLayout;
 }
+
+/** Mirrors `meter_shell::settings::PopoverLayout` — the two popover layouts
+ * (redesign 1a compact rows / 1c status cards). */
+export type PopoverLayout = "rows" | "cards";

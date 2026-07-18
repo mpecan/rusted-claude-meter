@@ -1,84 +1,161 @@
-// DOM rendering for usage cards and the countdown tick. Kept separate from
-// `view-model.ts` so the pure state -> view-model mapping stays testable
+// DOM rendering for the popover meters and the countdown tick. Kept separate
+// from `view-model.ts` so the pure state -> view-model mapping stays testable
 // without a DOM, and separate from `main.ts` so wiring (event listeners,
 // timers) doesn't tangle with markup construction.
+//
+// Two layouts (redesign 1a/1c), chosen by the `popover_layout` setting:
+//   - "rows": compact hairline-split meter rows in one panel (1a).
+//   - "cards": roomier tinted status cards with a status pill (1c).
+// The status colour and the escalating fire glyph both follow each window's
+// status, which the view-model classified against the user's configured
+// warning/critical thresholds.
 
 import { formatCountdown, formatResetClock } from "./format";
+import { type UsageStatus, statusLabel } from "./status";
+import type { PopoverLayout } from "./types";
 import type { BannerKind, UsageCardViewModel } from "./view-model";
 
-/** A minimal flame glyph for the pacing-at-risk badge — drawn, not an emoji,
- * so it inherits the card's status colour via `currentColor`. */
-const FLAME_SVG =
-  '<svg viewBox="0 0 16 16" class="flame-icon" aria-hidden="true" focusable="false">' +
-  '<path fill="currentColor" d="M8 .6c.8 2.1 0 3-.8 4-.9 1.1-1.6 2.1-1.6 3.5a2.4 2.4 0 0 0 4.8 0 ' +
-  "c0-.6-.1-1-.4-1.5 1 .8 1.7 2.1 1.7 3.6A3.7 3.7 0 0 1 8 13.9a3.7 3.7 0 0 1-3.7-3.7C4.3 6.4 6.8 5 8 .6z\" />" +
-  "</svg>";
-
-/** Rebuild the card list from scratch. Called once per broadcast state
- * (at most a few times a minute), so a full replace is simpler than diffing
+/** Rebuild the meter list from scratch in the chosen layout. Called once per
+ * broadcast (a few times a minute), so a full replace is simpler than diffing
  * and cheap enough not to matter. */
-export function renderCards(container: HTMLElement, cards: UsageCardViewModel[]): void {
-  container.replaceChildren(...cards.map(buildCard));
+export function renderCards(
+  container: HTMLElement,
+  cards: UsageCardViewModel[],
+  layout: PopoverLayout,
+): void {
+  container.dataset.layout = layout;
+  if (layout === "cards") {
+    container.replaceChildren(...cards.map(buildStatusCard));
+    return;
+  }
+  // Rows share one panel; nothing to render if there are no meters.
+  if (cards.length === 0) {
+    container.replaceChildren();
+    return;
+  }
+  const panel = document.createElement("div");
+  panel.className = "meters-rows";
+  cards.forEach((card, i) => {
+    if (i > 0) {
+      const divider = document.createElement("div");
+      divider.className = "meter-divider";
+      panel.append(divider);
+    }
+    panel.append(buildRow(card));
+  });
+  container.replaceChildren(panel);
 }
 
-function buildCard(card: UsageCardViewModel): HTMLElement {
-  const el = document.createElement("article");
-  el.className = "card";
-  el.dataset.cardId = card.id;
-  el.dataset.resetsAt = card.resetsAt;
-  el.dataset.status = card.status;
+/** The escalating fire glyph — absent when safe, dim at warning, glowing at
+ * critical. Emoji (not SVG) to match the design; the glow is CSS. */
+function fireGlyph(status: UsageStatus): HTMLElement | null {
+  if (status === "safe") {
+    return null;
+  }
+  const fire = document.createElement("span");
+  fire.className = `fire fire-${status}`;
+  fire.textContent = "🔥";
+  fire.setAttribute("aria-hidden", "true");
+  return fire;
+}
 
-  const header = document.createElement("div");
-  header.className = "card-header";
-  const title = document.createElement("span");
-  title.className = "card-title";
-  title.textContent = card.title;
-  const percent = document.createElement("span");
-  percent.className = "card-percent";
-  percent.textContent = `${card.percent}%`;
-  header.append(title, percent);
-
-  const track = document.createElement("div");
-  track.className = "progress-track";
-  track.setAttribute("role", "progressbar");
-  track.setAttribute("aria-valuemin", "0");
-  track.setAttribute("aria-valuemax", "100");
-  track.setAttribute("aria-valuenow", String(card.percent));
-  track.setAttribute("aria-label", card.title);
+/** A `<div class="meter-bar">` with a status-coloured fill at `percent`%. */
+function meterBar(percent: number, status: UsageStatus, label: string): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "meter-bar";
+  bar.setAttribute("role", "progressbar");
+  bar.setAttribute("aria-valuemin", "0");
+  bar.setAttribute("aria-valuemax", "100");
+  bar.setAttribute("aria-valuenow", String(percent));
+  bar.setAttribute("aria-label", label);
   const fill = document.createElement("div");
-  fill.className = `progress-fill status-${card.status}`;
-  fill.style.width = `${card.percent}%`;
-  track.append(fill);
+  fill.className = `meter-bar-fill status-${status}`;
+  fill.style.width = `${percent}%`;
+  bar.append(fill);
+  return bar;
+}
 
-  const footer = document.createElement("div");
-  footer.className = "card-footer";
+/** The reset line: the live countdown plus, when enabled, the exact reset
+ * time after a "·" separator. The countdown is a separate span so the tick
+ * can rewrite it without touching the static exact time. */
+function resetLine(card: UsageCardViewModel): HTMLElement {
+  const reset = document.createElement("div");
+  reset.className = "meter-reset";
   const countdown = document.createElement("span");
   countdown.className = "countdown";
   countdown.textContent = formatCountdown(new Date(card.resetsAt), new Date());
-  footer.append(countdown);
+  reset.append(countdown);
   if (card.showResetTime) {
-    // A separate, static span the per-minute countdown tick never rewrites —
-    // the exact reset time (ClaudeMeter PR #26).
     const clock = document.createElement("span");
     clock.className = "reset-clock";
-    clock.textContent = ` (${formatResetClock(new Date(card.resetsAt), card.useTimeOnlyResetTime)})`;
-    footer.append(clock);
+    clock.textContent = ` · ${formatResetClock(new Date(card.resetsAt), card.useTimeOnlyResetTime)}`;
+    reset.append(clock);
   }
-  if (card.atRisk) {
-    const flame = document.createElement("span");
-    flame.className = "flame";
-    flame.title = "Pacing faster than a sustainable rate";
-    flame.innerHTML = FLAME_SVG;
-    footer.append(flame);
-  }
+  return reset;
+}
 
-  el.append(header, track, footer);
+/** One compact meter row (layout 1a). */
+function buildRow(card: UsageCardViewModel): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "meter-row";
+  row.dataset.resetsAt = card.resetsAt;
+  row.dataset.status = card.status;
+
+  const head = document.createElement("div");
+  head.className = "meter-row-head";
+  const name = document.createElement("span");
+  name.className = "meter-name";
+  name.textContent = card.title;
+  const fire = fireGlyph(card.status);
+  if (fire) {
+    name.append(" ", fire);
+  }
+  const percent = document.createElement("span");
+  percent.className = `meter-percent status-${card.status}`;
+  percent.textContent = `${card.percent}%`;
+  head.append(name, percent);
+
+  row.append(head, meterBar(card.percent, card.status, card.title), resetLine(card));
+  return row;
+}
+
+/** One roomier status card (layout 1c). */
+function buildStatusCard(card: UsageCardViewModel): HTMLElement {
+  const el = document.createElement("article");
+  el.className = `status-card status-${card.status}`;
+  el.dataset.resetsAt = card.resetsAt;
+  el.dataset.status = card.status;
+
+  const head = document.createElement("div");
+  head.className = "status-card-head";
+  const name = document.createElement("span");
+  name.className = "meter-name";
+  name.textContent = card.title;
+
+  const pill = document.createElement("span");
+  pill.className = `status-pill status-${card.status}`;
+  const fire = fireGlyph(card.status);
+  if (fire) {
+    pill.append(fire);
+  }
+  pill.append(statusLabel(card.status));
+  head.append(name, pill);
+
+  const meter = document.createElement("div");
+  meter.className = "status-card-meter";
+  const percent = document.createElement("span");
+  percent.className = `meter-percent status-${card.status}`;
+  percent.textContent = `${card.percent}%`;
+  meter.append(meterBar(card.percent, card.status, card.title), percent);
+
+  el.append(head, meter, resetLine(card));
   return el;
 }
 
-/** Re-read every rendered card's `data-resets-at` and refresh its countdown
- * text. Independent of any state broadcast — the client-side tick that
- * makes "resets in 2h 14m" count down without hitting the API again. */
+/** Re-read every rendered meter's `data-resets-at` and refresh its countdown
+ * text. Independent of any state broadcast — the client-side tick that makes
+ * "resets in 2h 14m" count down without hitting the API again. Works for both
+ * layouts (each meter carries `data-resets-at` and a `.countdown`). */
 export function tickCountdowns(container: HTMLElement, now: Date): void {
   for (const el of container.querySelectorAll<HTMLElement>("[data-resets-at]")) {
     const resetsAt = el.dataset.resetsAt;

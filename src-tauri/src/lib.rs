@@ -82,6 +82,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_thresholds,
             commands::set_notify_on_reset,
             commands::set_show_reset_time,
+            commands::set_popover_layout,
             autostart::autostart_status,
             autostart::set_autostart,
             settings_window::open_settings_window,

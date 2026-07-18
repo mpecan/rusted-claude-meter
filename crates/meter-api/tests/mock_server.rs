@@ -120,29 +120,23 @@ async fn http_403_maps_to_blocked() {
 }
 
 #[tokio::test]
-async fn http_429_maps_to_a_status_error() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/organizations/org-1/usage"))
-        .respond_with(ResponseTemplate::new(429))
-        .mount(&server)
-        .await;
+async fn other_http_errors_map_to_a_status_error() {
+    // 429 (rate limit) and 5xx both surface as ApiError::Status carrying the
+    // code — the caller decides whether to back off.
+    for code in [429_u16, 503] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(code))
+            .mount(&server)
+            .await;
 
-    let error = client(&server).usage("org-1").await.unwrap_err();
-    assert!(matches!(error, ApiError::Status(429)));
-}
-
-#[tokio::test]
-async fn http_5xx_maps_to_a_status_error() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/organizations/org-1/usage"))
-        .respond_with(ResponseTemplate::new(503))
-        .mount(&server)
-        .await;
-
-    let error = client(&server).usage("org-1").await.unwrap_err();
-    assert!(matches!(error, ApiError::Status(503)));
+        let error = client(&server).usage("org-1").await.unwrap_err();
+        assert!(
+            matches!(error, ApiError::Status(got) if got == code),
+            "{code} should map to ApiError::Status({code}), got {error:?}"
+        );
+    }
 }
 
 #[tokio::test]

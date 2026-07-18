@@ -4,7 +4,12 @@
 
 import { formatAge, roundPercent } from "./format";
 import { isAtRisk } from "./pacing";
-import { type UsageStatus, statusFromUtilization } from "./status";
+import {
+  DEFAULT_CRITICAL_THRESHOLD,
+  DEFAULT_WARNING_THRESHOLD,
+  type UsageStatus,
+  statusFromUtilization,
+} from "./status";
 import type { LimitWindow, MeterState, UsageWindow } from "./types";
 
 /** One usage card: a headline window or a named, visible scoped limit. */
@@ -49,21 +54,29 @@ const HEADLINE_LABELS: Record<LimitWindow, string> = {
   seven_day: "7-day",
 };
 
+/** Settings-derived options that shape every card (kept as a bag so the
+ * per-card builder doesn't grow an ever-longer positional signature). */
+interface CardOptions {
+  showResetTime: boolean;
+  warning: number;
+  critical: number;
+}
+
 function cardFor(
   id: string,
   title: string,
   window: UsageWindow,
   now: Date,
-  showResetTime: boolean,
+  opts: CardOptions,
 ): UsageCardViewModel {
   return {
     id,
     title,
     percent: roundPercent(window.utilization),
-    status: statusFromUtilization(window.utilization),
+    status: statusFromUtilization(window.utilization, opts.warning, opts.critical),
     resetsAt: window.resets_at,
     atRisk: isAtRisk(window, now),
-    showResetTime,
+    showResetTime: opts.showResetTime,
     // Only the 5-hour session window always resets today, so it alone drops
     // the date from its reset clock.
     useTimeOnlyResetTime: id === "five_hour",
@@ -81,19 +94,18 @@ export function buildViewModel(
   now: Date,
   shownScopedModels: ReadonlySet<string>,
   showResetTime = true,
+  warning: number = DEFAULT_WARNING_THRESHOLD,
+  critical: number = DEFAULT_CRITICAL_THRESHOLD,
 ): PopoverViewModel {
+  const opts: CardOptions = { showResetTime, warning, critical };
   const cards: UsageCardViewModel[] = [];
   const snapshot = state.snapshot;
   if (snapshot) {
     if (snapshot.five_hour) {
-      cards.push(
-        cardFor("five_hour", HEADLINE_LABELS.five_hour, snapshot.five_hour, now, showResetTime),
-      );
+      cards.push(cardFor("five_hour", HEADLINE_LABELS.five_hour, snapshot.five_hour, now, opts));
     }
     if (snapshot.seven_day) {
-      cards.push(
-        cardFor("seven_day", HEADLINE_LABELS.seven_day, snapshot.seven_day, now, showResetTime),
-      );
+      cards.push(cardFor("seven_day", HEADLINE_LABELS.seven_day, snapshot.seven_day, now, opts));
     }
     for (const limit of snapshot.scoped) {
       // Only visible (active) *and* opted-in scoped limits render as cards.
@@ -103,9 +115,7 @@ export function buildViewModel(
       if (!limit.is_active || !shownScopedModels.has(limit.display_name)) {
         continue;
       }
-      cards.push(
-        cardFor(`scoped:${limit.display_name}`, limit.display_name, limit.usage, now, showResetTime),
-      );
+      cards.push(cardFor(`scoped:${limit.display_name}`, limit.display_name, limit.usage, now, opts));
     }
   }
 

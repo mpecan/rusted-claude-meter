@@ -2,18 +2,25 @@
    popover and the tray icon agree on what "safe", "warning" and "critical"
    look like. */
 :root {
-  --color-safe: #34c759;
-  --color-warning: #ff9500;
-  --color-critical: #ff3b30;
-  --color-accent: #af52de;
+  /* Status ramp green -> amber -> red (redesign 2a gradient). */
+  --color-safe: #46a758;
+  --color-warning: #e8850c;
+  --color-critical: #e5484d;
+  /* Unified warm-orange accent (replaces the former purple). */
+  --color-accent: #e8850c;
+  --color-accent-strong: #c2410c;
+  /* Faint status tints for the 1c status cards. */
+  --tint-safe: rgb(70 167 88 / 8%);
+  --tint-warning: rgb(232 133 12 / 10%);
+  --tint-critical: rgb(229 72 77 / 11%);
 
-  --bg: #f6f6f6;
+  --bg: #f2f2f0;
   --card-bg: #ffffff;
-  --text: #0f0f0f;
-  --text-muted: rgb(15 15 15 / 62%);
-  --border: rgb(0 0 0 / 8%);
-  --track-bg: rgb(0 0 0 / 8%);
-  --banner-bg: rgb(0 0 0 / 4%);
+  --text: #16150f;
+  --text-muted: rgb(22 21 15 / 60%);
+  --border: rgb(20 18 10 / 10%);
+  --track-bg: rgb(20 18 10 / 9%);
+  --banner-bg: rgb(20 18 10 / 4%);
   --input-bg: #ffffff;
 
   font-family:
@@ -33,14 +40,20 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1e1e1e;
-    --card-bg: #2a2a2a;
-    --text: #f2f2f2;
-    --text-muted: rgb(242 242 242 / 62%);
-    --border: rgb(255 255 255 / 8%);
+    --color-safe: #57ba69;
+    --tint-safe: rgb(87 186 105 / 10%);
+    --tint-warning: rgb(232 133 12 / 15%);
+    --tint-critical: rgb(229 72 77 / 16%);
+    --color-accent-strong: #ea580c;
+
+    --bg: #1c1c1e;
+    --card-bg: #26262a;
+    --text: #f2f2f0;
+    --text-muted: rgb(242 242 240 / 60%);
+    --border: rgb(255 255 255 / 10%);
     --track-bg: rgb(255 255 255 / 12%);
     --banner-bg: rgb(255 255 255 / 6%);
-    --input-bg: #232323;
+    --input-bg: #232326;
   }
 }
 
@@ -122,18 +135,18 @@ body {
 }
 
 .status-line[data-banner="stale"] {
-  background: rgb(255 149 0 / 14%);
+  background: rgb(232 133 12 / 14%);
   color: var(--color-warning);
 }
 
 .status-line[data-banner="degraded"] {
-  background: rgb(255 59 48 / 14%);
+  background: rgb(229 72 77 / 14%);
   color: var(--color-critical);
 }
 
 .status-line[data-banner="awaiting_session"],
 .status-line[data-banner="session_expired"] {
-  background: rgb(175 82 222 / 14%);
+  background: rgb(232 133 12 / 14%);
   color: var(--color-accent);
 }
 
@@ -151,80 +164,158 @@ body {
   gap: 0.6rem;
 }
 
-.card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.7rem 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.card-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.card-title {
-  font-weight: 600;
+/* ---- Shared meter parts (both layouts) ---- */
+.meter-name {
+  font-weight: 650;
   font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
-.card-percent {
+.meter-percent {
+  font-family: ui-monospace, "SF Mono", "SFMono-Regular", monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 0.9rem;
-  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.95rem;
 }
 
-.progress-track {
+.meter-bar {
   height: 6px;
   border-radius: 999px;
   background: var(--track-bg);
   overflow: hidden;
 }
 
-.progress-fill {
+.meter-bar-fill {
   height: 100%;
   border-radius: 999px;
   transition: width 0.3s ease;
 }
 
-.progress-fill.status-safe {
-  background: var(--color-safe);
-}
-
-.progress-fill.status-warning {
-  background: var(--color-warning);
-}
-
-.progress-fill.status-critical {
-  background: var(--color-critical);
-}
-
-.card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-}
-
-.countdown {
+.meter-reset {
   font-size: 0.78rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
-.flame {
-  display: inline-flex;
+/* Status colours applied to the percent text, bar fill and pill. */
+.status-safe.meter-percent {
+  color: var(--color-safe);
+}
+.status-warning.meter-percent {
+  color: var(--color-warning);
+}
+.status-critical.meter-percent {
   color: var(--color-critical);
 }
+.status-safe.meter-bar-fill {
+  background: var(--color-safe);
+}
+.status-warning.meter-bar-fill {
+  background: var(--color-warning);
+}
+.status-critical.meter-bar-fill {
+  background: var(--color-critical);
+}
 
-.flame-icon {
-  width: 14px;
-  height: 14px;
+/* Escalating fire glyph: dim at warning, glowing at critical. */
+.fire {
+  font-size: 0.82em;
+  line-height: 1;
+}
+.fire-warning {
+  filter: saturate(0.8) opacity(0.8);
+}
+.fire-critical {
+  filter: drop-shadow(0 0 5px rgb(229 72 77 / 70%));
+}
+
+/* ---- Layout 1a: compact meter rows in one panel ---- */
+.meters-rows {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.1rem 0.7rem;
+}
+
+.meter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.15rem;
+}
+
+.meter-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.meter-divider {
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---- Layout 1c: roomier tinted status cards ---- */
+.status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+}
+.status-card.status-safe {
+  background: var(--tint-safe);
+}
+.status-card.status-warning {
+  background: var(--tint-warning);
+}
+.status-card.status-critical {
+  background: var(--tint-critical);
+}
+
+.status-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.status-card-meter {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.status-card-meter .meter-bar {
+  flex: 1;
+  height: 7px;
+}
+.status-card-meter .meter-percent {
+  font-size: 1.05rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  background: rgb(128 128 128 / 14%);
+  color: var(--text-muted);
+}
+.status-pill.status-warning {
+  color: var(--color-warning);
+  background: var(--tint-warning);
+}
+.status-pill.status-critical {
+  color: var(--color-critical);
+  background: var(--tint-critical);
 }
 
 /* `.session-form` sets its own `display`, which would otherwise beat the
@@ -554,7 +645,7 @@ body {
 
 .icon-style-option.is-selected {
   border-color: var(--color-accent);
-  background: rgb(175 82 222 / 12%);
+  background: rgb(232 133 12 / 12%);
 }
 
 .icon-style-option:focus-visible {
@@ -575,4 +666,67 @@ body {
 
 .icon-style-option.is-selected .icon-style-option-label {
   color: var(--text);
+}
+
+/* Segmented control (Settings > Popover > Layout). */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.settings-field-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px;
+  background: var(--track-bg);
+  border-radius: 8px;
+}
+
+.segmented-option {
+  font: inherit;
+  font-size: 0.8rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.3rem 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.segmented-option:hover {
+  color: var(--text);
+}
+
+.segmented-option.is-selected {
+  background: var(--card-bg);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 14%);
+}
+
+.segmented-option:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Unified warm accent on native form controls (checkboxes + sliders). The
+   threshold sliders take their own status colour so the filled track reads
+   as warning/critical. */
+input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
+#warning-threshold {
+  accent-color: var(--color-warning);
+}
+
+#critical-threshold {
+  accent-color: var(--color-critical);
 }

@@ -46,9 +46,16 @@ export function initPopoverView(backend: UsageBackend): void {
 
   function render(state: MeterState): void {
     latestState = state;
-    const viewModel = buildViewModel(state, new Date(), shownScopedModels(), settings.show_reset_time);
+    const viewModel = buildViewModel(
+      state,
+      new Date(),
+      shownScopedModels(),
+      settings.show_reset_time,
+      settings.warning_threshold,
+      settings.critical_threshold,
+    );
     applyBanner(statusLineEl, viewModel.bannerKind, viewModel.statusLine);
-    renderCards(cardsEl, viewModel.cards);
+    renderCards(cardsEl, viewModel.cards, settings.popover_layout);
     emptyStateEl.hidden = viewModel.cards.length > 0 || viewModel.showSessionForm;
     sessionForm.hidden = !viewModel.showSessionForm;
     if (!viewModel.showSessionForm) {

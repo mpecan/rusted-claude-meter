@@ -20,6 +20,7 @@ import {
   REFRESH_INTERVAL_OPTIONS,
   type AppSettings,
   type Browser,
+  type PopoverLayout,
   type RefreshInterval,
   type UsageSnapshot,
 } from "./types";
@@ -34,6 +35,15 @@ function requireElement<T extends HTMLElement>(id: string): T {
   return el as T;
 }
 
+/** Reflect the selected option of a `.segmented` radio group by `data-value`. */
+function setSegmentedValue(container: HTMLElement, value: string): void {
+  for (const option of container.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
+    const selected = option.dataset.value === value;
+    option.classList.toggle("is-selected", selected);
+    option.setAttribute("aria-checked", selected ? "true" : "false");
+  }
+}
+
 export function initSettingsView(backend: UsageBackend): void {
   const modelTogglesEl = requireElement<HTMLElement>("model-toggles");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
@@ -44,6 +54,7 @@ export function initSettingsView(backend: UsageBackend): void {
   const iconStyleContainer = requireElement<HTMLElement>("icon-style-picker");
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
   const showResetTimeToggle = requireElement<HTMLInputElement>("show-reset-time-toggle");
+  const popoverLayoutToggle = requireElement<HTMLElement>("popover-layout-toggle");
   const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
   const autostartError = requireElement<HTMLElement>("autostart-error");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
@@ -96,6 +107,7 @@ export function initSettingsView(backend: UsageBackend): void {
     iconStylePicker.setSelected(settings.icon_style);
     monochromeToggle.checked = settings.monochrome;
     showResetTimeToggle.checked = settings.show_reset_time;
+    setSegmentedValue(popoverLayoutToggle, settings.popover_layout);
   }
 
   function refreshSessionStatus(): void {
@@ -259,6 +271,20 @@ export function initSettingsView(backend: UsageBackend): void {
       console.error("failed to persist show-reset-time setting", error);
     });
   });
+
+  for (const option of popoverLayoutToggle.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
+    option.addEventListener("click", () => {
+      const layout = option.dataset.value as PopoverLayout;
+      if (settings.popover_layout === layout) {
+        return;
+      }
+      settings = { ...settings, popover_layout: layout };
+      setSegmentedValue(popoverLayoutToggle, layout);
+      backend.setPopoverLayout(layout).catch((error: unknown) => {
+        console.error("failed to persist popover layout", error);
+      });
+    });
+  }
 
   autostartToggle.addEventListener("change", () => {
     const requested = autostartToggle.checked;

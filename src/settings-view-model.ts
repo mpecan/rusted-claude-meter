@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   icon_style: "battery",
   monochrome: false,
   show_reset_time: true,
+  popover_layout: "rows",
 };
 
 /** Deduped, snapshot-order list of every scoped model's display name in the

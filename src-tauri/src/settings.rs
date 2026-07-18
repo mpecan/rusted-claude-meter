@@ -49,6 +49,18 @@ const fn default_monochrome() -> bool {
 /// Every field has a plain-data default (see [`Default`]), and every field
 /// decodes independently — see the module docs for what that buys forward-
 /// and backward-compatibility-wise.
+/// How the popover lays out its usage meters (redesign directions 1a/1c). The
+/// frontend switches renderers on this; the shell only persists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PopoverLayout {
+    /// Compact hairline-split meter rows in one panel (design 1a).
+    #[default]
+    Rows,
+    /// Roomier tinted status cards with a status pill (design 1c).
+    Cards,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -76,6 +88,9 @@ pub struct AppSettings {
     /// struct fills this from `Default` for settings files written before the
     /// field existed, so an upgrade keeps the user's other choices.
     pub show_reset_time: bool,
+    /// Which popover layout the frontend renders (redesign 1a/1c). Persisted
+    /// here; back-compat via `#[serde(default)]` like the fields above.
+    pub popover_layout: PopoverLayout,
 }
 
 impl Default for AppSettings {
@@ -89,6 +104,7 @@ impl Default for AppSettings {
             icon_style: IconStyle::Battery,
             monochrome: default_monochrome(),
             show_reset_time: true,
+            popover_layout: PopoverLayout::Rows,
         }
     }
 }
@@ -218,6 +234,7 @@ mod tests {
             icon_style: IconStyle::Gauge,
             monochrome: !default_monochrome(),
             show_reset_time: false,
+            popover_layout: PopoverLayout::Cards,
         }
     }
 
