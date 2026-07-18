@@ -118,6 +118,21 @@ body {
   border-color: var(--text-muted);
 }
 
+/* Square icon-only variant (popover header: Refresh / Settings). */
+.icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
 /* Status line / banner: colour + weight vary with the popover's coarse
    state (mirrors src-tauri/src/tray/model.rs::status_line's phases). */
 .status-line {
