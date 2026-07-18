@@ -17,7 +17,7 @@
         "label": "main",
         "title": "Rusted Claude Meter",
         "width": 420,
-        "height": 640,
+        "height": 420,
         "visible": false,
         "resizable": false,
         "transparent": true

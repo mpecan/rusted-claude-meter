@@ -52,6 +52,14 @@ body {
   margin: 0;
 }
 
+/* The NSPopover has a fixed content height (set once from the window frame),
+   so when more usage cards are shown than fit, scroll inside the popover
+   rather than clipping. */
+#popover-view {
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
 .popover {
   position: relative;
   display: flex;
