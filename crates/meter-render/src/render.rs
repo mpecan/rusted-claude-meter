@@ -107,6 +107,9 @@ mod tests {
             secondary_percent: percent,
             status,
             at_risk: false,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale,
         }

@@ -259,6 +259,9 @@ pub fn icon_style_previews() -> Vec<IconPreview> {
                 secondary_percent: SAMPLE_SECONDARY,
                 status: UsageStatus::Warning,
                 at_risk: false,
+                pace_kind: None,
+                pace_band: None,
+                pace_ratio: None,
                 mono: false,
                 scale: Scale::X2,
             };

@@ -15,7 +15,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 
-use meter_core::UsageStatus;
+use meter_core::{PaceKind, UsageStatus};
 use meter_render::{IconState, IconStyle, RenderedIcon, Scale, render_icon};
 
 /// Max Hamming distance (out of 64 bits, per hash) still considered the same
@@ -38,6 +38,9 @@ fn cases() -> Vec<(String, IconState)> {
         secondary_percent: percent,
         status,
         at_risk,
+        pace_kind: None,
+        pace_band: None,
+        pace_ratio: None,
         mono,
         scale,
     };
@@ -89,12 +92,74 @@ fn cases() -> Vec<(String, IconState)> {
                 secondary_percent: 100,
                 status: UsageStatus::Critical,
                 at_risk: false,
+                pace_kind: None,
+                pace_band: None,
+                pace_ratio: None,
                 mono: false,
                 scale: Scale::X1,
             },
         ),
     ]);
+    cases.extend(pace_cases());
     cases
+}
+
+/// Pace-first display snapshots: the ratio replaces the quota number (with the
+/// `.`/`×` the subset font lacks drawn as shapes), the pace band recolours the
+/// ink, and the flame (hot) / snowflake (cold) badge replaces the at-risk dot.
+fn pace_cases() -> Vec<(String, IconState)> {
+    use IconStyle::{Battery, Circular, DualBar, Gauge, Minimal, Segments};
+    use PaceKind::{Cold, Hot};
+    use UsageStatus::{Critical, Safe, Warning};
+
+    let paced = |style, percent, status, mono, ratio: f64, kind| {
+        IconState {
+            style,
+            percent,
+            secondary_percent: percent,
+            status,
+            at_risk: false,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
+            mono,
+            scale: Scale::X1,
+        }
+        .with_pace(Some(ratio), Some(kind))
+    };
+    [
+        (
+            "pace_battery_overuse",
+            paced(Battery, 72, Warning, false, 1.8, Hot),
+        ),
+        (
+            "pace_battery_overuse_mono",
+            paced(Battery, 72, Warning, true, 1.8, Hot),
+        ),
+        (
+            "pace_minimal_heavy_overuse",
+            paced(Minimal, 90, Critical, false, 3.0, Hot),
+        ),
+        (
+            "pace_circular_underuse",
+            paced(Circular, 11, Safe, false, 0.3, Cold),
+        ),
+        (
+            "pace_dual_bar_overuse",
+            paced(DualBar, 72, Warning, false, 1.8, Hot),
+        ),
+        (
+            "pace_segments_underuse",
+            paced(Segments, 11, Safe, false, 0.3, Cold),
+        ),
+        (
+            "pace_gauge_overuse",
+            paced(Gauge, 72, Warning, false, 1.8, Hot),
+        ),
+    ]
+    .into_iter()
+    .map(|(name, state)| (name.to_owned(), state))
+    .collect()
 }
 
 /// One snapshot per style × status × mono — the full matrix issue #9 asks
@@ -132,6 +197,9 @@ fn matrix_cases() -> Vec<(String, IconState)> {
                         secondary_percent: 100 - percent,
                         status,
                         at_risk: false,
+                        pace_kind: None,
+                        pace_band: None,
+                        pace_ratio: None,
                         mono,
                         scale: Scale::X1,
                     },
@@ -198,6 +266,9 @@ fn distinct_states_hash_differently() {
             secondary_percent: percent,
             status,
             at_risk: false,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         })
@@ -227,6 +298,9 @@ fn scales_are_perceptually_equivalent() {
             secondary_percent: 65,
             status: UsageStatus::Warning,
             at_risk: true,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono: false,
             scale,
         })

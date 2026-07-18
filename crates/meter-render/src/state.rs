@@ -1,5 +1,7 @@
+use std::hash::{Hash, Hasher};
+
 use jiff::Timestamp;
-use meter_core::{UsageSnapshot, UsageStatus};
+use meter_core::{PaceBand, PaceKind, UsageSnapshot, UsageStatus};
 use serde::{Deserialize, Serialize};
 
 /// Logical icon height in CSS pixels: the common menu-bar/tray glyph height on
@@ -75,7 +77,16 @@ impl Scale {
 /// the percentage is pre-rounded to a whole number so consecutive fetches
 /// that move utilization by a fraction of a percent hit the cache instead of
 /// re-rasterizing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// [`PartialEq`]/[`Eq`]/[`Hash`] are hand-written rather than derived because
+/// [`Self::pace_ratio`] is an `f64` (no total `Eq`/`Hash`): it is keyed by its
+/// one-decimal rendered form ("1.8"), the exact string the override text shows,
+/// so consecutive fetches that nudge the ratio a hair still hit the cache. The
+/// colour [`Self::pace_band`] is keyed *separately* — two ratios that round to
+/// the same text but straddle a band boundary (1.16 vs 1.24 → both "1.2", but
+/// sustainable vs overuse) must not collapse to one entry and render the wrong
+/// colour.
+#[derive(Debug, Clone, Copy)]
 pub struct IconState {
     pub style: IconStyle,
     /// Displayed percentage, rounded to the nearest whole number and clamped
@@ -88,14 +99,82 @@ pub struct IconState {
     pub secondary_percent: u8,
     pub status: UsageStatus,
     /// Pacing at-risk indicator (the badge dot), from [`PacingAssessment`].
+    /// Superseded by the flame/snowflake badge when [`Self::pace_kind`] is set.
     pub at_risk: bool,
+    /// Off-pace badge to draw in place of the at-risk dot: a flame (hot) or a
+    /// snowflake (cold). `None` outside pace-first display.
+    pub pace_kind: Option<PaceKind>,
+    /// Colour band the pace ratio falls into — the source of truth for the
+    /// override colour, and a cache key in its own right (see the type doc).
+    /// `None` outside pace-first display.
+    pub pace_band: Option<PaceBand>,
+    /// Pace ratio driving the pace-first override text ("1.8×"). `None` outside
+    /// pace-first display. Cached by its one-decimal rendered form, not raw bits.
+    pub pace_ratio: Option<f64>,
     /// Monochrome variant: alpha-only black artwork. On macOS this becomes a
     /// template image so the system recolours it for the menu bar appearance.
     pub mono: bool,
     pub scale: Scale,
 }
 
+impl PartialEq for IconState {
+    fn eq(&self, other: &Self) -> bool {
+        self.style == other.style
+            && self.percent == other.percent
+            && self.secondary_percent == other.secondary_percent
+            && self.status == other.status
+            && self.at_risk == other.at_risk
+            && self.pace_kind == other.pace_kind
+            && self.pace_band == other.pace_band
+            && self.pace_ratio_key() == other.pace_ratio_key()
+            && self.mono == other.mono
+            && self.scale == other.scale
+    }
+}
+
+impl Eq for IconState {}
+
+impl Hash for IconState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.style.hash(state);
+        self.percent.hash(state);
+        self.secondary_percent.hash(state);
+        self.status.hash(state);
+        self.at_risk.hash(state);
+        self.pace_kind.hash(state);
+        self.pace_band.hash(state);
+        self.pace_ratio_key().hash(state);
+        self.mono.hash(state);
+        self.scale.hash(state);
+    }
+}
+
 impl IconState {
+    /// The pace ratio quantized to one decimal for cache keying — the exact
+    /// precision the override text renders at, so 1.81 and 1.84 (both "1.8×")
+    /// share a cache entry while a change in the displayed digit does not.
+    fn pace_ratio_key(&self) -> Option<i32> {
+        self.pace_ratio.map(|ratio| {
+            // Pace ratios are `min(util, 100) / expected`, `expected >= 5`, so
+            // the value stays in `0..=200` after scaling — the cast can't overflow.
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                (ratio * 10.0).round() as i32
+            }
+        })
+    }
+
+    /// Attach a pace-first display overlay: the flame/snowflake badge (`kind`)
+    /// and the ratio driving the override text/colour. The colour band is
+    /// derived from the ratio so it can never drift from the number shown.
+    #[must_use]
+    pub fn with_pace(mut self, ratio: Option<f64>, kind: Option<PaceKind>) -> Self {
+        self.pace_ratio = ratio;
+        self.pace_band = ratio.map(PaceBand::from_ratio);
+        self.pace_kind = kind;
+        self
+    }
+
     /// Derive the icon state from a usage snapshot.
     ///
     /// The displayed percentage is the five-hour headline window (the number
@@ -138,6 +217,12 @@ impl IconState {
             // still drives the popover cards and the tray status line).
             status: UsageStatus::from_utilization(primary),
             at_risk: snapshot.at_risk(now),
+            // Pace-first overlay is a display-mode choice computed by the app
+            // shell (headline-only, gated behind `pace_first_display`); the
+            // base icon carries none. Callers layer it on via [`Self::with_pace`].
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale,
         }
@@ -284,6 +369,59 @@ mod tests {
             fetched_at: now(),
         };
         assert!(state(&hot_scoped).at_risk);
+    }
+
+    fn hash_of(state: &IconState) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        state.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn base() -> IconState {
+        IconState {
+            style: IconStyle::Battery,
+            percent: 50,
+            secondary_percent: 0,
+            status: UsageStatus::Warning,
+            at_risk: false,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
+            mono: false,
+            scale: Scale::X1,
+        }
+    }
+
+    #[test]
+    fn with_pace_derives_the_band_from_the_ratio() {
+        let hot = base().with_pace(Some(3.0), Some(PaceKind::Hot));
+        assert_eq!(hot.pace_band, Some(meter_core::PaceBand::HeavyOveruse));
+        assert_eq!(hot.pace_kind, Some(PaceKind::Hot));
+        assert_eq!(hot.pace_ratio, Some(3.0));
+    }
+
+    #[test]
+    fn ratios_that_render_the_same_share_a_cache_key() {
+        // 1.81 and 1.84 both render "1.8×" and both sit in the overuse band, so
+        // they must be equal and hash equal — one cache entry, not two.
+        let a = base().with_pace(Some(1.81), Some(PaceKind::Hot));
+        let b = base().with_pace(Some(1.84), Some(PaceKind::Hot));
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+    }
+
+    #[test]
+    fn ratios_that_round_equal_but_straddle_a_band_stay_distinct() {
+        // Both round to "1.2", but 1.16 is sustainable (green) and 1.24 is
+        // overuse (orange). Keying on the band as well as the rounded ratio keeps
+        // them separate cache entries so neither borrows the other's colour.
+        let sustainable = base().with_pace(Some(1.16), None);
+        let overuse = base().with_pace(Some(1.24), None);
+        assert_eq!(sustainable.pace_ratio_key(), overuse.pace_ratio_key());
+        assert_ne!(sustainable.pace_band, overuse.pace_band);
+        assert_ne!(sustainable, overuse);
     }
 
     #[test]

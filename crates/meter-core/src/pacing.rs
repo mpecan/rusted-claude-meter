@@ -40,7 +40,7 @@ pub fn weekly_pacing_duration(days: u8) -> SignedDuration {
 /// Single source of truth for the ratio thresholds so colours (in
 /// `meter-render`), cache keys and callers cannot drift apart. Mirrors
 /// `ClaudeMeter`'s `PacePalette.Band`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaceBand {
     /// `< 0.8×` — quota likely left unused (blue).

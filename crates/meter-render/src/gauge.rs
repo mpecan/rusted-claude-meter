@@ -8,7 +8,7 @@
 //! this crate: it points at the same angle the arc sweeps to.
 use std::fmt::Write as _;
 
-use crate::palette::{ink, risk_badge};
+use crate::palette::{badge, label_ink};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
@@ -26,7 +26,9 @@ const MIN_ARC: f64 = 1.2;
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();
     let canvas_w = f64::from(width);
-    let ink = ink(state.mono, state.status);
+    // Whole dial (track, arc, needle) takes the pace band colour in pace-first
+    // display, else the quota status colour — black in mono either way.
+    let ink = label_ink(state);
 
     svg_document(width, height, 768, |out| {
         // Background track: the top half of the circle, faint.
@@ -47,7 +49,7 @@ pub fn svg(state: IconState) -> String {
             out,
             r#"<line x1="{CENTER_X}" y1="{CENTER_Y}" x2="{needle_x:.2}" y2="{needle_y:.2}" stroke="{ink}" stroke-width="1.4" stroke-linecap="round"/><circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{HUB_RADIUS}" fill="{ink}"/>"#
         );
-        risk_badge(out, state.at_risk, state.mono, canvas_w);
+        badge(out, state, canvas_w);
     })
 }
 
@@ -77,6 +79,9 @@ mod tests {
             secondary_percent: 0,
             status,
             at_risk,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         }
@@ -129,6 +134,21 @@ mod tests {
         assert_eq!(
             plain.matches("<circle").count() + 1,
             flagged.matches("<circle").count()
+        );
+    }
+
+    #[test]
+    fn pace_first_recolours_the_whole_dial() {
+        use crate::palette::BLUE;
+        // Underuse recolours the needle/arc blue even though the quota status is
+        // critical, and adds a snowflake badge.
+        let s = state(90, UsageStatus::Critical, false, false)
+            .with_pace(Some(0.3), Some(meter_core::PaceKind::Cold));
+        let svg = svg(s);
+        assert!(svg.contains(BLUE), "dial takes the pace band colour");
+        assert!(
+            !svg.contains(CRITICAL),
+            "quota status colour is overridden: {svg}"
         );
     }
 }

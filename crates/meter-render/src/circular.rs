@@ -5,8 +5,7 @@
 
 use std::fmt::Write as _;
 
-use crate::font::centered_text;
-use crate::palette::{GRAY, MONO, ink, risk_badge};
+use crate::palette::{GRAY, MONO, badge, draw_label, ink, primary_label};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
@@ -46,18 +45,19 @@ pub fn svg(state: IconState) -> String {
                 r#"<circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{RADIUS}" fill="none" stroke="{arc_ink}" stroke-width="{STROKE}" stroke-linecap="round" stroke-dasharray="{filled:.2} {remainder:.2}" transform="rotate(-90 {CENTER_X} {CENTER_Y})"/>"#
             );
         }
-        // The percentage number in the centre (no `%`, like the reference).
-        // Three-digit labels (only `100`) shrink so their outer strokes clear
-        // the surrounding ring; two-digit labels keep the larger size.
-        let label = state.percent.to_string();
+        // The centre number (no `%`, like the reference), or the compact pace
+        // ratio in pace-first display. Long labels — `100`, or a pace ratio like
+        // `12.5` — shrink so their outer strokes clear the surrounding ring; the
+        // arc keeps the quota status colour while the number takes the pace band.
+        let label = primary_label(state);
         let font_size = if label.len() > 2 {
             NUMBER_FS_WIDE
         } else {
             NUMBER_FS
         };
-        centered_text(out, (CENTER_X, CENTER_Y), font_size, arc_ink, &label);
+        draw_label(out, (CENTER_X, CENTER_Y), font_size, state, &label);
 
-        risk_badge(out, state.at_risk, state.mono, canvas_w);
+        badge(out, state, canvas_w);
     })
 }
 
@@ -75,6 +75,9 @@ mod tests {
             secondary_percent: 0,
             status,
             at_risk,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         }

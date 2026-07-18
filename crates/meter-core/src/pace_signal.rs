@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Direction of an off-pace burn rate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaceKind {
     /// Burning faster than sustainable — likely to hit the limit before reset.
