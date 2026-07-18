@@ -13,10 +13,12 @@ import { initSettingsView } from "./settings-view";
 import { resolveView } from "./view-routing";
 
 /** The current window's label, or "main" outside a Tauri shell (`npm run dev`
- * in a plain browser), so the demo always renders the popover. */
+ * in a plain browser), so the demo always renders the popover. Outside Tauri a
+ * `?window=<label>` query override lets either surface be previewed in a plain
+ * browser (dev/design only — `isTauri()` is always true in the real app). */
 function currentWindowLabel(): string {
   if (!isTauri()) {
-    return "main";
+    return new URLSearchParams(window.location.search).get("window") ?? "main";
   }
   try {
     return getCurrentWindow().label;
