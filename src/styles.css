@@ -415,6 +415,30 @@ body {
   align-self: flex-start;
 }
 
+/* Collapsible "More" section holding the less-common import targets. */
+.browser-import-more {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.browser-import-more-summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 0.3rem 0.2rem;
+  user-select: none;
+  list-style-position: inside;
+}
+
+.browser-import-more-summary:hover {
+  color: var(--text);
+}
+
+.browser-import-more[open] .browser-import-more-summary {
+  margin-bottom: 0.1rem;
+}
+
 .primary-button {
   font: inherit;
   font-weight: 600;
