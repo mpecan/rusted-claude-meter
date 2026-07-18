@@ -88,9 +88,11 @@ const HEADLINE_LABELS: Record<LimitWindow, string> = {
   seven_day: "7-day",
 };
 
-/** Settings-derived options that shape every card (kept as a bag so the
- * per-card builder doesn't grow an ever-longer positional signature). */
-interface CardOptions {
+/** Settings-derived options that shape every card (kept as a bag so neither
+ * the per-card builder nor the public `buildViewModel` grows an ever-longer
+ * positional signature). Every field has a default at the `buildViewModel`
+ * boundary, so callers pass only what they override. */
+export interface CardOptions {
   showResetTime: boolean;
   warning: number;
   critical: number;
@@ -137,9 +139,14 @@ function cardFor(
   now: Date,
   opts: CardOptions,
 ): UsageCardViewModel {
-  // The 5-hour session paces over its full window and never signals underuse;
-  // the weekly and scoped weekly cards pace over the configured 5/6/7-day span.
-  const isSession = id === "five_hour";
+  // Session-cadence windows (the headline 5-hour card, and any scoped limit
+  // whose own window is a five-hour kind) pace over their full window and
+  // never signal underuse; weekly-cadence windows (the headline 7-day card and
+  // the scoped weekly cards) pace over the configured 5/6/7-day span. Key this
+  // off the window's real cadence, not the synthetic card id, so a scoped
+  // five-hour limit isn't mis-paced as weekly (response.rs maps `five_hour`-
+  // prefixed scoped kinds to `LimitWindow::FiveHour`).
+  const isSession = window.window === "five_hour";
   const pacingMs = isSession ? undefined : weeklyPacingDurationMs(opts.weeklyPaceDays);
   const showsUnderuse = !isSession;
   const ratio = paceRatio(window, now, pacingMs);
@@ -176,13 +183,15 @@ export function buildViewModel(
   state: MeterState,
   now: Date,
   shownScopedModels: ReadonlySet<string>,
-  showResetTime = true,
-  warning: number = DEFAULT_WARNING_THRESHOLD,
-  critical: number = DEFAULT_CRITICAL_THRESHOLD,
-  weeklyPaceDays = 7,
-  paceFirst = false,
+  options: Partial<CardOptions> = {},
 ): PopoverViewModel {
-  const opts: CardOptions = { showResetTime, warning, critical, weeklyPaceDays, paceFirst };
+  const opts: CardOptions = {
+    showResetTime: options.showResetTime ?? true,
+    warning: options.warning ?? DEFAULT_WARNING_THRESHOLD,
+    critical: options.critical ?? DEFAULT_CRITICAL_THRESHOLD,
+    weeklyPaceDays: options.weeklyPaceDays ?? 7,
+    paceFirst: options.paceFirst ?? false,
+  };
   const cards: UsageCardViewModel[] = [];
   const snapshot = state.snapshot;
   if (snapshot) {

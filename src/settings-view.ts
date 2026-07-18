@@ -44,6 +44,32 @@ function setSegmentedValue(container: HTMLElement, value: string): void {
   }
 }
 
+/** Wire a `.segmented` radiogroup to a settings field: on each option click,
+ * parse the clicked `data-value`, skip if it already matches, otherwise
+ * optimistically reflect the selection and persist it (logging any persist
+ * failure). Shared by every segmented control so the boilerplate lives once. */
+function bindSegmented<T>(
+  container: HTMLElement,
+  isCurrent: (value: T) => boolean,
+  parse: (raw: string) => T,
+  onChange: (value: T) => Promise<unknown>,
+  label: string,
+): void {
+  for (const option of container.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
+    option.addEventListener("click", () => {
+      const raw = option.dataset.value ?? "";
+      const value = parse(raw);
+      if (isCurrent(value)) {
+        return;
+      }
+      setSegmentedValue(container, raw);
+      onChange(value).catch((error: unknown) => {
+        console.error(`failed to persist ${label}`, error);
+      });
+    });
+  }
+}
+
 export function initSettingsView(backend: UsageBackend): void {
   const modelTogglesEl = requireElement<HTMLElement>("model-toggles");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
@@ -276,47 +302,38 @@ export function initSettingsView(backend: UsageBackend): void {
     });
   });
 
-  for (const option of popoverLayoutToggle.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
-    option.addEventListener("click", () => {
-      const layout = option.dataset.value as PopoverLayout;
-      if (settings.popover_layout === layout) {
-        return;
-      }
+  bindSegmented<PopoverLayout>(
+    popoverLayoutToggle,
+    (layout) => settings.popover_layout === layout,
+    (raw) => raw as PopoverLayout,
+    (layout) => {
       settings = { ...settings, popover_layout: layout };
-      setSegmentedValue(popoverLayoutToggle, layout);
-      backend.setPopoverLayout(layout).catch((error: unknown) => {
-        console.error("failed to persist popover layout", error);
-      });
-    });
-  }
+      return backend.setPopoverLayout(layout);
+    },
+    "popover layout",
+  );
 
-  for (const option of displayModeToggle.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
-    option.addEventListener("click", () => {
-      const paceFirst = option.dataset.value === "pace";
-      if (settings.pace_first_display === paceFirst) {
-        return;
-      }
+  bindSegmented<boolean>(
+    displayModeToggle,
+    (paceFirst) => settings.pace_first_display === paceFirst,
+    (raw) => raw === "pace",
+    (paceFirst) => {
       settings = { ...settings, pace_first_display: paceFirst };
-      setSegmentedValue(displayModeToggle, paceFirst ? "pace" : "consumption");
-      backend.setPaceFirstDisplay(paceFirst).catch((error: unknown) => {
-        console.error("failed to persist display mode", error);
-      });
-    });
-  }
+      return backend.setPaceFirstDisplay(paceFirst);
+    },
+    "display mode",
+  );
 
-  for (const option of weeklyPaceDaysToggle.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
-    option.addEventListener("click", () => {
-      const days = Number(option.dataset.value);
-      if (settings.weekly_pace_days === days) {
-        return;
-      }
+  bindSegmented<number>(
+    weeklyPaceDaysToggle,
+    (days) => settings.weekly_pace_days === days,
+    (raw) => Number(raw),
+    (days) => {
       settings = { ...settings, weekly_pace_days: days };
-      setSegmentedValue(weeklyPaceDaysToggle, String(days));
-      backend.setWeeklyPaceDays(days).catch((error: unknown) => {
-        console.error("failed to persist weekly pace basis", error);
-      });
-    });
-  }
+      return backend.setWeeklyPaceDays(days);
+    },
+    "weekly pace basis",
+  );
 
   autostartToggle.addEventListener("change", () => {
     const requested = autostartToggle.checked;

@@ -175,11 +175,11 @@ describe("buildViewModel — pace", () => {
 
   it("swaps to pace-first only once a ratio exists to lead with", () => {
     // Fresh window (2% elapsed): ratio suppressed, so pace-first stays off.
-    const fresh = buildViewModel(pacedState(paced(10, 0.02, "five_hour"), null), NOW, new Set(), true, 75, 90, 7, true);
+    const fresh = buildViewModel(pacedState(paced(10, 0.02, "five_hour"), null), NOW, new Set(), { paceFirst: true });
     expect(fresh.cards[0]!.paceRatio).toBeNull();
     expect(fresh.cards[0]!.paceFirst).toBe(false);
     // Established window: pace-first engages.
-    const live = buildViewModel(pacedState(paced(60, 0.5, "five_hour"), null), NOW, new Set(), true, 75, 90, 7, true);
+    const live = buildViewModel(pacedState(paced(60, 0.5, "five_hour"), null), NOW, new Set(), { paceFirst: true });
     expect(live.cards[0]!.paceFirst).toBe(true);
   });
 
@@ -188,10 +188,38 @@ describe("buildViewModel — pace", () => {
     expect(vm.cards[0]!.projection).toMatchObject({ kind: "hits" });
   });
 
+  it("treats a scoped five-hour limit as session-cadence, not weekly", () => {
+    // A scoped limit whose own window is a five-hour kind must pace over its
+    // full 5-hour window (like the headline session card), not the weekly
+    // 5/6/7-day span — the cadence is keyed off window.window, not the
+    // synthetic card id (response.rs maps `five_hour`-prefixed scoped kinds to
+    // LimitWindow::FiveHour). Mis-paced as weekly, 50% of a 5-hour window is
+    // ~1.5% of a 7-day span, so the ratio would balloon to overuse.
+    const scopedFive: ScopedLimit = {
+      display_name: "Sonnet",
+      model_id: null,
+      usage: paced(60, 0.5, "five_hour"),
+      is_active: true,
+    };
+    const vm = buildViewModel(
+      state({
+        snapshot: { five_hour: null, seven_day: null, scoped: [scopedFive], fetched_at: NOW.toISOString() },
+      }),
+      NOW,
+      new Set(["Sonnet"]),
+    );
+    const card = vm.cards.find((c) => c.id === "scoped:Sonnet")!;
+    // 60% used at 50% of the 5-hour window -> sustainable (1.2), expected 50%.
+    expect(card.paceBand).toBe("sustainable");
+    expect(card.expectedPercent).toBeCloseTo(50, 2);
+    // Session cadence never signals underuse.
+    expect(card.showsUnderuse).toBe(false);
+  });
+
   it("applies the weekly pace basis to the weekly card", () => {
     // 40% at 2/7 days: 7-day basis is overuse (1.4), 5-day basis is on-pace (1.0).
-    const seven = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), true, 75, 90, 7);
-    const five = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), true, 75, 90, 5);
+    const seven = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), { weeklyPaceDays: 7 });
+    const five = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), { weeklyPaceDays: 5 });
     expect(seven.cards[0]!.paceBand).toBe("overuse");
     expect(five.cards[0]!.paceBand).toBe("sustainable");
   });

@@ -46,16 +46,13 @@ export function initPopoverView(backend: UsageBackend): void {
 
   function render(state: MeterState): void {
     latestState = state;
-    const viewModel = buildViewModel(
-      state,
-      new Date(),
-      shownScopedModels(),
-      settings.show_reset_time,
-      settings.warning_threshold,
-      settings.critical_threshold,
-      settings.weekly_pace_days,
-      settings.pace_first_display,
-    );
+    const viewModel = buildViewModel(state, new Date(), shownScopedModels(), {
+      showResetTime: settings.show_reset_time,
+      warning: settings.warning_threshold,
+      critical: settings.critical_threshold,
+      weeklyPaceDays: settings.weekly_pace_days,
+      paceFirst: settings.pace_first_display,
+    });
     applyBanner(statusLineEl, viewModel.bannerKind, viewModel.statusLine);
     renderCards(cardsEl, viewModel.cards, settings.popover_layout);
     emptyStateEl.hidden = viewModel.cards.length > 0 || viewModel.showSessionForm;
