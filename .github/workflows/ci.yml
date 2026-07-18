@@ -79,7 +79,7 @@ jobs:
         with:
           cache-bin: true
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
 
       # cargo-deny and cargo-dupes only read Cargo.lock/manifests and source
       # text respectively — no compilation, so no Tauri system deps needed.
@@ -124,7 +124,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
 
       - name: Build frontend (required by tauri-build)
         run: |
