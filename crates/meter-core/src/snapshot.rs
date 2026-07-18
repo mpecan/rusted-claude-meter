@@ -1,14 +1,12 @@
 use std::collections::HashSet;
 
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::pace_signal::{PaceKind, PaceSignal};
 use crate::pacing::{PacingAssessment, RISK_THRESHOLD, UNDERUSE_THRESHOLD, weekly_pacing_duration};
 use crate::status::UsageStatus;
 use crate::window::UsageWindow;
-
-use jiff::SignedDuration;
 
 /// A limit scoped to a specific model, taken from the API's `limits` array.
 ///
@@ -108,10 +106,13 @@ impl UsageSnapshot {
             .filter(|&(_, ratio)| ratio > RISK_THRESHOLD)
             .map(|(w, ratio)| make_signal(PaceKind::Hot, w, ratio, now, &weekly_basis));
 
-        // Highest ratio wins; on a tie the later (weekly) signal wins, matching
-        // Swift's `max(by:)`, which returns the last maximal element.
+        // Highest ratio wins; on an exact tie the session signal wins. Upstream
+        // builds `hotSignals` session-first then calls `max(by: { $0.ratio <
+        // $1.ratio })`, and Swift's `max(by:)` only replaces its running result
+        // when the current element is strictly greater, so it keeps the first
+        // maximal element — the session signal here.
         let hottest = match (session_hot, weekly_hot) {
-            (Some(s), Some(w)) => Some(if w.ratio >= s.ratio { w } else { s }),
+            (Some(s), Some(w)) => Some(if w.ratio > s.ratio { w } else { s }),
             (s, w) => s.or(w),
         };
         if let Some(signal) = hottest {
@@ -296,6 +297,20 @@ mod tests {
         let signal = data.pace_signal(pace_now(), 7).unwrap();
         assert_eq!(signal.kind, PaceKind::Hot);
         assert_eq!(signal.window_name, "7-day");
+    }
+
+    #[test]
+    fn pace_signal_both_hot_equal_ratio_prefers_session() {
+        // Session and weekly both hot at exactly the same ratio (2.0). Upstream
+        // builds hotSignals session-first and max(by:) keeps the first maximal
+        // element, so the 5-hour signal must win the tie.
+        let data = paced_data(
+            paced(50.0, 0.25, LimitWindow::FiveHour), // 2.0
+            paced(50.0, 0.25, LimitWindow::SevenDay), // 2.0 (full-week basis)
+        );
+        let signal = data.pace_signal(pace_now(), 7).unwrap();
+        assert_eq!(signal.kind, PaceKind::Hot);
+        assert_eq!(signal.window_name, "5-hour");
     }
 
     #[test]

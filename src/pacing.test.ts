@@ -52,4 +52,10 @@ describe("isAtRisk", () => {
   it("is not at risk when nothing has been used yet", () => {
     expect(isAtRisk(fiveHourWindow(0, 150), NOW)).toBe(false);
   });
+
+  it("caps utilization at 100 (over-100% usage late in the window is not at risk)", () => {
+    // 110% used at 90% elapsed: capped ratio 100/90 ≈ 1.11 (< 1.2), not the
+    // uncapped 110/90 ≈ 1.22. Matches meter_core's min(utilization, 100).
+    expect(isAtRisk(fiveHourWindow(110, 30), NOW)).toBe(false);
+  });
 });

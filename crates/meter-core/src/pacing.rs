@@ -71,6 +71,19 @@ impl PaceBand {
 }
 
 impl UsageWindow {
+    /// Seconds elapsed since this window started (`resets_at - window` up to
+    /// `now`). `None` once the window has reset (`resets_at <= now`). May be
+    /// non-positive if `resets_at` is further out than the window length
+    /// (clock skew); callers guard as needed.
+    fn elapsed_secs(&self, now: Timestamp) -> Option<f64> {
+        if self.resets_at <= now {
+            return None;
+        }
+        let window_secs = self.window.duration().as_secs_f64();
+        let remaining = self.resets_at.duration_since(now).as_secs_f64();
+        Some(window_secs - remaining)
+    }
+
     /// Utilization percentage the pace plan expects by now (0–100): the elapsed
     /// fraction of the *pacing span*, ×100, capped at 100%.
     ///
@@ -89,16 +102,14 @@ impl UsageWindow {
         now: Timestamp,
         pacing_duration: Option<SignedDuration>,
     ) -> Option<f64> {
-        let window_secs = self.window.duration().as_secs_f64();
         let pacing = pacing_duration
             .unwrap_or_else(|| self.window.duration())
             .as_secs_f64();
-        if self.resets_at <= now || pacing <= 0.0 {
+        if pacing <= 0.0 {
             return None;
         }
         // windowStart = resets_at - window; elapsed = now - windowStart.
-        let remaining = self.resets_at.duration_since(now).as_secs_f64();
-        let elapsed = window_secs - remaining;
+        let elapsed = self.elapsed_secs(now)?;
         let elapsed_fraction = (elapsed / pacing).min(1.0);
         if elapsed_fraction < MIN_ELAPSED_FRACTION {
             return None;
@@ -134,11 +145,7 @@ impl UsageWindow {
     ) -> Option<f64> {
         let window_dur = self.window.duration();
         let window_secs = window_dur.as_secs_f64();
-        if self.resets_at <= now {
-            return None;
-        }
-        let remaining = self.resets_at.duration_since(now).as_secs_f64();
-        let elapsed = window_secs - remaining;
+        let elapsed = self.elapsed_secs(now)?;
         if elapsed < window_secs * MIN_ELAPSED_FRACTION {
             return None;
         }
@@ -170,8 +177,7 @@ impl UsageWindow {
         }
         let window_dur = self.window.duration();
         let window_secs = window_dur.as_secs_f64();
-        let remaining = self.resets_at.duration_since(now).as_secs_f64();
-        let elapsed = window_secs - remaining;
+        let elapsed = self.elapsed_secs(now)?;
         if elapsed <= 0.0 {
             return None;
         }
@@ -271,6 +277,15 @@ mod tests {
     }
 
     #[test]
+    fn pace_ratio_caps_utilization_at_one_hundred() {
+        // 110% used at 90% elapsed: utilization is capped at 100, so the ratio
+        // is 100/90 ≈ 1.111, not 110/90 ≈ 1.222. Mirrors Swift's
+        // `min(utilization, 100)` and keeps src/pacing.ts numerically identical.
+        let w = limit(110.0, 0.9, LimitWindow::FiveHour);
+        assert!((w.pace_ratio(now(), None).unwrap() - 100.0 / 90.0).abs() < 0.01);
+    }
+
+    #[test]
     fn pace_ratio_within_grace_period_is_none() {
         // Only 2% of the window elapsed (< MIN_ELAPSED_FRACTION of 5%).
         let w = limit(10.0, 0.02, LimitWindow::FiveHour);
@@ -310,6 +325,23 @@ mod tests {
         // 40% used at 50% elapsed -> 80% at window end.
         let w = limit(40.0, 0.5, LimitWindow::FiveHour);
         assert!((w.projected_end_percent(now(), None).unwrap() - 80.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn projected_end_percent_past_reset_is_none() {
+        let w = UsageWindow {
+            utilization: 50.0,
+            resets_at: now() - SignedDuration::from_secs(60),
+            window: LimitWindow::FiveHour,
+        };
+        assert!(w.projected_end_percent(now(), None).is_none());
+    }
+
+    #[test]
+    fn projected_end_percent_within_grace_period_is_none() {
+        // Only 2% of the window elapsed (< MIN_ELAPSED_FRACTION of 5%).
+        let w = limit(10.0, 0.02, LimitWindow::FiveHour);
+        assert!(w.projected_end_percent(now(), None).is_none());
     }
 
     #[test]

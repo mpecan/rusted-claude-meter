@@ -35,6 +35,9 @@ export function isAtRisk(window: UsageWindow, now: Date): boolean {
   if (elapsed < MIN_ELAPSED_FRACTION || elapsed >= 1.0 || window.utilization <= 0) {
     return false;
   }
-  const ratio = window.utilization / 100 / elapsed;
+  // Cap utilization at 100 before dividing, mirroring
+  // `meter_core::pacing::UsageWindow::pace_ratio`'s `min(utilization, 100)` — a
+  // window already over 100% must not read as a higher ratio than one at 100%.
+  const ratio = Math.min(window.utilization, 100) / 100 / elapsed;
   return ratio > RISK_THRESHOLD;
 }
