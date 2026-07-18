@@ -123,7 +123,7 @@ impl PartialEq for IconState {
             && self.percent == other.percent
             && self.secondary_percent == other.secondary_percent
             && self.status == other.status
-            && self.at_risk == other.at_risk
+            && self.effective_at_risk() == other.effective_at_risk()
             && self.pace_kind == other.pace_kind
             && self.pace_band == other.pace_band
             && self.pace_ratio_key() == other.pace_ratio_key()
@@ -140,7 +140,7 @@ impl Hash for IconState {
         self.percent.hash(state);
         self.secondary_percent.hash(state);
         self.status.hash(state);
-        self.at_risk.hash(state);
+        self.effective_at_risk().hash(state);
         self.pace_kind.hash(state);
         self.pace_band.hash(state);
         self.pace_ratio_key().hash(state);
@@ -150,18 +150,23 @@ impl Hash for IconState {
 }
 
 impl IconState {
-    /// The pace ratio quantized to one decimal for cache keying — the exact
-    /// precision the override text renders at, so 1.81 and 1.84 (both "1.8×")
-    /// share a cache entry while a change in the displayed digit does not.
-    fn pace_ratio_key(&self) -> Option<i32> {
-        self.pace_ratio.map(|ratio| {
-            // Pace ratios are `min(util, 100) / expected`, `expected >= 5`, so
-            // the value stays in `0..=200` after scaling — the cast can't overflow.
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                (ratio * 10.0).round() as i32
-            }
-        })
+    /// The pace ratio in the exact one-decimal form the override text renders
+    /// (`palette::primary_label` uses `format!("{ratio:.1}")`), so 1.81 and 1.84
+    /// (both "1.8×") share a cache entry while a change in the displayed digit
+    /// does not. Keyed off that same formatting — not a separate
+    /// multiply-round-cast, which disagrees with `{:.1}` at `.x5` boundaries
+    /// (e.g. 0.85 renders "0.8" but `(0.85*10.0).round()` is 9, colliding with
+    /// 0.851's "0.9") and would show a stale ratio.
+    fn pace_ratio_key(&self) -> Option<String> {
+        self.pace_ratio.map(|ratio| format!("{ratio:.1}"))
+    }
+
+    /// Whether the at-risk dot actually affects the pixels: `palette::badge`
+    /// draws it only when no pace kind is set (a flame/snowflake supersedes it),
+    /// so a differing `at_risk` behind a `pace_kind` must not split cache
+    /// entries that render byte-identical SVG.
+    const fn effective_at_risk(&self) -> bool {
+        self.at_risk && self.pace_kind.is_none()
     }
 
     /// Attach a pace-first display overlay: the flame/snowflake badge (`kind`)
@@ -422,6 +427,48 @@ mod tests {
         assert_eq!(sustainable.pace_ratio_key(), overuse.pace_ratio_key());
         assert_ne!(sustainable.pace_band, overuse.pace_band);
         assert_ne!(sustainable, overuse);
+    }
+
+    #[test]
+    fn ratios_that_render_different_text_never_share_a_cache_key() {
+        // At a `.x5` boundary the displayed one-decimal form and a naive
+        // `(ratio*10.0).round()` disagree: 1.15 renders "1.1", 1.19 renders
+        // "1.2" (both sustainable), yet both scale-and-round to 12 — a key the
+        // cache would collide, showing one ratio's icon for the other. Keying
+        // the cache off the exact rendered string forbids that.
+        let low = base().with_pace(Some(1.15), Some(PaceKind::Hot));
+        let high = base().with_pace(Some(1.19), Some(PaceKind::Hot));
+        // The keys are exactly the strings the override text renders.
+        assert_eq!(low.pace_ratio_key().as_deref(), Some("1.1"));
+        assert_eq!(high.pace_ratio_key().as_deref(), Some("1.2"));
+        assert_eq!(low.pace_band, high.pace_band, "both sustainable");
+        assert_ne!(low, high, "different displayed text must not compare equal");
+        assert_ne!(
+            hash_of(&low),
+            hash_of(&high),
+            "different displayed text must not hash equal"
+        );
+    }
+
+    #[test]
+    fn at_risk_is_ignored_by_the_cache_key_once_a_pace_kind_is_set() {
+        // `palette::badge` draws the at-risk dot only when `pace_kind` is None;
+        // under a flame/snowflake the dot is never drawn, so two states that
+        // differ only in `at_risk` render byte-identical SVG and must share one
+        // cache entry.
+        let mut with = base().with_pace(Some(1.8), Some(PaceKind::Hot));
+        with.at_risk = true;
+        let mut without = base().with_pace(Some(1.8), Some(PaceKind::Hot));
+        without.at_risk = false;
+        assert_eq!(with, without);
+        assert_eq!(hash_of(&with), hash_of(&without));
+
+        // But with no pace kind the dot *is* drawn, so at_risk still splits them.
+        let mut dot = base();
+        dot.at_risk = true;
+        let mut no_dot = base();
+        no_dot.at_risk = false;
+        assert_ne!(dot, no_dot);
     }
 
     #[test]

@@ -112,7 +112,7 @@ fn pace_cases() -> Vec<(String, IconState)> {
     use PaceKind::{Cold, Hot};
     use UsageStatus::{Critical, Safe, Warning};
 
-    let paced = |style, percent, status, mono, ratio: f64, kind| {
+    let paced = |style, percent, status, mono, ratio: f64, kind, scale| {
         IconState {
             style,
             percent,
@@ -123,38 +123,44 @@ fn pace_cases() -> Vec<(String, IconState)> {
             pace_band: None,
             pace_ratio: None,
             mono,
-            scale: Scale::X1,
+            scale,
         }
         .with_pace(Some(ratio), Some(kind))
     };
     [
         (
             "pace_battery_overuse",
-            paced(Battery, 72, Warning, false, 1.8, Hot),
+            paced(Battery, 72, Warning, false, 1.8, Hot, Scale::X1),
+        ),
+        // The production scale (src-tauri hardcodes Scale::X2): the flame badge
+        // only reads clearly as a flame at 44px, so guard that resolution too.
+        (
+            "pace_battery_overuse_2x",
+            paced(Battery, 72, Warning, false, 1.8, Hot, Scale::X2),
         ),
         (
             "pace_battery_overuse_mono",
-            paced(Battery, 72, Warning, true, 1.8, Hot),
+            paced(Battery, 72, Warning, true, 1.8, Hot, Scale::X1),
         ),
         (
             "pace_minimal_heavy_overuse",
-            paced(Minimal, 90, Critical, false, 3.0, Hot),
+            paced(Minimal, 90, Critical, false, 3.0, Hot, Scale::X1),
         ),
         (
             "pace_circular_underuse",
-            paced(Circular, 11, Safe, false, 0.3, Cold),
+            paced(Circular, 11, Safe, false, 0.3, Cold, Scale::X1),
         ),
         (
             "pace_dual_bar_overuse",
-            paced(DualBar, 72, Warning, false, 1.8, Hot),
+            paced(DualBar, 72, Warning, false, 1.8, Hot, Scale::X1),
         ),
         (
             "pace_segments_underuse",
-            paced(Segments, 11, Safe, false, 0.3, Cold),
+            paced(Segments, 11, Safe, false, 0.3, Cold, Scale::X1),
         ),
         (
             "pace_gauge_overuse",
-            paced(Gauge, 72, Warning, false, 1.8, Hot),
+            paced(Gauge, 72, Warning, false, 1.8, Hot, Scale::X1),
         ),
     ]
     .into_iter()
