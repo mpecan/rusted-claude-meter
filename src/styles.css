@@ -78,7 +78,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 1rem;
+  /* Extra top room so the header clears the NSPopover arrow and doesn't
+     crowd the top edge; slightly roomier sides/bottom too. */
+  padding: 1.35rem 1.15rem 1.15rem;
   max-width: 26rem;
   margin: 0 auto;
 }
