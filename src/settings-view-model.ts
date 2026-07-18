@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notify_on_reset: false,
   icon_style: "battery",
   monochrome: false,
+  show_reset_time: true,
 };
 
 /** Deduped, snapshot-order list of every scoped model's display name in the

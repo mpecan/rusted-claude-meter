@@ -43,6 +43,7 @@ export function initSettingsView(backend: UsageBackend): void {
   const criticalValue = requireElement<HTMLElement>("critical-threshold-value");
   const iconStyleContainer = requireElement<HTMLElement>("icon-style-picker");
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
+  const showResetTimeToggle = requireElement<HTMLInputElement>("show-reset-time-toggle");
   const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
   const autostartError = requireElement<HTMLElement>("autostart-error");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
@@ -94,6 +95,7 @@ export function initSettingsView(backend: UsageBackend): void {
     criticalValue.textContent = `${settings.critical_threshold}%`;
     iconStylePicker.setSelected(settings.icon_style);
     monochromeToggle.checked = settings.monochrome;
+    showResetTimeToggle.checked = settings.show_reset_time;
   }
 
   function refreshSessionStatus(): void {
@@ -248,6 +250,13 @@ export function initSettingsView(backend: UsageBackend): void {
     settings = { ...settings, monochrome: monochromeToggle.checked };
     backend.setMonochrome(monochromeToggle.checked).catch((error: unknown) => {
       console.error("failed to persist monochrome setting", error);
+    });
+  });
+
+  showResetTimeToggle.addEventListener("change", () => {
+    settings = { ...settings, show_reset_time: showResetTimeToggle.checked };
+    backend.setShowResetTime(showResetTimeToggle.checked).catch((error: unknown) => {
+      console.error("failed to persist show-reset-time setting", error);
     });
   });
 

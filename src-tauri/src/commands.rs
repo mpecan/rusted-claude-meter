@@ -338,7 +338,35 @@ pub fn set_thresholds(
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_notify_on_reset(settings: State<'_, SettingsState>, enabled: bool) -> AppSettings {
+    store_notify_on_reset(&settings, enabled)
+}
+
+/// Persist the notify-on-reset toggle. Split from the command so the settings
+/// mutation is unit-testable without a Tauri runtime.
+fn store_notify_on_reset(settings: &SettingsState, enabled: bool) -> AppSettings {
     settings.update(|s| s.notify_on_reset = enabled)
+}
+
+/// Toggle whether popover cards append the exact reset wall-clock time
+/// (`ClaudeMeter` PR #26). Emits `settings-changed` so the popover window
+/// re-renders its cards immediately, since the toggle lives in the separate
+/// Settings window.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_show_reset_time(
+    app: tauri::AppHandle,
+    settings: State<'_, SettingsState>,
+    enabled: bool,
+) -> AppSettings {
+    let updated = store_show_reset_time(&settings, enabled);
+    let _ = app.emit(SETTINGS_CHANGED_EVENT, &updated);
+    updated
+}
+
+/// Persist the show-reset-time toggle. Split from the command so the settings
+/// mutation is unit-testable without a Tauri `AppHandle`.
+fn store_show_reset_time(settings: &SettingsState, enabled: bool) -> AppSettings {
+    settings.update(|s| s.show_reset_time = enabled)
 }
 
 #[cfg(test)]
@@ -367,6 +395,21 @@ mod tests {
 
     fn empty_store() -> Arc<dyn SessionStore> {
         Arc::new(FakeSessionStore::new())
+    }
+
+    #[test]
+    fn show_reset_time_toggle_persists_both_ways() {
+        let state = SettingsState::new(None, AppSettings::default());
+        // Default is on; toggling off then on round-trips through the store.
+        assert!(!store_show_reset_time(&state, false).show_reset_time);
+        assert!(store_show_reset_time(&state, true).show_reset_time);
+    }
+
+    #[test]
+    fn notify_on_reset_toggle_persists_both_ways() {
+        let state = SettingsState::new(None, AppSettings::default());
+        assert!(store_notify_on_reset(&state, true).notify_on_reset);
+        assert!(!store_notify_on_reset(&state, false).notify_on_reset);
     }
 
     #[test]

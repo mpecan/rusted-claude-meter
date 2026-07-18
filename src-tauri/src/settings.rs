@@ -70,6 +70,12 @@ pub struct AppSettings {
     pub notify_on_reset: bool,
     pub icon_style: IconStyle,
     pub monochrome: bool,
+    /// Whether each popover card appends the exact reset wall-clock time next
+    /// to the relative countdown ("resets in 2h 14m (11:30 PM)"). On by
+    /// default, matching `ClaudeMeter` PR #26. `#[serde(default)]` on the
+    /// struct fills this from `Default` for settings files written before the
+    /// field existed, so an upgrade keeps the user's other choices.
+    pub show_reset_time: bool,
 }
 
 impl Default for AppSettings {
@@ -82,6 +88,7 @@ impl Default for AppSettings {
             notify_on_reset: false,
             icon_style: IconStyle::Battery,
             monochrome: default_monochrome(),
+            show_reset_time: true,
         }
     }
 }
@@ -210,6 +217,7 @@ mod tests {
             notify_on_reset: true,
             icon_style: IconStyle::Gauge,
             monochrome: !default_monochrome(),
+            show_reset_time: false,
         }
     }
 

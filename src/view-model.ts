@@ -17,6 +17,12 @@ export interface UsageCardViewModel {
   /** RFC 3339 instant; the countdown is recomputed from this every tick. */
   resetsAt: string;
   atRisk: boolean;
+  /** Whether to append the exact reset wall-clock time (Settings toggle,
+   * ClaudeMeter PR #26). */
+  showResetTime: boolean;
+  /** Drop the date from the reset clock (true only for the 5-hour session
+   * card, which always resets today). */
+  useTimeOnlyResetTime: boolean;
 }
 
 /** Coarse banner state driving the popover's top-of-card messaging. `"ok"`
@@ -43,7 +49,13 @@ const HEADLINE_LABELS: Record<LimitWindow, string> = {
   seven_day: "7-day",
 };
 
-function cardFor(id: string, title: string, window: UsageWindow, now: Date): UsageCardViewModel {
+function cardFor(
+  id: string,
+  title: string,
+  window: UsageWindow,
+  now: Date,
+  showResetTime: boolean,
+): UsageCardViewModel {
   return {
     id,
     title,
@@ -51,6 +63,10 @@ function cardFor(id: string, title: string, window: UsageWindow, now: Date): Usa
     status: statusFromUtilization(window.utilization),
     resetsAt: window.resets_at,
     atRisk: isAtRisk(window, now),
+    showResetTime,
+    // Only the 5-hour session window always resets today, so it alone drops
+    // the date from its reset clock.
+    useTimeOnlyResetTime: id === "five_hour",
   };
 }
 
@@ -64,15 +80,20 @@ export function buildViewModel(
   state: MeterState,
   now: Date,
   shownScopedModels: ReadonlySet<string>,
+  showResetTime = true,
 ): PopoverViewModel {
   const cards: UsageCardViewModel[] = [];
   const snapshot = state.snapshot;
   if (snapshot) {
     if (snapshot.five_hour) {
-      cards.push(cardFor("five_hour", HEADLINE_LABELS.five_hour, snapshot.five_hour, now));
+      cards.push(
+        cardFor("five_hour", HEADLINE_LABELS.five_hour, snapshot.five_hour, now, showResetTime),
+      );
     }
     if (snapshot.seven_day) {
-      cards.push(cardFor("seven_day", HEADLINE_LABELS.seven_day, snapshot.seven_day, now));
+      cards.push(
+        cardFor("seven_day", HEADLINE_LABELS.seven_day, snapshot.seven_day, now, showResetTime),
+      );
     }
     for (const limit of snapshot.scoped) {
       // Only visible (active) *and* opted-in scoped limits render as cards.
@@ -82,7 +103,9 @@ export function buildViewModel(
       if (!limit.is_active || !shownScopedModels.has(limit.display_name)) {
         continue;
       }
-      cards.push(cardFor(`scoped:${limit.display_name}`, limit.display_name, limit.usage, now));
+      cards.push(
+        cardFor(`scoped:${limit.display_name}`, limit.display_name, limit.usage, now, showResetTime),
+      );
     }
   }
 

@@ -3,7 +3,7 @@
 // without a DOM, and separate from `main.ts` so wiring (event listeners,
 // timers) doesn't tangle with markup construction.
 
-import { formatCountdown } from "./format";
+import { formatCountdown, formatResetClock } from "./format";
 import type { BannerKind, UsageCardViewModel } from "./view-model";
 
 /** A minimal flame glyph for the pacing-at-risk badge — drawn, not an emoji,
@@ -56,6 +56,14 @@ function buildCard(card: UsageCardViewModel): HTMLElement {
   countdown.className = "countdown";
   countdown.textContent = formatCountdown(new Date(card.resetsAt), new Date());
   footer.append(countdown);
+  if (card.showResetTime) {
+    // A separate, static span the per-minute countdown tick never rewrites —
+    // the exact reset time (ClaudeMeter PR #26).
+    const clock = document.createElement("span");
+    clock.className = "reset-clock";
+    clock.textContent = ` (${formatResetClock(new Date(card.resetsAt), card.useTimeOnlyResetTime)})`;
+    footer.append(clock);
+  }
   if (card.atRisk) {
     const flame = document.createElement("span");
     flame.className = "flame";

@@ -84,6 +84,8 @@ export interface UsageBackend {
   setThresholds(warning: number, critical: number): Promise<AppSettings>;
   /** Toggle the extra "limit reset" notification. */
   setNotifyOnReset(enabled: boolean): Promise<AppSettings>;
+  /** Toggle whether cards show the exact reset wall-clock time (PR #26). */
+  setShowResetTime(enabled: boolean): Promise<AppSettings>;
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
@@ -179,6 +181,10 @@ class TauriBackend implements UsageBackend {
 
   setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
     return invoke<AppSettings>("set_notify_on_reset", { enabled });
+  }
+
+  setShowResetTime(enabled: boolean): Promise<AppSettings> {
+    return invoke<AppSettings>("set_show_reset_time", { enabled });
   }
 
   wizardShouldRun(): Promise<boolean> {
@@ -338,6 +344,11 @@ class DemoBackend implements UsageBackend {
 
   setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
     this.settings = { ...this.settings, notify_on_reset: enabled };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setShowResetTime(enabled: boolean): Promise<AppSettings> {
+    this.settings = { ...this.settings, show_reset_time: enabled };
     return Promise.resolve({ ...this.settings });
   }
 

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAge, formatCountdown, roundPercent, shortDuration } from "./format";
+import {
+  formatAge,
+  formatCountdown,
+  formatResetClock,
+  roundPercent,
+  shortDuration,
+} from "./format";
 
 describe("roundPercent", () => {
   it("rounds and clamps like meter_render::round_percent", () => {
@@ -44,5 +50,28 @@ describe("formatAge", () => {
     const now = new Date("2026-07-17T12:00:00Z");
     const fetchedAt = new Date(now.getTime() - 25 * 60 * 1000);
     expect(formatAge(fetchedAt, now)).toBe("25m ago");
+  });
+});
+
+describe("formatResetClock", () => {
+  // Locale/timezone are the runner's, so assert structure, not an exact
+  // string: the time-only variant (5-hour card) carries a clock time but no
+  // month; the date+time variant (weekly/scoped) carries a month too, and
+  // never a year.
+  const resetsAt = new Date("2026-07-19T11:30:00Z");
+
+  it("time-only variant shows a time and no month or year", () => {
+    const text = formatResetClock(resetsAt, true);
+    expect(text).toMatch(/\d/);
+    expect(text).not.toMatch(/2026/);
+    // Some hour digit and a minute separator survive in every locale.
+    expect(text).toContain(":");
+  });
+
+  it("date+time variant adds a date but still no year", () => {
+    const timeOnly = formatResetClock(resetsAt, false);
+    expect(timeOnly).not.toMatch(/2026/);
+    // Strictly more information than the time-only form.
+    expect(timeOnly.length).toBeGreaterThan(formatResetClock(resetsAt, true).length);
   });
 });

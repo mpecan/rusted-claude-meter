@@ -167,4 +167,7 @@ export interface AppSettings {
   notify_on_reset: boolean;
   icon_style: IconStyle;
   monochrome: boolean;
+  /** Whether each card appends the exact reset wall-clock time next to the
+   * relative countdown (ClaudeMeter PR #26). On by default. */
+  show_reset_time: boolean;
 }

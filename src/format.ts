@@ -50,3 +50,20 @@ export function formatAge(fetchedAt: Date, now: Date): string {
   const ageSecs = Math.floor((now.getTime() - fetchedAt.getTime()) / 1000);
   return `${shortDuration(ageSecs)} ago`;
 }
+
+const RESET_TIME_ONLY = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+const RESET_DATE_TIME = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/** The exact reset wall-clock time, in the user's locale/timezone, shown in
+ * parentheses next to the countdown (ClaudeMeter PR #26). `timeOnly` (the
+ * 5-hour session card) drops the date — "11:30 PM" — since it always resets
+ * today; every other window keeps the month and day but no year —
+ * "Jul 19, 11:00 AM". */
+export function formatResetClock(resetsAt: Date, timeOnly: boolean): string {
+  return (timeOnly ? RESET_TIME_ONLY : RESET_DATE_TIME).format(resetsAt);
+}

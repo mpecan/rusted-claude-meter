@@ -41,6 +41,10 @@ use tokio::sync::Notify;
 
 /// Build and run the app. Errors bubble to `main` instead of panicking so
 /// the workspace-wide `clippy::expect_used` deny holds here too.
+// Straight-line wiring: managed state, the (long) command handler list, and
+// the setup closure. Splitting it would scatter the app's assembly for no
+// real gain, so the length lint is allowed here.
+#[allow(clippy::too_many_lines)]
 pub fn run() -> tauri::Result<()> {
     let session_store: Arc<dyn SessionStore> = Arc::new(KeyringSessionStore);
     let scheduler_store = Arc::clone(&session_store);
@@ -69,6 +73,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_shown_scoped_models,
             commands::set_thresholds,
             commands::set_notify_on_reset,
+            commands::set_show_reset_time,
             autostart::autostart_status,
             autostart::set_autostart,
             settings_window::open_settings_window,
