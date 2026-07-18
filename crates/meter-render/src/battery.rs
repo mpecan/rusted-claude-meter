@@ -15,15 +15,15 @@ use crate::state::IconState;
 use crate::svg::svg_document;
 
 const TRACK_X: f64 = 3.0;
-const TRACK_Y: f64 = 6.0;
+const TRACK_Y: f64 = 4.0;
 const TRACK_W: f64 = 27.0;
-const TRACK_H: f64 = 10.0;
-const TRACK_RX: f64 = 5.0;
+const TRACK_H: f64 = 14.0;
+const TRACK_RX: f64 = 7.0;
 /// The thinnest visible charge sliver, so 1–3% does not round to nothing.
 const FILL_MIN_WIDTH: f64 = 1.5;
-const NUMBER_CX: f64 = 47.0;
+const NUMBER_CX: f64 = 49.0;
 const NUMBER_CY: f64 = 11.0;
-const NUMBER_FS: f64 = 11.0;
+const NUMBER_FS: f64 = 13.0;
 
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();

@@ -16,10 +16,10 @@ const COUNT: u32 = 5;
 const SEG_WIDTH: f64 = 4.0;
 const GAP: f64 = 2.0;
 const START_X: f64 = 3.0;
-const BASE_SEG_HEIGHT: f64 = 6.0;
-const HEIGHT_STEP: f64 = 2.0;
+const BASE_SEG_HEIGHT: f64 = 8.0;
+const HEIGHT_STEP: f64 = 2.4;
 /// Segments sit on this baseline, growing upward.
-const BASELINE: f64 = 18.0;
+const BASELINE: f64 = 19.5;
 
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();

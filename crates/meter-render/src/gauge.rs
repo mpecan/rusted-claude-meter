@@ -13,11 +13,11 @@ use crate::state::IconState;
 use crate::svg::svg_document;
 
 const CENTER_X: f64 = 13.0;
-const CENTER_Y: f64 = 15.0;
-const RADIUS: f64 = 7.0;
-const NEEDLE_LENGTH: f64 = 6.0;
-const HUB_RADIUS: f64 = 1.3;
-const STROKE: f64 = 2.5;
+const CENTER_Y: f64 = 15.5;
+const RADIUS: f64 = 9.0;
+const NEEDLE_LENGTH: f64 = 8.0;
+const HUB_RADIUS: f64 = 1.6;
+const STROKE: f64 = 3.0;
 const CIRCUMFERENCE: f64 = 2.0 * std::f64::consts::PI * RADIUS;
 const HALF_CIRCUMFERENCE: f64 = std::f64::consts::PI * RADIUS;
 /// The thinnest visible progress arc, so 1–3% does not round away to nothing.

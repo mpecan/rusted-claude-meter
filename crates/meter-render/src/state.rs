@@ -34,10 +34,10 @@ impl IconStyle {
     /// menu-bar icons are a horizontal `HStack` and so wider than tall.
     pub const fn logical_size(self) -> (u32, u32) {
         let width = match self {
-            Self::Battery => 63,
-            Self::Minimal => 40,
+            Self::Battery => 66,
+            Self::Minimal => 44,
             Self::Segments => 34,
-            Self::DualBar => 68,
+            Self::DualBar => 70,
             // The glyph-only styles stay near-square around the 22px height.
             Self::Circular | Self::Gauge => 26,
         };

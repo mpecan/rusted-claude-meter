@@ -12,19 +12,19 @@ use crate::svg::svg_document;
 
 const CENTER_X: f64 = 13.0;
 const CENTER_Y: f64 = 11.0;
-const RADIUS: f64 = 8.0;
-const STROKE: f64 = 3.0;
+const RADIUS: f64 = 9.0;
+const STROKE: f64 = 3.5;
 /// `2 * PI * RADIUS`, precomputed so the template has no runtime trig.
 const CIRCUMFERENCE: f64 = 2.0 * std::f64::consts::PI * RADIUS;
 /// The thinnest visible progress arc, so 1–3% does not round away to nothing.
 const MIN_ARC: f64 = 1.5;
 /// The centre number is small so it fits inside the ring.
-const NUMBER_FS: f64 = 7.0;
+const NUMBER_FS: f64 = 8.0;
 /// A narrower size for the three-digit `100` case: at `NUMBER_FS` the monospaced
 /// `100` (three 0.6em glyphs ≈ 12.6px) is wider than the ring's inner chord and
 /// its outer strokes collide with the donut, so 3-digit labels shrink to clear
 /// it. Two-digit labels keep the larger size.
-const NUMBER_FS_WIDE: f64 = 5.5;
+const NUMBER_FS_WIDE: f64 = 6.5;
 
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();

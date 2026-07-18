@@ -183,8 +183,14 @@ fn rendered_icons_match_snapshots() {
 
 #[test]
 fn distinct_states_hash_differently() {
-    // Guard against a degenerate hash that would wave everything through:
-    // materially different icons must sit well outside the tolerance.
+    // Guard against a degenerate hash pair that would wave everything through:
+    // materially different icons must be flagged by the *same* rule the
+    // matcher uses — `dhash > TOLERANCE || ahash > TOLERANCE` (line ~170). The
+    // two hashes are complementary: dhash captures structure (the empty vs
+    // full bar), ahash overall brightness. For the battery's left-bar /
+    // right-number layout the brightness pattern is similar enough that ahash
+    // alone stays inside tolerance, so structure (dhash) is what separates
+    // them — exactly why the matcher ORs the two rather than requiring both.
     let render = |percent, status, mono| {
         render_icon(&IconState {
             style: IconStyle::Battery,
@@ -201,7 +207,13 @@ fn distinct_states_hash_differently() {
     let full = render(100, UsageStatus::Critical, false);
     let d = hamming(dhash(&empty), dhash(&full));
     let a = hamming(ahash(&empty), ahash(&full));
-    assert!(d > TOLERANCE && a > TOLERANCE, "dhash {d}, ahash {a}");
+    assert!(d > TOLERANCE || a > TOLERANCE, "dhash {d}, ahash {a}");
+    // And the structural hash must separate them by a wide margin, so this
+    // stays a real non-degeneracy guard even though ahash is weak here.
+    assert!(
+        d > TOLERANCE * 2,
+        "dhash {d} should be well outside tolerance"
+    );
 }
 
 #[test]

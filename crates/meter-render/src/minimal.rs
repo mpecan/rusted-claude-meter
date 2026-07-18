@@ -9,7 +9,7 @@ use crate::state::IconState;
 use crate::svg::svg_document;
 
 const NUMBER_CY: f64 = 11.0;
-const NUMBER_FS: f64 = 14.0;
+const NUMBER_FS: f64 = 16.0;
 
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();

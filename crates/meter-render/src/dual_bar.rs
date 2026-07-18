@@ -14,15 +14,15 @@ use crate::svg::svg_document;
 
 const BAR_X: f64 = 3.0;
 const BAR_WIDTH: f64 = 32.0;
-const BAR_HEIGHT: f64 = 5.0;
-const TOP_Y: f64 = 5.0;
+const BAR_HEIGHT: f64 = 7.0;
+const TOP_Y: f64 = 3.0;
 const GAP: f64 = 2.0;
 const BOTTOM_Y: f64 = TOP_Y + BAR_HEIGHT + GAP;
 /// The thinnest visible sliver, so 1–3% does not round away to nothing.
 const MIN_FILL_WIDTH: f64 = 1.5;
 const NUMBER_CX: f64 = 53.0;
 const NUMBER_CY: f64 = 11.0;
-const NUMBER_FS: f64 = 11.0;
+const NUMBER_FS: f64 = 13.0;
 
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();
