@@ -172,6 +172,14 @@ export interface AppSettings {
   show_reset_time: boolean;
   /** Which popover layout the frontend renders (redesign 1a/1c). */
   popover_layout: PopoverLayout;
+  /** How many days of the week the weekly quota is expected to be paced over
+   * (issue #16's working-week option) — 5, 6 or 7. Clamped to `5..=7` on the
+   * Rust side; applied to the weekly and scoped weekly cards. Defaults to 7
+   * (the full week). */
+  weekly_pace_days: number;
+  /** Whether the tray/popover lead with the pace ratio instead of the raw
+   * quota percentage (upstream's `DisplayModePicker`). Off by default. */
+  pace_first_display: boolean;
 }
 
 /** Mirrors `meter_shell::settings::PopoverLayout` — the two popover layouts

@@ -1,15 +1,44 @@
 import { describe, expect, it } from "vitest";
 
-import { elapsedFraction, isAtRisk } from "./pacing";
-import type { UsageWindow } from "./types";
+import {
+  UNDERUSE_THRESHOLD,
+  elapsedFraction,
+  expectedUsagePercent,
+  isAtRisk,
+  paceBand,
+  paceRatio,
+  projectedEndPercent,
+  projectedLimitDate,
+  weeklyPacingDurationMs,
+} from "./pacing";
+import type { LimitWindow, UsageWindow } from "./types";
 
 const NOW = new Date("2026-07-17T12:00:00Z");
+
+const WINDOW_MS: Record<LimitWindow, number> = {
+  five_hour: 5 * 60 * 60 * 1000,
+  seven_day: 7 * 24 * 60 * 60 * 1000,
+};
+
+const FIVE_DAYS_MS = weeklyPacingDurationMs(5);
 
 function fiveHourWindow(utilization: number, resetsInMinutes: number): UsageWindow {
   return {
     utilization,
     resets_at: new Date(NOW.getTime() + resetsInMinutes * 60_000).toISOString(),
     window: "five_hour",
+  };
+}
+
+/** A window with `utilization` used and `elapsedFraction` of `window`
+ * elapsed at NOW — the TS mirror of the Rust/Swift `limit(...)` oracle
+ * helper, so the same numbers pin both sides. */
+function limit(utilization: number, elapsed: number, window: LimitWindow): UsageWindow {
+  const remaining = WINDOW_MS[window] * (1 - elapsed);
+  return {
+    utilization,
+    resets_at: new Date(NOW.getTime() + remaining).toISOString(),
+    window,
   };
 }
 
@@ -30,9 +59,124 @@ describe("elapsedFraction", () => {
   });
 });
 
+describe("paceRatio", () => {
+  it("is 1.0 at a sustainable pace", () => {
+    expect(paceRatio(limit(50, 0.5, "five_hour"), NOW)).toBeCloseTo(1.0, 2);
+  });
+
+  it("is above 1 when burning fast (50% at 25% elapsed = 2.0)", () => {
+    expect(paceRatio(limit(50, 0.25, "five_hour"), NOW)).toBeCloseTo(2.0, 2);
+  });
+
+  it("is below 1 when underusing (20% at 50% elapsed = 0.4)", () => {
+    expect(paceRatio(limit(20, 0.5, "seven_day"), NOW)).toBeCloseTo(0.4, 2);
+  });
+
+  it("caps utilization at 100 (110% at 90% elapsed = 100/90)", () => {
+    expect(paceRatio(limit(110, 0.9, "five_hour"), NOW)).toBeCloseTo(100 / 90, 2);
+  });
+
+  it("is null within the grace period (2% elapsed < 5%)", () => {
+    expect(paceRatio(limit(10, 0.02, "five_hour"), NOW)).toBeNull();
+  });
+
+  it("is null once past reset", () => {
+    expect(paceRatio(fiveHourWindow(50, -1), NOW)).toBeNull();
+  });
+
+  it("expects a faster burn on a 5-day basis (40% at 2/7 days = 1.0)", () => {
+    expect(paceRatio(limit(40, 2 / 7, "seven_day"), NOW, FIVE_DAYS_MS)).toBeCloseTo(1.0, 2);
+  });
+
+  it("caps elapsed at the pacing span past it (day 6 of 7, 5-day basis = 0.7)", () => {
+    expect(paceRatio(limit(70, 6 / 7, "seven_day"), NOW, FIVE_DAYS_MS)).toBeCloseTo(0.7, 2);
+  });
+});
+
+describe("expectedUsagePercent", () => {
+  it("is the elapsed fraction of the window ×100", () => {
+    expect(expectedUsagePercent(limit(0, 0.5, "five_hour"), NOW)).toBeCloseTo(50, 2);
+  });
+
+  it("caps at 100 past the pacing span", () => {
+    expect(expectedUsagePercent(limit(0, 6 / 7, "seven_day"), NOW, FIVE_DAYS_MS)).toBeCloseTo(
+      100,
+      2,
+    );
+  });
+});
+
+describe("projectedEndPercent", () => {
+  it("extrapolates the current rate (40% at 50% elapsed -> 80%)", () => {
+    expect(projectedEndPercent(limit(40, 0.5, "five_hour"), NOW)).toBeCloseTo(80, 1);
+  });
+
+  it("is null past reset", () => {
+    expect(projectedEndPercent(fiveHourWindow(50, -1), NOW)).toBeNull();
+  });
+
+  it("is null within the grace period", () => {
+    expect(projectedEndPercent(limit(10, 0.02, "five_hour"), NOW)).toBeNull();
+  });
+});
+
+describe("projectedLimitDate", () => {
+  it("lands before reset when burning fast (60% at 50% elapsed -> 5/6 of window)", () => {
+    const w = limit(60, 0.5, "five_hour");
+    const hit = projectedLimitDate(w, NOW);
+    expect(hit).not.toBeNull();
+    const resetsAt = new Date(w.resets_at).getTime();
+    expect(hit!.getTime()).toBeLessThan(resetsAt);
+    const windowStart = resetsAt - WINDOW_MS.five_hour;
+    const hitFraction = (hit!.getTime() - windowStart) / WINDOW_MS.five_hour;
+    expect(hitFraction).toBeCloseTo(5 / 6, 2);
+  });
+
+  it("is null on a sustainable pace", () => {
+    expect(projectedLimitDate(limit(50, 0.5, "five_hour"), NOW)).toBeNull();
+  });
+
+  it("is null when already exceeded", () => {
+    expect(projectedLimitDate(limit(105, 0.5, "five_hour"), NOW)).toBeNull();
+  });
+
+  it("still warns on a front-loaded burst within the grace period", () => {
+    // 60% burned in the first 2%: the ratio is suppressed, but the lockout
+    // projection bypasses the elapsed grace (honouring the usage floor).
+    const w = limit(60, 0.02, "five_hour");
+    expect(paceRatio(w, NOW)).toBeNull();
+    const hit = projectedLimitDate(w, NOW);
+    expect(hit).not.toBeNull();
+    expect(hit!.getTime()).toBeLessThan(new Date(w.resets_at).getTime());
+  });
+
+  it("is null for trivial early usage below the floor", () => {
+    expect(projectedLimitDate(limit(2, 0.01, "five_hour"), NOW)).toBeNull();
+  });
+
+  it("respects the pacing basis without contradiction", () => {
+    // 60% at 4/7 of the week paced over 5 days: under-pace, so no limit-hit
+    // and the projected end stays below 100%.
+    const w = limit(60, 4 / 7, "seven_day");
+    expect(paceRatio(w, NOW, FIVE_DAYS_MS)!).toBeLessThan(UNDERUSE_THRESHOLD);
+    expect(projectedLimitDate(w, NOW, FIVE_DAYS_MS)).toBeNull();
+    expect(projectedEndPercent(w, NOW, FIVE_DAYS_MS)!).toBeLessThan(100);
+  });
+});
+
+describe("paceBand", () => {
+  it("classifies each tier at its boundaries", () => {
+    expect(paceBand(0.4)).toBe("underuse");
+    expect(paceBand(0.8)).toBe("sustainable");
+    expect(paceBand(1.2)).toBe("sustainable");
+    expect(paceBand(1.8)).toBe("overuse");
+    expect(paceBand(2.5)).toBe("overuse");
+    expect(paceBand(3.0)).toBe("heavy_overuse");
+  });
+});
+
 describe("isAtRisk", () => {
   it("is not at risk at a sustainable pace", () => {
-    // Half the window gone, half the budget used -> ratio 1.0.
     expect(isAtRisk(fiveHourWindow(50, 150), NOW)).toBe(false);
   });
 
@@ -54,8 +198,7 @@ describe("isAtRisk", () => {
   });
 
   it("caps utilization at 100 (over-100% usage late in the window is not at risk)", () => {
-    // 110% used at 90% elapsed: capped ratio 100/90 ≈ 1.11 (< 1.2), not the
-    // uncapped 110/90 ≈ 1.22. Matches meter_core's min(utilization, 100).
+    // 110% used at 90% elapsed: capped ratio 100/90 ≈ 1.11 (< 1.2).
     expect(isAtRisk(fiveHourWindow(110, 30), NOW)).toBe(false);
   });
 });

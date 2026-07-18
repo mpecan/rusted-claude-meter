@@ -53,6 +53,8 @@ export function initPopoverView(backend: UsageBackend): void {
       settings.show_reset_time,
       settings.warning_threshold,
       settings.critical_threshold,
+      settings.weekly_pace_days,
+      settings.pace_first_display,
     );
     applyBanner(statusLineEl, viewModel.bannerKind, viewModel.statusLine);
     renderCards(cardsEl, viewModel.cards, settings.popover_layout);

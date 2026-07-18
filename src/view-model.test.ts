@@ -126,6 +126,77 @@ describe("buildViewModel — cards", () => {
   });
 });
 
+const WINDOW_MS = { five_hour: 5 * 60 * 60 * 1000, seven_day: 7 * 24 * 60 * 60 * 1000 };
+
+/** A window with `elapsed` fraction of its span gone and `utilization` used. */
+function paced(
+  utilization: number,
+  elapsed: number,
+  win: "five_hour" | "seven_day",
+): UsageWindow {
+  return {
+    utilization,
+    resets_at: new Date(NOW.getTime() + WINDOW_MS[win] * (1 - elapsed)).toISOString(),
+    window: win,
+  };
+}
+
+function pacedState(five: UsageWindow | null, seven: UsageWindow | null): MeterState {
+  return state({
+    snapshot: { five_hour: five, seven_day: seven, scoped: [], fetched_at: NOW.toISOString() },
+  });
+}
+
+describe("buildViewModel — pace", () => {
+  it("carries the pace ratio, band and expected-by-now percent per card", () => {
+    // 60% used at 50% elapsed -> ratio 1.2 (sustainable upper edge), expected 50%.
+    const vm = buildViewModel(pacedState(paced(60, 0.5, "five_hour"), null), NOW, new Set());
+    const card = vm.cards[0]!;
+    expect(card.paceRatio).toBeCloseTo(1.2, 2);
+    expect(card.paceBand).toBe("sustainable");
+    expect(card.expectedPercent).toBeCloseTo(50, 2);
+  });
+
+  it("only signals underuse on the weekly card, never the session card", () => {
+    // Both underusing (ratio 0.4); only the weekly card's projection may show it.
+    const vm = buildViewModel(
+      pacedState(paced(20, 0.5, "five_hour"), paced(20, 0.5, "seven_day")),
+      NOW,
+      new Set(),
+    );
+    const session = vm.cards.find((c) => c.id === "five_hour")!;
+    const weekly = vm.cards.find((c) => c.id === "seven_day")!;
+    expect(session.showsUnderuse).toBe(false);
+    expect(weekly.showsUnderuse).toBe(true);
+    // The session's projection never carries an "unused" figure.
+    expect(session.projection).toMatchObject({ kind: "ends", unusedPercent: null });
+    expect(weekly.projection).toMatchObject({ kind: "ends", unusedPercent: 60 });
+  });
+
+  it("swaps to pace-first only once a ratio exists to lead with", () => {
+    // Fresh window (2% elapsed): ratio suppressed, so pace-first stays off.
+    const fresh = buildViewModel(pacedState(paced(10, 0.02, "five_hour"), null), NOW, new Set(), true, 75, 90, 7, true);
+    expect(fresh.cards[0]!.paceRatio).toBeNull();
+    expect(fresh.cards[0]!.paceFirst).toBe(false);
+    // Established window: pace-first engages.
+    const live = buildViewModel(pacedState(paced(60, 0.5, "five_hour"), null), NOW, new Set(), true, 75, 90, 7, true);
+    expect(live.cards[0]!.paceFirst).toBe(true);
+  });
+
+  it("projects a limit hit before reset when burning fast", () => {
+    const vm = buildViewModel(pacedState(paced(60, 0.5, "five_hour"), null), NOW, new Set());
+    expect(vm.cards[0]!.projection).toMatchObject({ kind: "hits" });
+  });
+
+  it("applies the weekly pace basis to the weekly card", () => {
+    // 40% at 2/7 days: 7-day basis is overuse (1.4), 5-day basis is on-pace (1.0).
+    const seven = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), true, 75, 90, 7);
+    const five = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), true, 75, 90, 5);
+    expect(seven.cards[0]!.paceBand).toBe("overuse");
+    expect(five.cards[0]!.paceBand).toBe("sustainable");
+  });
+});
+
 describe("buildViewModel — banner and status line", () => {
   it("is 'loading' before the first snapshot arrives", () => {
     const viewModel = buildViewModel(state({ phase: "polling", staleness: "missing" }), NOW, ALL_SHOWN);

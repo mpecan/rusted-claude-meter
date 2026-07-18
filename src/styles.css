@@ -6,6 +6,9 @@
   --color-safe: #46a758;
   --color-warning: #e8850c;
   --color-critical: #e5484d;
+  /* Pace underuse band (blue); overuse/heavy reuse warning/critical, and
+     sustainable reuses safe — matches PacePalette. */
+  --color-underuse: #3e63dd;
   /* Unified warm-orange accent (replaces the former purple). */
   --color-accent: #e8850c;
   --color-accent-strong: #c2410c;
@@ -13,6 +16,9 @@
   --tint-safe: rgb(70 167 88 / 8%);
   --tint-warning: rgb(232 133 12 / 10%);
   --tint-critical: rgb(229 72 77 / 11%);
+  --tint-underuse: rgb(62 99 221 / 12%);
+  /* Expected-by-now tick on the progress track. */
+  --tick-color: rgb(20 18 10 / 45%);
 
   --bg: #f2f2f0;
   --card-bg: #ffffff;
@@ -41,9 +47,12 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --color-safe: #57ba69;
+    --color-underuse: #6b8afd;
     --tint-safe: rgb(87 186 105 / 10%);
     --tint-warning: rgb(232 133 12 / 15%);
     --tint-critical: rgb(229 72 77 / 16%);
+    --tint-underuse: rgb(107 138 253 / 18%);
+    --tick-color: rgb(255 255 255 / 55%);
     --color-accent-strong: #ea580c;
 
     --bg: #1c1c1e;
@@ -234,6 +243,91 @@ body {
 }
 .status-critical.meter-bar-fill {
   background: var(--color-critical);
+}
+
+/* Pace band colours (pace-first primary metric, verdict badge, pace line). */
+.pace-underuse {
+  color: var(--color-underuse);
+}
+.pace-sustainable {
+  color: var(--color-safe);
+}
+.pace-overuse {
+  color: var(--color-warning);
+}
+.pace-heavy_overuse {
+  color: var(--color-critical);
+}
+.pace-underuse.meter-bar-fill {
+  background: var(--color-underuse);
+}
+.pace-sustainable.meter-bar-fill {
+  background: var(--color-safe);
+}
+.pace-overuse.meter-bar-fill {
+  background: var(--color-warning);
+}
+.pace-heavy_overuse.meter-bar-fill {
+  background: var(--color-critical);
+}
+.status-pill.pace-underuse {
+  background: var(--tint-underuse);
+}
+.status-pill.pace-sustainable {
+  background: var(--tint-safe);
+}
+.status-pill.pace-overuse {
+  background: var(--tint-warning);
+}
+.status-pill.pace-heavy_overuse {
+  background: var(--tint-critical);
+}
+
+/* Expected-by-now tick on the progress track. */
+.meter-bar {
+  position: relative;
+}
+.meter-tick {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--tick-color);
+  border-radius: 1px;
+  transform: translateX(-1px);
+}
+
+/* Secondary pace line and current-rate projection line. */
+.meter-pace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+.meter-pace .meter-secondary {
+  color: var(--text-muted);
+}
+.meter-pace .meter-expected {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.meter-projection {
+  font-size: 0.78rem;
+  margin-top: 0.15rem;
+  color: var(--text-muted);
+}
+.projection-reached {
+  color: var(--color-critical);
+  font-weight: 600;
+}
+.projection-hits {
+  color: var(--color-warning);
+}
+.projection-underuse {
+  color: var(--color-underuse);
 }
 
 /* Escalating fire glyph: dim at warning, glowing at critical. */

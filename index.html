@@ -129,6 +129,36 @@
         </div>
 
         <div class="settings-section">
+          <h3>Pace</h3>
+          <div class="settings-field">
+            <span class="settings-field-label">Display mode</span>
+            <div id="display-mode-toggle" class="segmented" role="radiogroup" aria-label="Display mode">
+              <button type="button" class="segmented-option" data-value="consumption" role="radio">
+                Consumption
+              </button>
+              <button type="button" class="segmented-option" data-value="pace" role="radio">
+                Pace
+              </button>
+            </div>
+            <p class="settings-hint">
+              Consumption leads with how much you've used; Pace leads with your burn-rate ratio
+              and adds a flame/snowflake badge.
+            </p>
+          </div>
+          <div class="settings-field">
+            <span class="settings-field-label">Weekly pace basis</span>
+            <div id="weekly-pace-days-toggle" class="segmented" role="radiogroup" aria-label="Weekly pace basis">
+              <button type="button" class="segmented-option" data-value="5" role="radio">5 days</button>
+              <button type="button" class="segmented-option" data-value="6" role="radio">6 days</button>
+              <button type="button" class="segmented-option" data-value="7" role="radio">7 days</button>
+            </div>
+            <p class="settings-hint">
+              Pace the weekly quota over a working week instead of the full 7 days.
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h3>Tray icon</h3>
           <div id="icon-style-picker"></div>
           <label class="settings-checkbox">

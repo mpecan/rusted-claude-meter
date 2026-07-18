@@ -7,10 +7,12 @@
 //   - "rows": compact hairline-split meter rows in one panel (1a).
 //   - "cards": roomier tinted status cards with a status pill (1c).
 // The status colour and the escalating fire glyph both follow each window's
-// status, which the view-model classified against the user's configured
-// warning/critical thresholds.
+// status. In pace-first mode (issue #16) the primary metric swaps to the pace
+// ratio, coloured by its pace band, with the quota % demoted to secondary and
+// a flame/snowflake verdict badge — mirroring upstream's `UsageCardView`.
 
-import { formatCountdown, formatResetClock } from "./format";
+import { describeRemaining, formatCountdown, formatHitTime, formatResetClock } from "./format";
+import { RISK_THRESHOLD, UNDERUSE_THRESHOLD } from "./pacing";
 import { type UsageStatus, statusLabel } from "./status";
 import type { PopoverLayout } from "./types";
 import type { BannerKind, UsageCardViewModel } from "./view-model";
@@ -59,8 +61,30 @@ function fireGlyph(status: UsageStatus): HTMLElement | null {
   return fire;
 }
 
-/** A `<div class="meter-bar">` with a status-coloured fill at `percent`%. */
-function meterBar(percent: number, status: UsageStatus, label: string): HTMLElement {
+/** The pace verdict for a ratio: flame overusing / snowflake underusing /
+ * check on-pace. Mirrors upstream `UsageCardView.paceVerdict`. */
+function paceVerdict(ratio: number): { label: string; glyph: string } {
+  if (ratio > RISK_THRESHOLD) {
+    return { label: "Overusing", glyph: "🔥" };
+  }
+  if (ratio < UNDERUSE_THRESHOLD) {
+    return { label: "Underusing", glyph: "❄️" };
+  }
+  return { label: "On Pace", glyph: "✓" };
+}
+
+function formatRatio(ratio: number): string {
+  return `${ratio.toFixed(1)}×`;
+}
+
+/** A `<div class="meter-bar">` with a fill at `percent`% (coloured by
+ * `fillModifier`) and, when supplied, an expected-by-now tick. */
+function meterBar(
+  percent: number,
+  fillModifier: string,
+  label: string,
+  expectedPercent: number | null,
+): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "meter-bar";
   bar.setAttribute("role", "progressbar");
@@ -69,10 +93,100 @@ function meterBar(percent: number, status: UsageStatus, label: string): HTMLElem
   bar.setAttribute("aria-valuenow", String(percent));
   bar.setAttribute("aria-label", label);
   const fill = document.createElement("div");
-  fill.className = `meter-bar-fill status-${status}`;
+  fill.className = `meter-bar-fill ${fillModifier}`;
   fill.style.width = `${percent}%`;
   bar.append(fill);
+  if (expectedPercent !== null) {
+    const tick = document.createElement("div");
+    tick.className = "meter-tick";
+    tick.style.left = `${Math.min(expectedPercent, 100)}%`;
+    tick.setAttribute("aria-hidden", "true");
+    bar.append(tick);
+  }
   return bar;
+}
+
+/** The secondary pace line under the meter. In consumption mode it reads
+ * "🔥 1.8× pace · 40% expected"; in pace-first mode the ratio is already the
+ * primary, so the line demotes the quota "65% used · 40% expected". `null`
+ * when there is no pace ratio (grace period / after reset). */
+function paceLine(card: UsageCardViewModel): HTMLElement | null {
+  if (card.paceRatio === null || card.paceBand === null) {
+    return null;
+  }
+  const line = document.createElement("div");
+  line.className = "meter-pace";
+  const expected =
+    card.expectedPercent === null ? "" : ` · ${Math.round(card.expectedPercent)}% expected`;
+  if (card.paceFirst) {
+    const used = document.createElement("span");
+    used.className = "meter-secondary";
+    used.textContent = `${card.percent}% used${expected}`;
+    line.append(used);
+    return line;
+  }
+  const pace = document.createElement("span");
+  pace.className = `pace-${card.paceBand}`;
+  const verdict = paceVerdict(card.paceRatio);
+  const showGlyph = card.paceRatio > RISK_THRESHOLD || card.paceRatio < UNDERUSE_THRESHOLD;
+  pace.textContent = `${showGlyph ? `${verdict.glyph} ` : ""}${formatRatio(card.paceRatio)} pace`;
+  line.append(pace);
+  if (expected) {
+    const exp = document.createElement("span");
+    exp.className = "meter-expected";
+    exp.textContent = expected;
+    line.append(exp);
+  }
+  return line;
+}
+
+/** The current-rate projection line ("Limit reached" / "Hits limit ~1:10 PM,
+ * 50 minutes before reset" / "On pace to end at ~29% (71% unused)"). `null`
+ * when nothing can be projected yet. */
+function projectionLine(card: UsageCardViewModel): HTMLElement | null {
+  const projection = card.projection;
+  if (projection === null) {
+    return null;
+  }
+  const el = document.createElement("div");
+  el.className = "meter-projection";
+  switch (projection.kind) {
+    case "reached":
+      el.classList.add("projection-reached");
+      el.textContent = "Limit reached";
+      break;
+    case "hits": {
+      el.classList.add("projection-hits");
+      const at = formatHitTime(new Date(projection.hitAt), new Date());
+      el.textContent = `Hits limit ~${at}, ${describeRemaining(projection.secondsBeforeReset)} before reset`;
+      break;
+    }
+    case "ends":
+      el.classList.add("projection-ends");
+      if (projection.unusedPercent !== null) {
+        el.classList.add("projection-underuse");
+        el.textContent = `On pace to end at ~${projection.endPercent}% (${projection.unusedPercent}% unused)`;
+      } else {
+        el.textContent = `On pace to end at ~${projection.endPercent}%`;
+      }
+      break;
+  }
+  return el;
+}
+
+/** Fill-colour modifier for the meter bar and primary metric: the pace band in
+ * pace-first mode, the quota status otherwise. */
+function primaryModifier(card: UsageCardViewModel): string {
+  return card.paceFirst && card.paceBand !== null ? `pace-${card.paceBand}` : `status-${card.status}`;
+}
+
+/** The primary metric text: the pace ratio in pace-first mode, the quota % otherwise. */
+function primaryMetric(card: UsageCardViewModel): HTMLElement {
+  const span = document.createElement("span");
+  span.className = `meter-percent ${primaryModifier(card)}`;
+  span.textContent =
+    card.paceFirst && card.paceRatio !== null ? formatRatio(card.paceRatio) : `${card.percent}%`;
+  return span;
 }
 
 /** The reset line: the live countdown plus, when enabled, the exact reset
@@ -106,17 +220,55 @@ function buildRow(card: UsageCardViewModel): HTMLElement {
   const name = document.createElement("span");
   name.className = "meter-name";
   name.textContent = card.title;
+  // Pace-first leads the name with the verdict glyph; consumption keeps the
+  // escalating fire.
+  if (card.paceFirst && card.paceRatio !== null) {
+    const glyph = document.createElement("span");
+    glyph.className = "fire";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = paceVerdict(card.paceRatio).glyph;
+    name.append(" ", glyph);
+  } else {
+    const fire = fireGlyph(card.status);
+    if (fire) {
+      name.append(" ", fire);
+    }
+  }
+  head.append(name, primaryMetric(card));
+
+  row.append(head, meterBar(card.percent, primaryModifier(card), card.title, card.expectedPercent));
+  const pace = paceLine(card);
+  if (pace) {
+    row.append(pace);
+  }
+  const projection = projectionLine(card);
+  if (projection) {
+    row.append(projection);
+  }
+  row.append(resetLine(card));
+  return row;
+}
+
+/** The header badge: the pace verdict in pace-first mode, the quota status
+ * otherwise. */
+function headBadge(card: UsageCardViewModel): HTMLElement {
+  const pill = document.createElement("span");
+  if (card.paceFirst && card.paceRatio !== null && card.paceBand !== null) {
+    const verdict = paceVerdict(card.paceRatio);
+    pill.className = `status-pill pace-${card.paceBand}`;
+    const glyph = document.createElement("span");
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = verdict.glyph;
+    pill.append(glyph, verdict.label);
+    return pill;
+  }
+  pill.className = `status-pill status-${card.status}`;
   const fire = fireGlyph(card.status);
   if (fire) {
-    name.append(" ", fire);
+    pill.append(fire);
   }
-  const percent = document.createElement("span");
-  percent.className = `meter-percent status-${card.status}`;
-  percent.textContent = `${card.percent}%`;
-  head.append(name, percent);
-
-  row.append(head, meterBar(card.percent, card.status, card.title), resetLine(card));
-  return row;
+  pill.append(statusLabel(card.status));
+  return pill;
 }
 
 /** One roomier status card (layout 1c). */
@@ -131,24 +283,25 @@ function buildStatusCard(card: UsageCardViewModel): HTMLElement {
   const name = document.createElement("span");
   name.className = "meter-name";
   name.textContent = card.title;
-
-  const pill = document.createElement("span");
-  pill.className = `status-pill status-${card.status}`;
-  const fire = fireGlyph(card.status);
-  if (fire) {
-    pill.append(fire);
-  }
-  pill.append(statusLabel(card.status));
-  head.append(name, pill);
+  head.append(name, headBadge(card));
 
   const meter = document.createElement("div");
   meter.className = "status-card-meter";
-  const percent = document.createElement("span");
-  percent.className = `meter-percent status-${card.status}`;
-  percent.textContent = `${card.percent}%`;
-  meter.append(meterBar(card.percent, card.status, card.title), percent);
+  meter.append(
+    meterBar(card.percent, primaryModifier(card), card.title, card.expectedPercent),
+    primaryMetric(card),
+  );
 
-  el.append(head, meter, resetLine(card));
+  el.append(head, meter);
+  const pace = paceLine(card);
+  if (pace) {
+    el.append(pace);
+  }
+  const projection = projectionLine(card);
+  if (projection) {
+    el.append(projection);
+  }
+  el.append(resetLine(card));
   return el;
 }
 

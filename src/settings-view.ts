@@ -55,6 +55,8 @@ export function initSettingsView(backend: UsageBackend): void {
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
   const showResetTimeToggle = requireElement<HTMLInputElement>("show-reset-time-toggle");
   const popoverLayoutToggle = requireElement<HTMLElement>("popover-layout-toggle");
+  const displayModeToggle = requireElement<HTMLElement>("display-mode-toggle");
+  const weeklyPaceDaysToggle = requireElement<HTMLElement>("weekly-pace-days-toggle");
   const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
   const autostartError = requireElement<HTMLElement>("autostart-error");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
@@ -108,6 +110,8 @@ export function initSettingsView(backend: UsageBackend): void {
     monochromeToggle.checked = settings.monochrome;
     showResetTimeToggle.checked = settings.show_reset_time;
     setSegmentedValue(popoverLayoutToggle, settings.popover_layout);
+    setSegmentedValue(displayModeToggle, settings.pace_first_display ? "pace" : "consumption");
+    setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
   }
 
   function refreshSessionStatus(): void {
@@ -282,6 +286,34 @@ export function initSettingsView(backend: UsageBackend): void {
       setSegmentedValue(popoverLayoutToggle, layout);
       backend.setPopoverLayout(layout).catch((error: unknown) => {
         console.error("failed to persist popover layout", error);
+      });
+    });
+  }
+
+  for (const option of displayModeToggle.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
+    option.addEventListener("click", () => {
+      const paceFirst = option.dataset.value === "pace";
+      if (settings.pace_first_display === paceFirst) {
+        return;
+      }
+      settings = { ...settings, pace_first_display: paceFirst };
+      setSegmentedValue(displayModeToggle, paceFirst ? "pace" : "consumption");
+      backend.setPaceFirstDisplay(paceFirst).catch((error: unknown) => {
+        console.error("failed to persist display mode", error);
+      });
+    });
+  }
+
+  for (const option of weeklyPaceDaysToggle.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
+    option.addEventListener("click", () => {
+      const days = Number(option.dataset.value);
+      if (settings.weekly_pace_days === days) {
+        return;
+      }
+      settings = { ...settings, weekly_pace_days: days };
+      setSegmentedValue(weeklyPaceDaysToggle, String(days));
+      backend.setWeeklyPaceDays(days).catch((error: unknown) => {
+        console.error("failed to persist weekly pace basis", error);
       });
     });
   }

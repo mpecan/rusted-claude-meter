@@ -3,7 +3,17 @@
 // `src-tauri/src/tray/model.rs` uses for the tray menu.
 
 import { formatAge, roundPercent } from "./format";
-import { isAtRisk } from "./pacing";
+import {
+  type PaceBand,
+  UNDERUSE_THRESHOLD,
+  expectedUsagePercent,
+  isAtRisk,
+  paceBand,
+  paceRatio,
+  projectedEndPercent,
+  projectedLimitDate,
+  weeklyPacingDurationMs,
+} from "./pacing";
 import {
   DEFAULT_CRITICAL_THRESHOLD,
   DEFAULT_WARNING_THRESHOLD,
@@ -11,6 +21,14 @@ import {
   statusFromUtilization,
 } from "./status";
 import type { LimitWindow, MeterState, UsageWindow } from "./types";
+
+/** The projection line at the current burn rate. `null` when too little of
+ * the window has elapsed to project (and usage is below the lockout floor).
+ * Mirrors upstream `UsageCardView.projectionLine`. */
+export type ProjectionViewModel =
+  | { kind: "reached" }
+  | { kind: "hits"; hitAt: string; secondsBeforeReset: number }
+  | { kind: "ends"; endPercent: number; unusedPercent: number | null };
 
 /** One usage card: a headline window or a named, visible scoped limit. */
 export interface UsageCardViewModel {
@@ -28,6 +46,22 @@ export interface UsageCardViewModel {
   /** Drop the date from the reset clock (true only for the 5-hour session
    * card, which always resets today). */
   useTimeOnlyResetTime: boolean;
+  /** Pace ratio (1.0 = sustainable), or `null` inside the grace period /
+   * after reset — pace UI is suppressed when `null`. */
+  paceRatio: number | null;
+  /** Colour band for `paceRatio`, or `null` when there is no ratio. */
+  paceBand: PaceBand | null;
+  /** Utilization the plan expected by now (drives the expected-by-now tick
+   * and the "N% expected" secondary), or `null`. */
+  expectedPercent: number | null;
+  /** Whether this card leads with the pace ratio instead of the quota % —
+   * the pace-first setting, but only once a ratio exists to lead with. */
+  paceFirst: boolean;
+  /** Whether underuse is a meaningful signal here (weekly + scoped, never the
+   * session card): gates the blue "quota unused" projection styling. */
+  showsUnderuse: boolean;
+  /** The current-rate projection line, or `null` when it can't be projected. */
+  projection: ProjectionViewModel | null;
 }
 
 /** Coarse banner state driving the popover's top-of-card messaging. `"ok"`
@@ -60,6 +94,40 @@ interface CardOptions {
   showResetTime: boolean;
   warning: number;
   critical: number;
+  weeklyPaceDays: number;
+  paceFirst: boolean;
+}
+
+/** Build the current-rate projection descriptor, mirroring upstream
+ * `UsageCardView.projectionLine`: a reached limit, a projected limit-hit
+ * before reset, or the projected end-of-window percentage. */
+function projectionFor(
+  window: UsageWindow,
+  now: Date,
+  pacingMs: number | undefined,
+  showsUnderuse: boolean,
+  ratio: number | null,
+): ProjectionViewModel | null {
+  if (window.utilization >= 100) {
+    return { kind: "reached" };
+  }
+  const hit = projectedLimitDate(window, now, pacingMs);
+  if (hit) {
+    return {
+      kind: "hits",
+      hitAt: hit.toISOString(),
+      secondsBeforeReset: (new Date(window.resets_at).getTime() - hit.getTime()) / 1000,
+    };
+  }
+  const end = projectedEndPercent(window, now, pacingMs);
+  if (end === null) {
+    return null;
+  }
+  const endPercent = Math.round(Math.min(end, 100));
+  // Blue "quota may go unused" styling only where underuse is meaningful.
+  const unusedPercent =
+    showsUnderuse && ratio !== null && ratio < UNDERUSE_THRESHOLD ? 100 - endPercent : null;
+  return { kind: "ends", endPercent, unusedPercent };
 }
 
 function cardFor(
@@ -69,6 +137,12 @@ function cardFor(
   now: Date,
   opts: CardOptions,
 ): UsageCardViewModel {
+  // The 5-hour session paces over its full window and never signals underuse;
+  // the weekly and scoped weekly cards pace over the configured 5/6/7-day span.
+  const isSession = id === "five_hour";
+  const pacingMs = isSession ? undefined : weeklyPacingDurationMs(opts.weeklyPaceDays);
+  const showsUnderuse = !isSession;
+  const ratio = paceRatio(window, now, pacingMs);
   return {
     id,
     title,
@@ -79,7 +153,16 @@ function cardFor(
     showResetTime: opts.showResetTime,
     // Only the 5-hour session window always resets today, so it alone drops
     // the date from its reset clock.
-    useTimeOnlyResetTime: id === "five_hour",
+    useTimeOnlyResetTime: isSession,
+    paceRatio: ratio,
+    paceBand: ratio === null ? null : paceBand(ratio),
+    expectedPercent: expectedUsagePercent(window, now, pacingMs),
+    // Pace-first only takes effect once there is a ratio to lead with;
+    // otherwise the card falls back to the quota-first layout (upstream's
+    // `if isPaceFirst, let paceRatio` guard).
+    paceFirst: opts.paceFirst && ratio !== null,
+    showsUnderuse,
+    projection: projectionFor(window, now, pacingMs, showsUnderuse, ratio),
   };
 }
 
@@ -96,8 +179,10 @@ export function buildViewModel(
   showResetTime = true,
   warning: number = DEFAULT_WARNING_THRESHOLD,
   critical: number = DEFAULT_CRITICAL_THRESHOLD,
+  weeklyPaceDays = 7,
+  paceFirst = false,
 ): PopoverViewModel {
-  const opts: CardOptions = { showResetTime, warning, critical };
+  const opts: CardOptions = { showResetTime, warning, critical, weeklyPaceDays, paceFirst };
   const cards: UsageCardViewModel[] = [];
   const snapshot = state.snapshot;
   if (snapshot) {
