@@ -49,7 +49,7 @@ Schema (mirrors `ClaudeMeter`'s `UsageExportPayload`, [eddmann/ClaudeMeter#32](h
 
 ## Development
 
-Prerequisites: Rust (pinned via `rust-toolchain.toml`), Node 24+, [`just`](https://github.com/casey/just).
+Prerequisites: Rust (pinned via `rust-toolchain.toml`), Node ≥ 24 (pinned via `package.json` `engines`), [`just`](https://github.com/casey/just).
 
 On Linux additionally: `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libgtk-3-dev`. GNOME needs the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) to show tray icons at all.
 

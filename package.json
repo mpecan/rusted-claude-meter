@@ -5,6 +5,9 @@
   "description": "Cross-platform (macOS + Linux) tray app showing your Claude plan usage — a Tauri v2 port of ClaudeMeter.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
