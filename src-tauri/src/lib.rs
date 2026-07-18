@@ -83,6 +83,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_notify_on_reset,
             commands::set_show_reset_time,
             commands::set_popover_layout,
+            commands::pace::set_weekly_pace_days,
+            commands::pace::set_pace_first_display,
             autostart::autostart_status,
             autostart::set_autostart,
             settings_window::open_settings_window,
@@ -130,9 +132,13 @@ pub fn run() -> tauri::Result<()> {
             tray::init(
                 app.handle(),
                 &core.state(Timestamp::now()),
-                app_settings.icon_style,
-                app_settings.monochrome,
-                shown,
+                tray::TraySeed {
+                    style: app_settings.icon_style,
+                    mono: app_settings.monochrome,
+                    shown,
+                    weekly_pace_days: app_settings.weekly_pace_days,
+                    pace_first_display: app_settings.pace_first_display,
+                },
             )?;
             // Host the main window in the NSPopover now that the tray (id
             // "main") exists — the plugin anchors to it and panics if it's

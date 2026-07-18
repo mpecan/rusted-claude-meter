@@ -15,6 +15,8 @@
 //!   [`run_store_op`]'s blocking pool, so a slow or stuck credential daemon
 //!   can never freeze tray or window redraws.
 
+pub mod pace;
+
 use std::collections::HashSet;
 use std::sync::Arc;
 
