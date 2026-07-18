@@ -115,7 +115,7 @@ jobs:
       # bundle.targets restricts this to app+dmg on macOS, deb+appimage on
       # Linux) and uploads it to the draft release created above — found by
       # tag, not created fresh, so both matrix legs land on the same release.
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
