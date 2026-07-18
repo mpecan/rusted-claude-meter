@@ -263,5 +263,4 @@ impl TrayDiff {
 }
 
 #[cfg(test)]
-#[path = "model_tests.rs"]
-mod tests;
+mod spec;

@@ -2,10 +2,12 @@
 //!
 //! Split out of the main `commands` module purely to keep that file under
 //! the workspace's file-size gate — these two commands and their `store_*`
-//! helpers behave exactly like the other single-field settings commands
-//! there (`set_show_reset_time` et al.); see this module's doc comments for
-//! the one deliberate asymmetry (only [`set_pace_first_display`] forces an
-//! immediate tray redraw).
+//! helpers behave like the other settings commands there (`set_show_reset_time`
+//! et al.), except both of them push their new value into the live tray via
+//! `tray::set_pace_options` immediately: the tray's own pace ratio, badge and
+//! menu line read `weekly_pace_days`/`pace_first_display` directly out of its
+//! cached resources (see `tray::apply_state`), and nothing else re-reads
+//! `AppSettings` on a scheduler tick to pick up a change on its own.
 
 use tauri::{Emitter, State};
 
@@ -28,30 +30,48 @@ fn store_pace_first_display(settings: &SettingsState, enabled: bool) -> AppSetti
     settings.update(|s| s.pace_first_display = enabled)
 }
 
+/// Broadcast `settings-changed` (so the popover, a separate window, picks up
+/// the resolved snapshot live) and push both pace fields into the live tray
+/// immediately — its own pace ratio, badge and menu line read
+/// `weekly_pace_days`/`pace_first_display` directly out of `TrayResources`
+/// (see `tray::apply_state`), so without this push they would otherwise keep
+/// computing against a stale value indefinitely. Shared by
+/// [`set_weekly_pace_days`] and [`set_pace_first_display`], the only two
+/// settings that change what the tray's pace computation sees.
+fn broadcast_and_push_pace(
+    app: &tauri::AppHandle,
+    scheduler: &SchedulerHandle,
+    updated: &AppSettings,
+) {
+    let _ = app.emit(SETTINGS_CHANGED_EVENT, updated);
+    tray::set_pace_options(
+        app,
+        updated.weekly_pace_days,
+        updated.pace_first_display,
+        &scheduler.state_now(),
+    );
+}
+
 /// Change how many days of the week the weekly quota is paced over (5/6/7,
-/// issue #16's working-week option). Broadcasts `settings-changed` so the
-/// popover (a separate window) picks it up live; the tray icon's badge picks
-/// it up on its next redraw (every scheduler tick), same as the toggle
-/// below when nothing else forces an earlier one.
+/// issue #16's working-week option), applying it to the live tray
+/// immediately via [`broadcast_and_push_pace`].
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_weekly_pace_days(
     app: tauri::AppHandle,
+    scheduler: State<'_, SchedulerHandle>,
     settings: State<'_, SettingsState>,
     days: u8,
 ) -> AppSettings {
     let updated = store_weekly_pace_days(&settings, days);
-    let _ = app.emit(SETTINGS_CHANGED_EVENT, &updated);
+    broadcast_and_push_pace(&app, &scheduler, &updated);
     updated
 }
 
 /// Toggle pace-first display mode (issue #16): the tray/popover lead with
 /// the pace ratio instead of the raw quota percentage, and the flame/
-/// snowflake badge appears. Unlike [`set_weekly_pace_days`] above, this one
-/// pushes into the live tray immediately — flipping the primary display mode
-/// is the dramatic, binary change (the badge appearing/disappearing
-/// altogether), so it shouldn't wait out the next scheduled tick the way a
-/// pacing-span tweak reasonably can.
+/// snowflake badge appears. Applies to the live tray immediately via
+/// [`broadcast_and_push_pace`].
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_pace_first_display(
@@ -61,13 +81,7 @@ pub fn set_pace_first_display(
     enabled: bool,
 ) -> AppSettings {
     let updated = store_pace_first_display(&settings, enabled);
-    let _ = app.emit(SETTINGS_CHANGED_EVENT, &updated);
-    tray::set_pace_options(
-        &app,
-        updated.weekly_pace_days,
-        updated.pace_first_display,
-        &scheduler.state_now(),
-    );
+    broadcast_and_push_pace(&app, &scheduler, &updated);
     updated
 }
 

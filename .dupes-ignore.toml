@@ -1,0 +1,3 @@
+[[ignore]]
+fingerprint = "fce7153f738b6767"
+reason = "set_weekly_pace_days/set_pace_first_display (issue #16): two distinct #[tauri::command] entry points required by Tauri's command-per-function model; the actual duplicated logic (broadcast settings-changed + push weekly_pace_days/pace_first_display into the live tray so its pace ratio/badge/menu never go stale) is already factored into the shared broadcast_and_push_pace helper -- only the one-line store_* call differs between the two thin command wrappers"
