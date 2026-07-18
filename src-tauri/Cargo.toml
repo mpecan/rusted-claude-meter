@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 meter-core = { path = "../crates/meter-core" }
 meter-api = { path = "../crates/meter-api" }
 meter-render = { path = "../crates/meter-render" }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
@@ -36,6 +36,11 @@ zeroize = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
+# Native NSPopover for the menu-bar pop-down (macOS only; Linux keeps the tray
+# menu). Git-only crate, pinned to the commit that dropped its forked
+# `tray-icon` (which would collide with tauri's `tray-icon` feature). Source is
+# allow-listed in `deny.toml`.
+tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", rev = "b571e0e665da7016d967bbf027b92951ac88f78e" }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }

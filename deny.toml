@@ -115,3 +115,7 @@ allow-workspace = true
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Native macOS NSPopover host (menu-bar pop-down). Git-only crate, pinned to a
+# specific rev in src-tauri/Cargo.toml; MIT-licensed (clarified below since its
+# manifest omits the `license` field).
+allow-git = ["https://github.com/freethinkel/tauri-nspopover-plugin"]

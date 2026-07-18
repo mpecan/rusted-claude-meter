@@ -49,13 +49,21 @@ pub fn run() -> tauri::Result<()> {
     let session_store: Arc<dyn SessionStore> = Arc::new(KeyringSessionStore);
     let scheduler_store = Arc::clone(&session_store);
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         // `args: None` — the main window already starts hidden on every
         // launch (see the module docs on `autostart`), so autostart needs no
         // extra CLI flag to detect a login launch.
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None));
+
+    // Host the `main` window inside a native NSPopover for the menu-bar
+    // pop-down (arrow, slide animation, click-outside dismiss). macOS only;
+    // on Linux the tray menu stays the primary surface.
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_nspopover::init());
+
+    builder
         .manage(SessionStoreState(session_store))
         .invoke_handler(tauri::generate_handler![
             commands::set_session_key,
@@ -87,7 +95,6 @@ pub fn run() -> tauri::Result<()> {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            configure_popover_window(app);
             let data_dir = app.path().app_data_dir().ok();
             // The disk cache is loaded before the tray is wired so the very
             // first icon reflects any restored snapshot instead of flashing
@@ -126,6 +133,10 @@ pub fn run() -> tauri::Result<()> {
                 app_settings.monochrome,
                 shown,
             )?;
+            // Host the main window in the NSPopover now that the tray (id
+            // "main") exists — the plugin anchors to it and panics if it's
+            // absent. Must run after `tray::init`.
+            configure_popover_window(app);
             app.manage(SettingsState::new(settings_path, app_settings));
             app.manage(wizard::FirstRunState::new(!settings_existed));
             // Managed before the scheduler starts broadcasting (mirrors the
@@ -165,23 +176,31 @@ fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             }
         }
         // Only the popover auto-hides on focus loss; the Settings window stays
-        // put until the user closes it.
+        // put until the user closes it. Route through `hide_popover` (not
+        // `window.hide`) so the plugin's shown-state stays authoritative — a
+        // raw hide would desync it and the next tray click would no-op.
         #[cfg(target_os = "macos")]
         tauri::WindowEvent::Focused(false) if settings_window::is_main_label(window.label()) => {
-            let _ = window.hide();
+            use tauri_plugin_nspopover::AppExt as _;
+            window.app_handle().hide_popover();
         }
         _ => {}
     }
 }
 
-/// macOS-only: style the main window as a popover — frameless and always on
-/// top, anchored under the tray icon on click (see `tray::popover`). On
-/// Linux the window stays a regular decorated window.
+/// macOS-only: host the main window inside a native `NSPopover` so a tray
+/// click gives the menu-bar pop-down (arrow, slide animation) anchored under
+/// the status item (see `tray::popover`). Must be called after the tray is
+/// created — the plugin resolves the tray by id "main" and panics otherwise.
+/// On Linux the window stays a regular decorated window and the tray menu is
+/// the primary surface.
 fn configure_popover_window(app: &tauri::App) {
     #[cfg(target_os = "macos")]
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_decorations(false);
-        let _ = window.set_always_on_top(true);
+        use tauri_plugin_nspopover::{ToPopoverOptions, WindowExt as _};
+        window.to_popover(ToPopoverOptions {
+            is_fullsize_content: true,
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = app;

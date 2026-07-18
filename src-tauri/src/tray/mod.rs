@@ -16,8 +16,6 @@
 //! and the tray icon itself is never recreated — that is what avoids
 //! flicker.
 
-#[cfg(target_os = "macos")]
-mod geometry;
 mod model;
 
 #[cfg(target_os = "macos")]
@@ -310,6 +308,14 @@ fn tray_image(icon: &RenderedIcon) -> Image<'static> {
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    // On macOS the main window is an NSPopover, so "Open" shows the popover
+    // (a bare `window.show()` would surface a naked, unanchored webview).
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_plugin_nspopover::AppExt as _;
+        app.show_popover();
+    }
+    #[cfg(not(target_os = "macos"))]
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
