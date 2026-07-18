@@ -11,16 +11,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { describeImportSummary } from "./browser-import";
 import { renderBrowserList } from "./browser-import-render";
+import { createIconStylePicker } from "./icon-style-picker";
 import { describeError } from "./ipc";
 import type { UsageBackend } from "./ipc";
 import { renderModelToggles, renderSelectOptions } from "./settings-render";
 import { DEFAULT_SETTINGS, scopedModelNames, toggleModel } from "./settings-view-model";
 import {
-  ICON_STYLE_OPTIONS,
   REFRESH_INTERVAL_OPTIONS,
   type AppSettings,
   type Browser,
-  type IconStyle,
   type RefreshInterval,
   type UsageSnapshot,
 } from "./types";
@@ -42,7 +41,7 @@ export function initSettingsView(backend: UsageBackend): void {
   const warningValue = requireElement<HTMLElement>("warning-threshold-value");
   const criticalInput = requireElement<HTMLInputElement>("critical-threshold");
   const criticalValue = requireElement<HTMLElement>("critical-threshold-value");
-  const iconStyleSelect = requireElement<HTMLSelectElement>("icon-style-select");
+  const iconStyleContainer = requireElement<HTMLElement>("icon-style-picker");
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
   const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
   const autostartError = requireElement<HTMLElement>("autostart-error");
@@ -57,10 +56,26 @@ export function initSettingsView(backend: UsageBackend): void {
   const runSetupAgainButton = requireElement<HTMLButtonElement>("run-setup-again-button");
 
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
-  renderSelectOptions(iconStyleSelect, ICON_STYLE_OPTIONS);
 
   let settings: AppSettings = DEFAULT_SETTINGS;
   let latestSnapshot: UsageSnapshot | null = null;
+
+  const iconStylePicker = createIconStylePicker(
+    iconStyleContainer,
+    settings.icon_style,
+    (style) => {
+      settings = { ...settings, icon_style: style };
+      backend.setIconStyle(style).catch((error: unknown) => {
+        console.error("failed to persist icon style", error);
+      });
+    },
+  );
+  backend
+    .iconStylePreviews()
+    .then((previews) => iconStylePicker.setPreviews(previews))
+    .catch((error: unknown) => {
+      console.error("failed to load icon style previews", error);
+    });
 
   function renderToggles(): void {
     renderModelToggles(
@@ -77,7 +92,7 @@ export function initSettingsView(backend: UsageBackend): void {
     warningValue.textContent = `${settings.warning_threshold}%`;
     criticalInput.value = String(settings.critical_threshold);
     criticalValue.textContent = `${settings.critical_threshold}%`;
-    iconStyleSelect.value = settings.icon_style;
+    iconStylePicker.setSelected(settings.icon_style);
     monochromeToggle.checked = settings.monochrome;
   }
 
@@ -226,14 +241,6 @@ export function initSettingsView(backend: UsageBackend): void {
     settings = { ...settings, critical_threshold: critical };
     backend.setThresholds(settings.warning_threshold, critical).catch((error: unknown) => {
       console.error("failed to persist critical threshold", error);
-    });
-  });
-
-  iconStyleSelect.addEventListener("change", () => {
-    const style = iconStyleSelect.value as IconStyle;
-    settings = { ...settings, icon_style: style };
-    backend.setIconStyle(style).catch((error: unknown) => {
-      console.error("failed to persist icon style", error);
     });
   });
 

@@ -113,6 +113,16 @@ export interface SelectOption<T extends string> {
   label: string;
 }
 
+/** One rendered icon-style preview from `icon_style_previews`: straight-alpha
+ * RGBA (`width * height * 4` bytes) the picker paints into a `<canvas>`, so
+ * the style buttons show the actual tray artwork. */
+export interface IconPreview {
+  style: IconStyle;
+  width: number;
+  height: number;
+  rgba: number[];
+}
+
 /** The tray icon style choices, in display order. Single source of truth for
  * both the Settings panel's `#icon-style-select` and the wizard's customize
  * step's `#wizard-icon-style-select` — see `settings-render.ts::renderSelectOptions`,

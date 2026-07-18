@@ -487,3 +487,60 @@ body {
   gap: 0.5rem;
   margin-top: 0.3rem;
 }
+
+/* Visual icon-style picker (Settings + wizard): a grid of selectable buttons,
+   each showing the live-rendered tray artwork for that style. Replaces the
+   plain <select>, mirroring ClaudeMeter's IconStylePicker. */
+.icon-style-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin: 0.3rem 0;
+}
+
+.icon-style-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.3rem;
+  min-height: 3.4rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.icon-style-option:hover {
+  border-color: var(--color-accent);
+}
+
+.icon-style-option.is-selected {
+  border-color: var(--color-accent);
+  background: rgb(175 82 222 / 12%);
+}
+
+.icon-style-option:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.icon-style-option-preview {
+  /* Sized in JS to the preview's logical dimensions; keeps proportions on a
+     row of differently-shaped icons. */
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.icon-style-option-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.icon-style-option.is-selected .icon-style-option-label {
+  color: var(--text);
+}

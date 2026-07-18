@@ -21,10 +21,11 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { describeImportSummary } from "./browser-import";
 import { renderBrowserList } from "./browser-import-render";
+import { createIconStylePicker } from "./icon-style-picker";
 import { describeError } from "./ipc";
 import type { UsageBackend } from "./ipc";
 import { renderSelectOptions } from "./settings-render";
-import { ICON_STYLE_OPTIONS, REFRESH_INTERVAL_OPTIONS } from "./types";
+import { REFRESH_INTERVAL_OPTIONS } from "./types";
 import type { Browser, IconStyle, RefreshInterval } from "./types";
 import {
   type WizardStep,
@@ -94,15 +95,27 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   const validateRetryButton = requireElement<HTMLButtonElement>("wizard-validate-retry-button");
   const validateContinueButton = requireElement<HTMLButtonElement>("wizard-validate-continue-button");
 
-  const iconStyleSelect = requireElement<HTMLSelectElement>("wizard-icon-style-select");
+  const iconStyleContainer = requireElement<HTMLElement>("wizard-icon-style-picker");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("wizard-refresh-interval-select");
   const customizeContinueButton = requireElement<HTMLButtonElement>("wizard-customize-continue-button");
 
   const gnomeHint = requireElement<HTMLElement>("wizard-gnome-hint");
   const finishButton = requireElement<HTMLButtonElement>("wizard-finish-button");
 
-  renderSelectOptions(iconStyleSelect, ICON_STYLE_OPTIONS);
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
+
+  const iconStylePicker = createIconStylePicker(iconStyleContainer, "battery", (style) => {
+    backend.setIconStyle(style).catch((error: unknown) => {
+      console.error("failed to persist icon style", error);
+    });
+    callbacks.onIconStyleChange(style);
+  });
+  backend
+    .iconStylePreviews()
+    .then((previews) => iconStylePicker.setPreviews(previews))
+    .catch((error: unknown) => {
+      console.error("failed to load icon style previews", error);
+    });
 
   function goToStep(step: WizardStep): void {
     for (const [name, el] of Object.entries(steps)) {
@@ -199,14 +212,6 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   validateRetryButton.addEventListener("click", () => goToStep("session"));
   validateContinueButton.addEventListener("click", () => goToStep("customize"));
 
-  iconStyleSelect.addEventListener("change", () => {
-    const style = iconStyleSelect.value as IconStyle;
-    backend.setIconStyle(style).catch((error: unknown) => {
-      console.error("failed to persist icon style", error);
-    });
-    callbacks.onIconStyleChange(style);
-  });
-
   refreshIntervalSelect.addEventListener("change", () => {
     const interval = refreshIntervalSelect.value as RefreshInterval;
     backend.setRefreshInterval(interval).catch((error: unknown) => {
@@ -243,7 +248,7 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
       .getSettings()
       .then((settings) => {
         const defaults = wizardCustomizeDefaults(settings);
-        iconStyleSelect.value = defaults.iconStyle;
+        iconStylePicker.setSelected(defaults.iconStyle);
         refreshIntervalSelect.value = defaults.refreshInterval;
       })
       .catch((error: unknown) => {

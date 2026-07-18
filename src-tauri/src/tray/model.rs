@@ -469,8 +469,11 @@ mod tests {
         let icon = icon_state(&healthy(), now(), IconStyle::Battery, true, Scale::X2);
         assert_eq!(icon.percent, 42);
         assert!(icon.mono);
-        // Fable at ~100% drives the worst-window status.
-        assert_eq!(icon.status, UsageStatus::Critical);
+        // The icon colour follows the session (5-hour) window shown as the
+        // number — 42% is safe — matching ClaudeMeter's session-driven menu
+        // bar, even though Fable is pacing near 100%. (The popover cards and
+        // the status line still surface that worst window.)
+        assert_eq!(icon.status, UsageStatus::Safe);
     }
 
     #[test]

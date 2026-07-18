@@ -64,6 +64,7 @@ pub fn run() -> tauri::Result<()> {
             commands::get_settings,
             commands::set_refresh_interval,
             commands::set_icon_style,
+            commands::icon_style_previews,
             commands::set_monochrome,
             commands::set_shown_scoped_models,
             commands::set_thresholds,

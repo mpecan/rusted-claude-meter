@@ -18,8 +18,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use meter_core::{SessionKey, SessionKeyError};
-use meter_render::IconStyle;
+use meter_core::{SessionKey, SessionKeyError, UsageStatus};
+use meter_render::{IconState, IconStyle, Scale, render_icon};
 use serde::Serialize;
 use tauri::{Emitter, State};
 
@@ -220,6 +220,59 @@ pub fn set_icon_style(
     tray::set_style(&app, style, &scheduler.state_now());
 }
 
+/// One rendered preview for the Settings/wizard icon-style picker: straight
+/// RGBA the frontend paints into a `<canvas>` so the buttons show the actual
+/// tray artwork (issue #9's visual picker, mirroring `ClaudeMeter`'s
+/// `IconStylePicker`).
+#[derive(Serialize)]
+pub struct IconPreview {
+    pub style: IconStyle,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// Render every icon style at one representative sample state (65% session /
+/// 45% weekly, warning) for the picker. Always rendered in colour (a
+/// template/monochrome preview would be black-on-dark and invisible in the
+/// picker) — the picker communicates *shape*, mirroring `ClaudeMeter`'s
+/// coloured `IconStylePicker`. Styles that fail to render are omitted rather
+/// than erroring the whole picker.
+#[tauri::command]
+pub fn icon_style_previews() -> Vec<IconPreview> {
+    const SAMPLE_PRIMARY: u8 = 65;
+    const SAMPLE_SECONDARY: u8 = 45;
+    const STYLES: [IconStyle; 6] = [
+        IconStyle::Battery,
+        IconStyle::Circular,
+        IconStyle::Minimal,
+        IconStyle::Segments,
+        IconStyle::DualBar,
+        IconStyle::Gauge,
+    ];
+    STYLES
+        .into_iter()
+        .filter_map(|style| {
+            let state = IconState {
+                style,
+                percent: SAMPLE_PRIMARY,
+                secondary_percent: SAMPLE_SECONDARY,
+                status: UsageStatus::Warning,
+                at_risk: false,
+                mono: false,
+                scale: Scale::X2,
+            };
+            let icon = render_icon(&state).ok()?;
+            Some(IconPreview {
+                style,
+                width: icon.width,
+                height: icon.height,
+                rgba: icon.rgba,
+            })
+        })
+        .collect()
+}
+
 /// The current settings, for the Settings panel's initial render.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
@@ -314,6 +367,29 @@ mod tests {
 
     fn empty_store() -> Arc<dyn SessionStore> {
         Arc::new(FakeSessionStore::new())
+    }
+
+    #[test]
+    fn icon_style_previews_renders_every_style_with_pixels() {
+        let previews = icon_style_previews();
+        // Every one of the six styles renders — none dropped.
+        assert_eq!(previews.len(), 6);
+        for preview in &previews {
+            assert_eq!(
+                preview.rgba.len(),
+                (preview.width * preview.height * 4) as usize,
+                "{:?} rgba length must match its dimensions",
+                preview.style
+            );
+            assert!(
+                preview.rgba.iter().any(|&b| b != 0),
+                "{:?} preview must contain visible pixels",
+                preview.style
+            );
+            // Sample state renders at 2x (44px tall) and wider than tall for
+            // the text styles, so the picker shows real artwork.
+            assert_eq!(preview.height, 44);
+        }
     }
 
     async fn submit(

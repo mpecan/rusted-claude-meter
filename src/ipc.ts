@@ -17,6 +17,7 @@ import type {
   AppSettings,
   Browser,
   DetectedBrowser,
+  IconPreview,
   IconStyle,
   ImportSummary,
   MeterState,
@@ -75,6 +76,8 @@ export interface UsageBackend {
   setRefreshInterval(interval: RefreshInterval): Promise<void>;
   /** Change the tray icon style. */
   setIconStyle(style: IconStyle): Promise<void>;
+  /** Rendered previews of every icon style for the visual picker. */
+  iconStylePreviews(): Promise<IconPreview[]>;
   /** Toggle monochrome/template tray artwork. */
   setMonochrome(monochrome: boolean): Promise<void>;
   /** Update the notification thresholds; resolves with the clamped values. */
@@ -160,6 +163,10 @@ class TauriBackend implements UsageBackend {
 
   setIconStyle(style: IconStyle): Promise<void> {
     return invoke<void>("set_icon_style", { style });
+  }
+
+  iconStylePreviews(): Promise<IconPreview[]> {
+    return invoke<IconPreview[]>("icon_style_previews");
   }
 
   setMonochrome(monochrome: boolean): Promise<void> {
@@ -307,6 +314,12 @@ class DemoBackend implements UsageBackend {
   setIconStyle(style: IconStyle): Promise<void> {
     this.settings = { ...this.settings, icon_style: style };
     return Promise.resolve();
+  }
+
+  iconStylePreviews(): Promise<IconPreview[]> {
+    // No renderer outside the Tauri shell; the picker falls back to
+    // label-only buttons when previews are empty.
+    return Promise.resolve([]);
   }
 
   setMonochrome(monochrome: boolean): Promise<void> {
