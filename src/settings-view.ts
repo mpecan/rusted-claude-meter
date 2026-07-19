@@ -81,6 +81,8 @@ export function initSettingsView(backend: UsageBackend): void {
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
   const showResetTimeToggle = requireElement<HTMLInputElement>("show-reset-time-toggle");
   const popoverLayoutToggle = requireElement<HTMLElement>("popover-layout-toggle");
+  const paceTrackingToggle = requireElement<HTMLInputElement>("pace-tracking-toggle");
+  const paceConfig = requireElement<HTMLElement>("pace-config");
   const displayModeToggle = requireElement<HTMLElement>("display-mode-toggle");
   const weeklyPaceDaysToggle = requireElement<HTMLElement>("weekly-pace-days-toggle");
   const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
@@ -136,6 +138,8 @@ export function initSettingsView(backend: UsageBackend): void {
     monochromeToggle.checked = settings.monochrome;
     showResetTimeToggle.checked = settings.show_reset_time;
     setSegmentedValue(popoverLayoutToggle, settings.popover_layout);
+    paceTrackingToggle.checked = settings.pace_tracking_enabled;
+    paceConfig.hidden = !settings.pace_tracking_enabled;
     setSegmentedValue(displayModeToggle, settings.pace_first_display ? "pace" : "consumption");
     setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
   }
@@ -299,6 +303,17 @@ export function initSettingsView(backend: UsageBackend): void {
     settings = { ...settings, show_reset_time: showResetTimeToggle.checked };
     backend.setShowResetTime(showResetTimeToggle.checked).catch((error: unknown) => {
       console.error("failed to persist show-reset-time setting", error);
+    });
+  });
+
+  paceTrackingToggle.addEventListener("change", () => {
+    const enabled = paceTrackingToggle.checked;
+    settings = { ...settings, pace_tracking_enabled: enabled };
+    // Hide the sub-controls (display mode + weekly basis) when the whole
+    // feature is off — they only matter while pace tracking is enabled.
+    paceConfig.hidden = !enabled;
+    backend.setPaceTrackingEnabled(enabled).catch((error: unknown) => {
+      console.error("failed to persist pace-tracking setting", error);
     });
   });
 

@@ -98,6 +98,9 @@ export interface CardOptions {
   critical: number;
   weeklyPaceDays: number;
   paceFirst: boolean;
+  /** Master switch (issue #16). When false, no pace ratio/expected/projection
+   * is computed and the card renders quota-first only. */
+  paceTrackingEnabled: boolean;
 }
 
 /** Build the current-rate projection descriptor, mirroring upstream
@@ -149,7 +152,11 @@ function cardFor(
   const isSession = window.window === "five_hour";
   const pacingMs = isSession ? undefined : weeklyPacingDurationMs(opts.weeklyPaceDays);
   const showsUnderuse = !isSession;
-  const ratio = paceRatio(window, now, pacingMs);
+  // Master switch: when pace tracking is disabled, compute no pace at all so
+  // the card renders quota-first only (ratio null suppresses the pace UI, and
+  // the expected tick / projection line are dropped too).
+  const paceEnabled = opts.paceTrackingEnabled;
+  const ratio = paceEnabled ? paceRatio(window, now, pacingMs) : null;
   return {
     id,
     title,
@@ -163,13 +170,13 @@ function cardFor(
     useTimeOnlyResetTime: isSession,
     paceRatio: ratio,
     paceBand: ratio === null ? null : paceBand(ratio),
-    expectedPercent: expectedUsagePercent(window, now, pacingMs),
+    expectedPercent: paceEnabled ? expectedUsagePercent(window, now, pacingMs) : null,
     // Pace-first only takes effect once there is a ratio to lead with;
     // otherwise the card falls back to the quota-first layout (upstream's
     // `if isPaceFirst, let paceRatio` guard).
     paceFirst: opts.paceFirst && ratio !== null,
     showsUnderuse,
-    projection: projectionFor(window, now, pacingMs, showsUnderuse, ratio),
+    projection: paceEnabled ? projectionFor(window, now, pacingMs, showsUnderuse, ratio) : null,
   };
 }
 
@@ -191,6 +198,7 @@ export function buildViewModel(
     critical: options.critical ?? DEFAULT_CRITICAL_THRESHOLD,
     weeklyPaceDays: options.weeklyPaceDays ?? 7,
     paceFirst: options.paceFirst ?? false,
+    paceTrackingEnabled: options.paceTrackingEnabled ?? true,
   };
   const cards: UsageCardViewModel[] = [];
   const snapshot = state.snapshot;

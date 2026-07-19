@@ -130,6 +130,15 @@
 
         <div class="settings-section">
           <h3>Pace</h3>
+          <label class="settings-checkbox">
+            <input id="pace-tracking-toggle" type="checkbox" />
+            Enable pace tracking
+          </label>
+          <p class="settings-hint">
+            Compares your burn rate to a sustainable pace, adding projections and a
+            flame/snowflake indicator. Turn it off to show plain usage only.
+          </p>
+          <div id="pace-config">
           <div class="settings-field">
             <span class="settings-field-label">Display mode</span>
             <div id="display-mode-toggle" class="segmented" role="radiogroup" aria-label="Display mode">
@@ -155,6 +164,7 @@
             <p class="settings-hint">
               Pace the weekly quota over a working week instead of the full 7 days.
             </p>
+          </div>
           </div>
         </div>
 

@@ -85,6 +85,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_popover_layout,
             commands::pace::set_weekly_pace_days,
             commands::pace::set_pace_first_display,
+            commands::pace::set_pace_tracking_enabled,
             autostart::autostart_status,
             autostart::set_autostart,
             settings_window::open_settings_window,
@@ -137,7 +138,10 @@ pub fn run() -> tauri::Result<()> {
                     mono: app_settings.monochrome,
                     shown,
                     weekly_pace_days: app_settings.weekly_pace_days,
-                    pace_first_display: app_settings.pace_first_display,
+                    // Master switch folds into the effective pace-first flag
+                    // the tray sees (it only shows pace in pace-first mode).
+                    pace_first_display: app_settings.pace_tracking_enabled
+                        && app_settings.pace_first_display,
                 },
             )?;
             // Host the main window in the NSPopover now that the tray (id

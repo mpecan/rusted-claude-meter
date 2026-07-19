@@ -109,6 +109,15 @@ pub struct AppSettings {
     /// fresh install shows the same quota-first icon it always has, and the
     /// flame/snowflake badge only appears once the user opts in.
     pub pace_first_display: bool,
+    /// Master switch for the whole pace-tracking feature (issue #16). When
+    /// off, the app behaves as if pacing does not exist: the popover cards
+    /// drop their projections / pace line / verdict badge, and the tray shows
+    /// no pace ratio or flame/snowflake regardless of `pace_first_display`.
+    /// The sub-settings (`weekly_pace_days`, `pace_first_display`) keep their
+    /// stored values so re-enabling restores the prior configuration. On by
+    /// default so the feature is visible; users can disable the section
+    /// wholesale from Settings.
+    pub pace_tracking_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -125,6 +134,7 @@ impl Default for AppSettings {
             popover_layout: PopoverLayout::Rows,
             weekly_pace_days: 7,
             pace_first_display: false,
+            pace_tracking_enabled: true,
         }
     }
 }
@@ -258,6 +268,7 @@ mod tests {
             popover_layout: PopoverLayout::Cards,
             weekly_pace_days: 5,
             pace_first_display: true,
+            pace_tracking_enabled: false,
         }
     }
 
@@ -469,6 +480,8 @@ mod tests {
         let default = AppSettings::default();
         assert_eq!(default.weekly_pace_days, 7);
         assert!(!default.pace_first_display);
+        // Pace tracking is on by default (the feature is visible; disable-able).
+        assert!(default.pace_tracking_enabled);
     }
 
     #[test]

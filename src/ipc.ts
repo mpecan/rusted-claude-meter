@@ -95,6 +95,8 @@ export interface UsageBackend {
   /** Toggle pace-first display mode — lead with the pace ratio instead of the
    * raw quota percentage (issue #16). Resolves with the resulting settings. */
   setPaceFirstDisplay(enabled: boolean): Promise<AppSettings>;
+  /** Master switch for the whole pace-tracking feature (issue #16). */
+  setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings>;
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
@@ -206,6 +208,10 @@ class TauriBackend implements UsageBackend {
 
   setPaceFirstDisplay(enabled: boolean): Promise<AppSettings> {
     return invoke<AppSettings>("set_pace_first_display", { enabled });
+  }
+
+  setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings> {
+    return invoke<AppSettings>("set_pace_tracking_enabled", { enabled });
   }
 
   wizardShouldRun(): Promise<boolean> {
@@ -419,6 +425,11 @@ class DemoBackend implements UsageBackend {
 
   setPaceFirstDisplay(enabled: boolean): Promise<AppSettings> {
     this.settings = { ...this.settings, pace_first_display: enabled };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings> {
+    this.settings = { ...this.settings, pace_tracking_enabled: enabled };
     return Promise.resolve({ ...this.settings });
   }
 

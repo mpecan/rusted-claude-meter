@@ -30,6 +30,12 @@ fn store_pace_first_display(settings: &SettingsState, enabled: bool) -> AppSetti
     settings.update(|s| s.pace_first_display = enabled)
 }
 
+/// Persist the master pace-tracking switch (issue #16). Same AppHandle-free
+/// testability as the sibling `store_*` helpers.
+fn store_pace_tracking_enabled(settings: &SettingsState, enabled: bool) -> AppSettings {
+    settings.update(|s| s.pace_tracking_enabled = enabled)
+}
+
 /// Broadcast `settings-changed` (so the popover, a separate window, picks up
 /// the resolved snapshot live) and push both pace fields into the live tray
 /// immediately — its own pace ratio, badge and menu line read
@@ -47,7 +53,10 @@ fn broadcast_and_push_pace(
     tray::set_pace_options(
         app,
         updated.weekly_pace_days,
-        updated.pace_first_display,
+        // The tray only shows pace in pace-first mode, so the master
+        // `pace_tracking_enabled` switch collapses into the effective
+        // pace-first flag it sees — no separate field to thread through.
+        updated.pace_tracking_enabled && updated.pace_first_display,
         &scheduler.state_now(),
     );
 }
@@ -85,6 +94,25 @@ pub fn set_pace_first_display(
     updated
 }
 
+/// Master switch for the whole pace-tracking feature (issue #16). When off,
+/// the popover drops projections/pace lines and the tray shows no pace ratio
+/// or badge, regardless of `pace_first_display`; the sub-settings keep their
+/// stored values. Applies to the live tray immediately via
+/// [`broadcast_and_push_pace`], whose effective pace-first flag already folds
+/// in this switch.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_pace_tracking_enabled(
+    app: tauri::AppHandle,
+    scheduler: State<'_, SchedulerHandle>,
+    settings: State<'_, SettingsState>,
+    enabled: bool,
+) -> AppSettings {
+    let updated = store_pace_tracking_enabled(&settings, enabled);
+    broadcast_and_push_pace(&app, &scheduler, &updated);
+    updated
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -116,5 +144,13 @@ mod tests {
         // Default is off.
         assert!(!store_pace_first_display(&state, false).pace_first_display);
         assert!(store_pace_first_display(&state, true).pace_first_display);
+    }
+
+    #[test]
+    fn pace_tracking_enabled_toggle_persists_both_ways() {
+        let state = SettingsState::new(None, AppSettings::default());
+        // Default is on (the feature is visible out of the box).
+        assert!(store_pace_tracking_enabled(&state, true).pace_tracking_enabled);
+        assert!(!store_pace_tracking_enabled(&state, false).pace_tracking_enabled);
     }
 }

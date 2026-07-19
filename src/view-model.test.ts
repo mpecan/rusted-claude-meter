@@ -188,6 +188,19 @@ describe("buildViewModel — pace", () => {
     expect(vm.cards[0]!.projection).toMatchObject({ kind: "hits" });
   });
 
+  it("computes no pace at all when pace tracking is disabled (master switch)", () => {
+    const vm = buildViewModel(pacedState(paced(60, 0.5, "five_hour"), null), NOW, new Set(), {
+      paceFirst: true,
+      paceTrackingEnabled: false,
+    });
+    const card = vm.cards[0]!;
+    expect(card.paceRatio).toBeNull();
+    expect(card.paceBand).toBeNull();
+    expect(card.expectedPercent).toBeNull();
+    expect(card.projection).toBeNull();
+    expect(card.paceFirst).toBe(false);
+  });
+
   it("treats a scoped five-hour limit as session-cadence, not weekly", () => {
     // A scoped limit whose own window is a five-hour kind must pace over its
     // full 5-hour window (like the headline session card), not the weekly

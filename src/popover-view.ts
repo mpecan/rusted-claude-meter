@@ -52,6 +52,7 @@ export function initPopoverView(backend: UsageBackend): void {
       critical: settings.critical_threshold,
       weeklyPaceDays: settings.weekly_pace_days,
       paceFirst: settings.pace_first_display,
+      paceTrackingEnabled: settings.pace_tracking_enabled,
     });
     applyBanner(statusLineEl, viewModel.bannerKind, viewModel.statusLine);
     renderCards(cardsEl, viewModel.cards, settings.popover_layout);

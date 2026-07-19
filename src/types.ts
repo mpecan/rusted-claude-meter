@@ -180,6 +180,10 @@ export interface AppSettings {
   /** Whether the tray/popover lead with the pace ratio instead of the raw
    * quota percentage (upstream's `DisplayModePicker`). Off by default. */
   pace_first_display: boolean;
+  /** Master switch for the whole pace-tracking feature (issue #16). When off,
+   * the popover drops projections / pace line / verdict badge and the tray
+   * shows no pace ratio or badge. On by default. */
+  pace_tracking_enabled: boolean;
 }
 
 /** Mirrors `meter_shell::settings::PopoverLayout` — the two popover layouts
