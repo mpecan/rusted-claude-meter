@@ -59,6 +59,9 @@ mod tests {
             secondary_percent: 0,
             status: UsageStatus::Safe,
             at_risk: false,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono: false,
             scale: Scale::X1,
         }

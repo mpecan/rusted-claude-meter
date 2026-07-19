@@ -44,6 +44,32 @@ function setSegmentedValue(container: HTMLElement, value: string): void {
   }
 }
 
+/** Wire a `.segmented` radiogroup to a settings field: on each option click,
+ * parse the clicked `data-value`, skip if it already matches, otherwise
+ * optimistically reflect the selection and persist it (logging any persist
+ * failure). Shared by every segmented control so the boilerplate lives once. */
+function bindSegmented<T>(
+  container: HTMLElement,
+  isCurrent: (value: T) => boolean,
+  parse: (raw: string) => T,
+  onChange: (value: T) => Promise<unknown>,
+  label: string,
+): void {
+  for (const option of container.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
+    option.addEventListener("click", () => {
+      const raw = option.dataset.value ?? "";
+      const value = parse(raw);
+      if (isCurrent(value)) {
+        return;
+      }
+      setSegmentedValue(container, raw);
+      onChange(value).catch((error: unknown) => {
+        console.error(`failed to persist ${label}`, error);
+      });
+    });
+  }
+}
+
 export function initSettingsView(backend: UsageBackend): void {
   const modelTogglesEl = requireElement<HTMLElement>("model-toggles");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
@@ -55,6 +81,10 @@ export function initSettingsView(backend: UsageBackend): void {
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
   const showResetTimeToggle = requireElement<HTMLInputElement>("show-reset-time-toggle");
   const popoverLayoutToggle = requireElement<HTMLElement>("popover-layout-toggle");
+  const paceTrackingToggle = requireElement<HTMLInputElement>("pace-tracking-toggle");
+  const paceConfig = requireElement<HTMLElement>("pace-config");
+  const displayModeToggle = requireElement<HTMLElement>("display-mode-toggle");
+  const weeklyPaceDaysToggle = requireElement<HTMLElement>("weekly-pace-days-toggle");
   const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
   const autostartError = requireElement<HTMLElement>("autostart-error");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
@@ -108,6 +138,10 @@ export function initSettingsView(backend: UsageBackend): void {
     monochromeToggle.checked = settings.monochrome;
     showResetTimeToggle.checked = settings.show_reset_time;
     setSegmentedValue(popoverLayoutToggle, settings.popover_layout);
+    paceTrackingToggle.checked = settings.pace_tracking_enabled;
+    paceConfig.hidden = !settings.pace_tracking_enabled;
+    setSegmentedValue(displayModeToggle, settings.pace_first_display ? "pace" : "consumption");
+    setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
   }
 
   function refreshSessionStatus(): void {
@@ -272,19 +306,49 @@ export function initSettingsView(backend: UsageBackend): void {
     });
   });
 
-  for (const option of popoverLayoutToggle.querySelectorAll<HTMLButtonElement>(".segmented-option")) {
-    option.addEventListener("click", () => {
-      const layout = option.dataset.value as PopoverLayout;
-      if (settings.popover_layout === layout) {
-        return;
-      }
-      settings = { ...settings, popover_layout: layout };
-      setSegmentedValue(popoverLayoutToggle, layout);
-      backend.setPopoverLayout(layout).catch((error: unknown) => {
-        console.error("failed to persist popover layout", error);
-      });
+  paceTrackingToggle.addEventListener("change", () => {
+    const enabled = paceTrackingToggle.checked;
+    settings = { ...settings, pace_tracking_enabled: enabled };
+    // Hide the sub-controls (display mode + weekly basis) when the whole
+    // feature is off — they only matter while pace tracking is enabled.
+    paceConfig.hidden = !enabled;
+    backend.setPaceTrackingEnabled(enabled).catch((error: unknown) => {
+      console.error("failed to persist pace-tracking setting", error);
     });
-  }
+  });
+
+  bindSegmented<PopoverLayout>(
+    popoverLayoutToggle,
+    (layout) => settings.popover_layout === layout,
+    (raw) => raw as PopoverLayout,
+    (layout) => {
+      settings = { ...settings, popover_layout: layout };
+      return backend.setPopoverLayout(layout);
+    },
+    "popover layout",
+  );
+
+  bindSegmented<boolean>(
+    displayModeToggle,
+    (paceFirst) => settings.pace_first_display === paceFirst,
+    (raw) => raw === "pace",
+    (paceFirst) => {
+      settings = { ...settings, pace_first_display: paceFirst };
+      return backend.setPaceFirstDisplay(paceFirst);
+    },
+    "display mode",
+  );
+
+  bindSegmented<number>(
+    weeklyPaceDaysToggle,
+    (days) => settings.weekly_pace_days === days,
+    (raw) => Number(raw),
+    (days) => {
+      settings = { ...settings, weekly_pace_days: days };
+      return backend.setWeeklyPaceDays(days);
+    },
+    "weekly pace basis",
+  );
 
   autostartToggle.addEventListener("change", () => {
     const requested = autostartToggle.checked;

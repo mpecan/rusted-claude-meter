@@ -7,8 +7,9 @@
 
 use std::fmt::Write as _;
 
-use crate::font::centered_text;
-use crate::palette::{ACCENT, GRAY, MONO, ink, proportional_fill, risk_badge};
+use crate::palette::{
+    ACCENT, GRAY, MONO, badge, draw_label, ink, primary_label, proportional_fill,
+};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
@@ -35,11 +36,13 @@ pub fn svg(state: IconState) -> String {
         write_bar(out, TOP_Y, state.percent, primary_ink, track);
         write_bar(out, BOTTOM_Y, state.secondary_percent, secondary_ink, track);
 
-        // Session percentage number (the primary metric), status-coloured.
-        let label = format!("{}%", state.percent);
-        centered_text(out, (NUMBER_CX, NUMBER_CY), NUMBER_FS, primary_ink, &label);
+        // Session number (the primary metric), status-coloured — or the pace
+        // ratio in pace band colour in pace-first display. The bars keep their
+        // own session/weekly colours regardless.
+        let label = primary_label(state);
+        draw_label(out, (NUMBER_CX, NUMBER_CY), NUMBER_FS, state, &label);
 
-        risk_badge(out, state.at_risk, state.mono, canvas_w);
+        badge(out, state, canvas_w);
     })
 }
 
@@ -77,6 +80,9 @@ mod tests {
             secondary_percent,
             status,
             at_risk,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         }

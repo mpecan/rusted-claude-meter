@@ -52,6 +52,63 @@ pub fn centered_text(out: &mut String, center: (f64, f64), font_size: f64, fill:
     );
 }
 
+/// Monospaced advance per glyph, as a fraction of the em (Roboto Mono:
+/// 1229/2048). The number-bearing styles size their canvases around it.
+pub const ADVANCE_EM: f64 = 0.6;
+
+/// Append a monospaced pace label ("1.8×" / compact "1.8"), centered on
+/// `center`, filled with `fill`.
+///
+/// The bundled font is subset to digits and `%` only, so the decimal point and
+/// the multiplication sign carry no glyph — they are drawn as vector shapes
+/// (a low dot, a small cross) in the same monospaced cells the digits occupy,
+/// keeping the digit rendering — and every existing snapshot — byte-identical.
+pub fn pace_label(out: &mut String, center: (f64, f64), font_size: f64, fill: &str, text: &str) {
+    let (cx, cy) = center;
+    let advance = ADVANCE_EM * font_size;
+    let cells = text.chars().count();
+    // Left edge of the first cell, so the whole run stays centered on `cx`.
+    #[allow(clippy::cast_precision_loss)]
+    let start = cx - advance * cells as f64 / 2.0;
+    for (index, ch) in text.chars().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        let cell_cx = advance.mul_add(index as f64 + 0.5, start);
+        match ch {
+            '.' => {
+                // A period sits low in the cell, on the digit baseline.
+                let radius = 0.09 * font_size;
+                let dot_cy = 0.30_f64.mul_add(font_size, cy);
+                let _ = write!(
+                    out,
+                    r#"<circle cx="{cell_cx:.2}" cy="{dot_cy:.2}" r="{radius:.2}" fill="{fill}"/>"#
+                );
+            }
+            '\u{00D7}' => {
+                // A multiplication sign: two short strokes crossing on the cell
+                // centre (which is where the digits' `central` baseline sits).
+                let reach = 0.20 * font_size;
+                let width = 0.11 * font_size;
+                let (l, r) = (cell_cx - reach, cell_cx + reach);
+                let (t, b) = (cy - reach, cy + reach);
+                let _ = write!(
+                    out,
+                    r#"<path d="M{l:.2},{t:.2}L{r:.2},{b:.2}M{l:.2},{b:.2}L{r:.2},{t:.2}" stroke="{fill}" stroke-width="{width:.2}" stroke-linecap="round"/>"#
+                );
+            }
+            digit => {
+                let mut buf = [0_u8; 4];
+                centered_text(
+                    out,
+                    (cell_cx, cy),
+                    font_size,
+                    fill,
+                    digit.encode_utf8(&mut buf),
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,5 +148,40 @@ mod tests {
         assert!(out.contains(r#"font-family="Roboto Mono""#));
         assert!(out.contains("42%"));
         assert!(out.contains("#FF3B30"));
+    }
+
+    #[test]
+    fn pace_label_draws_digits_as_font_text() {
+        // The digits go through the bundled font; two of them here.
+        let mut out = String::new();
+        pace_label(&mut out, (30.0, 11.0), 13.0, "#007AFF", "18");
+        assert_eq!(
+            out.matches("<text").count(),
+            2,
+            "one text element per digit"
+        );
+        assert!(out.contains(">1<") && out.contains(">8<"));
+    }
+
+    #[test]
+    fn pace_label_draws_the_dot_and_cross_the_font_lacks() {
+        // "1.8×": the subset font has no `.`/`×`, so they render as vector
+        // shapes — a dot (circle) and a cross (path) — while the digits are text.
+        let mut out = String::new();
+        pace_label(&mut out, (30.0, 11.0), 13.0, "#FF9500", "1.8\u{00D7}");
+        assert_eq!(out.matches("<text").count(), 2, "1 and 8 as text");
+        assert_eq!(out.matches("<circle").count(), 1, "the decimal point");
+        assert_eq!(out.matches("<path").count(), 1, "the multiply sign");
+        // Every drawn piece carries the requested fill colour.
+        assert!(out.contains("#FF9500"));
+    }
+
+    #[test]
+    fn pace_label_stays_centered_on_the_anchor() {
+        // Two symmetric cells: their centres straddle the anchor x by ±0.3em.
+        let mut out = String::new();
+        pace_label(&mut out, (30.0, 11.0), 10.0, "#000000", "18");
+        assert!(out.contains(r#"x="27.00""#), "left digit cell: {out}");
+        assert!(out.contains(r#"x="33.00""#), "right digit cell: {out}");
     }
 }

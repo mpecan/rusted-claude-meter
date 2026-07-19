@@ -3,8 +3,7 @@
 //! else. Mirrors `ClaudeMeter`'s `MinimalIcon`, which is a single semibold
 //! monospaced `Text("N%")`.
 
-use crate::font::centered_text;
-use crate::palette::{ink, risk_badge};
+use crate::palette::{badge, draw_label, primary_label};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
@@ -14,18 +13,11 @@ const NUMBER_FS: f64 = 16.0;
 pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();
     let canvas_w = f64::from(width);
-    let number_ink = ink(state.mono, state.status);
 
     svg_document(width, height, 384, |out| {
-        let label = format!("{}%", state.percent);
-        centered_text(
-            out,
-            (canvas_w / 2.0, NUMBER_CY),
-            NUMBER_FS,
-            number_ink,
-            &label,
-        );
-        risk_badge(out, state.at_risk, state.mono, canvas_w);
+        let label = primary_label(state);
+        draw_label(out, (canvas_w / 2.0, NUMBER_CY), NUMBER_FS, state, &label);
+        badge(out, state, canvas_w);
     })
 }
 
@@ -43,6 +35,9 @@ mod tests {
             secondary_percent: 0,
             status,
             at_risk,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         }

@@ -7,9 +7,9 @@
 
 use std::fmt::Write as _;
 
-use crate::font::centered_text;
 use crate::palette::{
-    CRITICAL, GRAY, MONO, SAFE, WARNING, YELLOW, ink, proportional_fill, risk_badge,
+    CRITICAL, GRAY, MONO, SAFE, WARNING, YELLOW, badge, draw_label, primary_label,
+    proportional_fill,
 };
 use crate::state::IconState;
 use crate::svg::svg_document;
@@ -29,7 +29,6 @@ pub fn svg(state: IconState) -> String {
     let (width, height) = state.style.logical_size();
     let canvas_w = f64::from(width);
     let track_gray = if state.mono { MONO } else { GRAY };
-    let number_ink = ink(state.mono, state.status);
 
     svg_document(width, height, 1024, |out| {
         // Clip so the proportional fill keeps the capsule's rounded ends.
@@ -62,11 +61,12 @@ pub fn svg(state: IconState) -> String {
             );
         }
 
-        // The percentage number, in the status colour (black in mono).
-        let label = format!("{}%", state.percent);
-        centered_text(out, (NUMBER_CX, NUMBER_CY), NUMBER_FS, number_ink, &label);
+        // The primary number: quota percentage, or the pace ratio in pace-first
+        // display — coloured by status or pace band, pure black in mono.
+        let label = primary_label(state);
+        draw_label(out, (NUMBER_CX, NUMBER_CY), NUMBER_FS, state, &label);
 
-        risk_badge(out, state.at_risk, state.mono, canvas_w);
+        badge(out, state, canvas_w);
     })
 }
 
@@ -75,7 +75,7 @@ mod tests {
     use super::*;
     use crate::palette::{CRITICAL, MONO, SAFE, WARNING};
     use crate::state::{IconStyle, Scale};
-    use meter_core::UsageStatus;
+    use meter_core::{PaceKind, UsageStatus};
 
     fn state(percent: u8, status: UsageStatus, at_risk: bool, mono: bool) -> IconState {
         IconState {
@@ -84,6 +84,9 @@ mod tests {
             secondary_percent: 0,
             status,
             at_risk,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         }
@@ -144,5 +147,32 @@ mod tests {
     #[test]
     fn at_risk_adds_the_badge_dot() {
         assert!(svg(state(70, UsageStatus::Warning, true, false)).contains("<circle"));
+    }
+
+    #[test]
+    fn pace_first_swaps_the_number_for_the_ratio_and_flame() {
+        let s =
+            state(50, UsageStatus::Warning, false, false).with_pace(Some(1.8), Some(PaceKind::Hot));
+        let svg = svg(s);
+        assert!(!svg.contains(">50%<"), "quota percent is demoted");
+        // Digits go through the font; the "." (circle) and "×" (path) are drawn.
+        assert!(
+            svg.contains(">1<") && svg.contains(">8<"),
+            "ratio digits: {svg}"
+        );
+        assert!(svg.contains(WARNING), "overuse ratio and flame are orange");
+        assert!(svg.contains("<path"), "flame badge is a path, not the dot");
+    }
+
+    #[test]
+    fn pace_first_mono_stays_pure_black() {
+        let s =
+            state(50, UsageStatus::Critical, false, true).with_pace(Some(3.0), Some(PaceKind::Hot));
+        let svg = svg(s);
+        assert!(
+            !svg.contains(CRITICAL),
+            "no colour ink in template mode: {svg}"
+        );
+        assert!(svg.contains(MONO));
     }
 }

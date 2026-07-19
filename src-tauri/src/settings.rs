@@ -61,6 +61,12 @@ pub enum PopoverLayout {
     Cards,
 }
 
+// Four independent on/off toggles (`notify_on_reset`, `monochrome`,
+// `show_reset_time`, `pace_first_display`), each persisted and round-tripped
+// on its own — none combine into a state machine, so splitting them into
+// two-variant enums per clippy's suggestion would only add ceremony without
+// removing any invalid state.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -91,6 +97,27 @@ pub struct AppSettings {
     /// Which popover layout the frontend renders (redesign 1a/1c). Persisted
     /// here; back-compat via `#[serde(default)]` like the fields above.
     pub popover_layout: PopoverLayout,
+    /// How many days of the week the weekly quota is expected to be paced
+    /// over (issue #16's working-week option) — 5, 6 or 7. Clamped to
+    /// `5..=7` by [`Self::normalize`] on every write and load, so a
+    /// hand-edited or pre-issue-#16 settings file can never feed an
+    /// out-of-range span into `UsageSnapshot::pace_signal`. Defaults to 7
+    /// (the full week), matching upstream's `ClaudeMeter` default.
+    pub weekly_pace_days: u8,
+    /// Whether the tray/popover lead with the pace ratio instead of the raw
+    /// quota percentage (upstream's `DisplayModePicker`). Off by default: a
+    /// fresh install shows the same quota-first icon it always has, and the
+    /// flame/snowflake badge only appears once the user opts in.
+    pub pace_first_display: bool,
+    /// Master switch for the whole pace-tracking feature (issue #16). When
+    /// off, the app behaves as if pacing does not exist: the popover cards
+    /// drop their projections / pace line / verdict badge, and the tray shows
+    /// no pace ratio or flame/snowflake regardless of `pace_first_display`.
+    /// The sub-settings (`weekly_pace_days`, `pace_first_display`) keep their
+    /// stored values so re-enabling restores the prior configuration. On by
+    /// default so the feature is visible; users can disable the section
+    /// wholesale from Settings.
+    pub pace_tracking_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -105,6 +132,9 @@ impl Default for AppSettings {
             monochrome: default_monochrome(),
             show_reset_time: true,
             popover_layout: PopoverLayout::Rows,
+            weekly_pace_days: 7,
+            pace_first_display: false,
+            pace_tracking_enabled: true,
         }
     }
 }
@@ -119,12 +149,13 @@ impl AppSettings {
     /// "Warning fires before/with Critical" guarantee depends on this
     /// ordering holding for every `NotificationThresholds` sourced from
     /// settings.
-    const fn normalize(&mut self) {
+    fn normalize(&mut self) {
         self.warning_threshold = self.warning_threshold.clamp(0.0, 100.0);
         self.critical_threshold = self.critical_threshold.clamp(0.0, 100.0);
         if self.critical_threshold < self.warning_threshold {
             self.critical_threshold = self.warning_threshold;
         }
+        self.weekly_pace_days = self.weekly_pace_days.clamp(5, 7);
     }
 }
 
@@ -235,6 +266,9 @@ mod tests {
             monochrome: !default_monochrome(),
             show_reset_time: false,
             popover_layout: PopoverLayout::Cards,
+            weekly_pace_days: 5,
+            pace_first_display: true,
+            pace_tracking_enabled: false,
         }
     }
 
@@ -307,6 +341,8 @@ mod tests {
         assert!(!loaded.notify_on_reset);
         assert_eq!(loaded.icon_style, IconStyle::Battery);
         assert_eq!(loaded.monochrome, default_monochrome());
+        assert_eq!(loaded.weekly_pace_days, 7);
+        assert!(!loaded.pace_first_display);
     }
 
     #[test]
@@ -437,5 +473,46 @@ mod tests {
         settings.notify_on_reset = true;
         save(&path, &settings).unwrap();
         assert!(load(&path).notify_on_reset);
+    }
+
+    #[test]
+    fn weekly_pace_days_defaults_to_the_full_week_and_pace_first_display_defaults_off() {
+        let default = AppSettings::default();
+        assert_eq!(default.weekly_pace_days, 7);
+        assert!(!default.pace_first_display);
+        // Pace tracking is on by default (the feature is visible; disable-able).
+        assert!(default.pace_tracking_enabled);
+    }
+
+    #[test]
+    fn weekly_pace_days_and_pace_first_display_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        save(&path, &sample()).unwrap();
+        let loaded = load(&path);
+        assert_eq!(loaded.weekly_pace_days, 5);
+        assert!(loaded.pace_first_display);
+    }
+
+    #[test]
+    fn normalize_clamps_weekly_pace_days_to_five_through_seven() {
+        // A hand-edited (or future buggy) settings file could carry a span
+        // outside the 5/6/7-day working-week option; `load` and
+        // `SettingsState::update` must both clamp it, mirroring the
+        // threshold-clamping guarantee above, so `UsageSnapshot::pace_signal`
+        // never sees an out-of-range pacing span.
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(&path, r#"{"version":1,"settings":{"weekly_pace_days":2}}"#).unwrap();
+        assert_eq!(load(&path).weekly_pace_days, 5);
+
+        fs::write(&path, r#"{"version":1,"settings":{"weekly_pace_days":9}}"#).unwrap();
+        assert_eq!(load(&path).weekly_pace_days, 7);
+
+        let state = SettingsState::new(None, AppSettings::default());
+        let result = state.update(|s| s.weekly_pace_days = 1);
+        assert_eq!(result.weekly_pace_days, 5);
+        let result = state.update(|s| s.weekly_pace_days = 200);
+        assert_eq!(result.weekly_pace_days, 7);
     }
 }

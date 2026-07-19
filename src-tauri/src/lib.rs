@@ -83,6 +83,9 @@ pub fn run() -> tauri::Result<()> {
             commands::set_notify_on_reset,
             commands::set_show_reset_time,
             commands::set_popover_layout,
+            commands::pace::set_weekly_pace_days,
+            commands::pace::set_pace_first_display,
+            commands::pace::set_pace_tracking_enabled,
             autostart::autostart_status,
             autostart::set_autostart,
             settings_window::open_settings_window,
@@ -130,13 +133,22 @@ pub fn run() -> tauri::Result<()> {
             tray::init(
                 app.handle(),
                 &core.state(Timestamp::now()),
-                app_settings.icon_style,
-                app_settings.monochrome,
-                shown,
+                tray::TraySeed {
+                    style: app_settings.icon_style,
+                    mono: app_settings.monochrome,
+                    shown,
+                    weekly_pace_days: app_settings.weekly_pace_days,
+                    // Master switch folds into the effective pace-first flag
+                    // the tray sees (it only shows pace in pace-first mode).
+                    pace_first_display: app_settings.pace_tracking_enabled
+                        && app_settings.pace_first_display,
+                },
             )?;
             // Host the main window in the NSPopover now that the tray (id
             // "main") exists — the plugin anchors to it and panics if it's
-            // absent. Must run after `tray::init`.
+            // absent. Must run after `tray::init`. macOS-only (the NSPopover
+            // plugin is); on Linux the main window stays a regular window.
+            #[cfg(target_os = "macos")]
             configure_popover_window(app);
             app.manage(SettingsState::new(settings_path, app_settings));
             app.manage(wizard::FirstRunState::new(!settings_existed));
@@ -195,16 +207,14 @@ fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 /// created — the plugin resolves the tray by id "main" and panics otherwise.
 /// On Linux the window stays a regular decorated window and the tray menu is
 /// the primary surface.
+#[cfg(target_os = "macos")]
 fn configure_popover_window(app: &tauri::App) {
-    #[cfg(target_os = "macos")]
     if let Some(window) = app.get_webview_window("main") {
         use tauri_plugin_nspopover::{ToPopoverOptions, WindowExt as _};
         window.to_popover(ToPopoverOptions {
             is_fullsize_content: true,
         });
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = app;
 }
 
 /// Expose the already-seeded scheduler core as managed state and start the

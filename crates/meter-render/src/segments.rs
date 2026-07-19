@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 
 use meter_core::UsageStatus;
 
-use crate::palette::{GRAY, MONO, ink, risk_badge, status_color};
+use crate::palette::{GRAY, MONO, badge, ink, override_color, status_color};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
@@ -26,6 +26,9 @@ pub fn svg(state: IconState) -> String {
     let canvas_w = f64::from(width);
     let ink = ink(state.mono, state.status);
     let track = if state.mono { MONO } else { GRAY };
+    // Pace-first display recolours every lit segment with the single pace band
+    // colour instead of the positional green→orange→red gradient.
+    let pace_fill = override_color(state);
     // How many of the five segments are lit — matching the original's
     // `percentage >= index * 20` quantization exactly, which always lights the
     // first segment (`percentage >= 0` is trivially true), even at 0%.
@@ -37,7 +40,7 @@ pub fn svg(state: IconState) -> String {
             let seg_height = HEIGHT_STEP.mul_add(f64::from(index), BASE_SEG_HEIGHT);
             let y = BASELINE - seg_height;
             if index < lit {
-                let fill = segment_color(state.mono, index, ink);
+                let fill = pace_fill.unwrap_or_else(|| segment_color(state.mono, index, ink));
                 let _ = write!(
                     out,
                     r#"<rect x="{x:.2}" y="{y:.2}" width="{SEG_WIDTH}" height="{seg_height:.2}" rx="1" fill="{fill}"/>"#
@@ -49,7 +52,7 @@ pub fn svg(state: IconState) -> String {
                 );
             }
         }
-        risk_badge(out, state.at_risk, state.mono, canvas_w);
+        badge(out, state, canvas_w);
     })
 }
 
@@ -77,6 +80,9 @@ mod tests {
             secondary_percent: 0,
             status,
             at_risk,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         }
@@ -137,5 +143,27 @@ mod tests {
     #[test]
     fn at_risk_adds_the_badge_dot() {
         assert!(svg(state(70, UsageStatus::Warning, true, false)).contains("<circle"));
+    }
+
+    #[test]
+    fn pace_first_paints_active_segments_one_pace_colour_and_a_snowflake() {
+        use crate::palette::{BLUE, SAFE};
+        // Underuse (cold): every active segment turns blue, replacing the
+        // positional green→orange→red gradient, and a snowflake badge appears.
+        let s = state(65, UsageStatus::Warning, false, false)
+            .with_pace(Some(0.3), Some(meter_core::PaceKind::Cold));
+        let svg = svg(s);
+        assert!(
+            svg.contains(BLUE),
+            "active segments are the pace band colour"
+        );
+        assert!(
+            !svg.contains(SAFE),
+            "the positional gradient is gone in pace-first: {svg}"
+        );
+        assert!(
+            svg.contains(r#"fill="none""#),
+            "snowflake is a stroked path"
+        );
     }
 }

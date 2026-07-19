@@ -5,8 +5,7 @@
 
 use std::fmt::Write as _;
 
-use crate::font::centered_text;
-use crate::palette::{GRAY, MONO, ink, risk_badge};
+use crate::palette::{GRAY, MONO, badge, draw_label, ink, primary_label};
 use crate::state::IconState;
 use crate::svg::svg_document;
 
@@ -46,27 +45,28 @@ pub fn svg(state: IconState) -> String {
                 r#"<circle cx="{CENTER_X}" cy="{CENTER_Y}" r="{RADIUS}" fill="none" stroke="{arc_ink}" stroke-width="{STROKE}" stroke-linecap="round" stroke-dasharray="{filled:.2} {remainder:.2}" transform="rotate(-90 {CENTER_X} {CENTER_Y})"/>"#
             );
         }
-        // The percentage number in the centre (no `%`, like the reference).
-        // Three-digit labels (only `100`) shrink so their outer strokes clear
-        // the surrounding ring; two-digit labels keep the larger size.
-        let label = state.percent.to_string();
+        // The centre number (no `%`, like the reference), or the compact pace
+        // ratio in pace-first display. Long labels — `100`, or a pace ratio like
+        // `12.5` — shrink so their outer strokes clear the surrounding ring; the
+        // arc keeps the quota status colour while the number takes the pace band.
+        let label = primary_label(state);
         let font_size = if label.len() > 2 {
             NUMBER_FS_WIDE
         } else {
             NUMBER_FS
         };
-        centered_text(out, (CENTER_X, CENTER_Y), font_size, arc_ink, &label);
+        draw_label(out, (CENTER_X, CENTER_Y), font_size, state, &label);
 
-        risk_badge(out, state.at_risk, state.mono, canvas_w);
+        badge(out, state, canvas_w);
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::palette::{CRITICAL, MONO, SAFE};
+    use crate::palette::{BLUE, CRITICAL, MONO, SAFE};
     use crate::state::{IconStyle, Scale};
-    use meter_core::UsageStatus;
+    use meter_core::{PaceKind, UsageStatus};
 
     fn state(percent: u8, status: UsageStatus, at_risk: bool, mono: bool) -> IconState {
         IconState {
@@ -75,6 +75,9 @@ mod tests {
             secondary_percent: 0,
             status,
             at_risk,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
             mono,
             scale: Scale::X1,
         }
@@ -128,6 +131,31 @@ mod tests {
         assert!(!mono.contains(CRITICAL));
         assert!(!mono.contains(GRAY));
         assert!(mono.contains(MONO));
+    }
+
+    #[test]
+    fn pace_first_recolours_only_the_centre_number_not_the_arc() {
+        // Circular is the one style whose pace-first split is asymmetric (per
+        // CircularGaugeIcon.swift): the progress arc keeps the quota-status
+        // colour while only the centre number takes the pace-band colour. A
+        // Safe window pacing cold (underuse → blue) must leave the arc SAFE
+        // green while the number turns blue.
+        let cold =
+            state(30, UsageStatus::Safe, false, false).with_pace(Some(0.3), Some(PaceKind::Cold));
+        let svg = svg(cold);
+        // The arc keeps the SAFE status colour — its stroke is the only SAFE
+        // element, so if it wrongly took the pace band this assertion fails.
+        assert!(
+            svg.contains(&format!(r#"stroke="{SAFE}""#)),
+            "arc must keep the quota-status colour, not the pace band: {svg}"
+        );
+        // The centre number is recoloured to the underuse band: its digits are
+        // filled blue (the snowflake badge is *stroked* blue, fill="none", so a
+        // blue `fill=` uniquely identifies the recoloured number).
+        assert!(
+            svg.contains(&format!(r#"fill="{BLUE}""#)),
+            "centre number must take the pace-band colour: {svg}"
+        );
     }
 
     #[test]

@@ -67,3 +67,46 @@ const RESET_DATE_TIME = new Intl.DateTimeFormat(undefined, {
 export function formatResetClock(resetsAt: Date, timeOnly: boolean): string {
   return (timeOnly ? RESET_TIME_ONLY : RESET_DATE_TIME).format(resetsAt);
 }
+
+function pluralize(singular: string, count: number): string {
+  return count === 1 ? singular : `${singular}s`;
+}
+
+/** Verbose remaining-time phrase for the pace projection line, mirroring
+ * upstream's `UsageLimit.resetDescription` minus its "in " prefix: "50
+ * minutes", "3 hours", "2 days 3 hours". Rounds up so it never understates
+ * how long is left. */
+export function describeRemaining(totalSecs: number): string {
+  const minute = 60;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (totalSecs <= 0) {
+    return "now";
+  }
+  if (totalSecs < hour) {
+    const minutes = Math.max(1, Math.ceil(totalSecs / minute));
+    return `${minutes} ${pluralize("minute", minutes)}`;
+  }
+  if (totalSecs < day) {
+    const hours = Math.ceil(totalSecs / hour);
+    return `${hours} ${pluralize("hour", hours)}`;
+  }
+  const roundedHours = Math.ceil(totalSecs / hour);
+  const days = Math.floor(roundedHours / 24);
+  const hours = roundedHours % 24;
+  if (hours === 0) {
+    return `${days} ${pluralize("day", days)}`;
+  }
+  return `${days} ${pluralize("day", days)} ${hours} ${pluralize("hour", hours)}`;
+}
+
+/** Wall-clock time for a projected limit-hit: time-only when it lands today
+ * (the 5-hour session case), month/day + time otherwise (a multi-day weekly
+ * projection) so it isn't shown as a bare clock time that reads like today. */
+export function formatHitTime(hitAt: Date, now: Date): string {
+  const sameDay =
+    hitAt.getFullYear() === now.getFullYear() &&
+    hitAt.getMonth() === now.getMonth() &&
+    hitAt.getDate() === now.getDate();
+  return (sameDay ? RESET_TIME_ONLY : RESET_DATE_TIME).format(hitAt);
+}

@@ -20,6 +20,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monochrome: false,
   show_reset_time: true,
   popover_layout: "rows",
+  weekly_pace_days: 7,
+  pace_first_display: false,
+  pace_tracking_enabled: true,
 };
 
 /** Deduped, snapshot-order list of every scoped model's display name in the

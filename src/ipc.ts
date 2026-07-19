@@ -89,6 +89,14 @@ export interface UsageBackend {
   setShowResetTime(enabled: boolean): Promise<AppSettings>;
   /** Switch the popover layout (redesign 1a rows / 1c cards). */
   setPopoverLayout(layout: PopoverLayout): Promise<AppSettings>;
+  /** Change how many days of the week the weekly quota is paced over (5/6/7,
+   * issue #16); resolves with the clamped settings. */
+  setWeeklyPaceDays(days: number): Promise<AppSettings>;
+  /** Toggle pace-first display mode — lead with the pace ratio instead of the
+   * raw quota percentage (issue #16). Resolves with the resulting settings. */
+  setPaceFirstDisplay(enabled: boolean): Promise<AppSettings>;
+  /** Master switch for the whole pace-tracking feature (issue #16). */
+  setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings>;
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
@@ -192,6 +200,18 @@ class TauriBackend implements UsageBackend {
 
   setPopoverLayout(layout: PopoverLayout): Promise<AppSettings> {
     return invoke<AppSettings>("set_popover_layout", { layout });
+  }
+
+  setWeeklyPaceDays(days: number): Promise<AppSettings> {
+    return invoke<AppSettings>("set_weekly_pace_days", { days });
+  }
+
+  setPaceFirstDisplay(enabled: boolean): Promise<AppSettings> {
+    return invoke<AppSettings>("set_pace_first_display", { enabled });
+  }
+
+  setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings> {
+    return invoke<AppSettings>("set_pace_tracking_enabled", { enabled });
   }
 
   wizardShouldRun(): Promise<boolean> {
@@ -395,6 +415,21 @@ class DemoBackend implements UsageBackend {
 
   setPopoverLayout(layout: PopoverLayout): Promise<AppSettings> {
     this.settings = { ...this.settings, popover_layout: layout };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setWeeklyPaceDays(days: number): Promise<AppSettings> {
+    this.settings = { ...this.settings, weekly_pace_days: Math.min(Math.max(days, 5), 7) };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setPaceFirstDisplay(enabled: boolean): Promise<AppSettings> {
+    this.settings = { ...this.settings, pace_first_display: enabled };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings> {
+    this.settings = { ...this.settings, pace_tracking_enabled: enabled };
     return Promise.resolve({ ...this.settings });
   }
 

@@ -32,9 +32,23 @@ use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::scheduler::{MeterState, SchedulerHandle};
-use model::{MenuModel, TrayDiff};
+use model::{IconOptions, MenuModel, PaceOptions, TrayDiff};
 
 const TRAY_ID: &str = "main";
+
+/// Everything [`init`] seeds from persisted settings at startup, bundled into
+/// one value (mirrors `scheduler::PersistPaths`) so the function stays
+/// within the workspace's `too_many_arguments` limit — style, monochrome,
+/// the scoped-model opt-in set, and the pace options (issue #16) all come
+/// from the same [`crate::settings::AppSettings`] snapshot at the one call
+/// site anyway.
+pub struct TraySeed {
+    pub style: IconStyle,
+    pub mono: bool,
+    pub shown: HashSet<String>,
+    pub weekly_pace_days: u8,
+    pub pace_first_display: bool,
+}
 
 /// Everything the live update path mutates, behind one lock.
 ///
@@ -61,7 +75,17 @@ struct TrayResources<R: Runtime> {
     /// (Settings, issue #6). Empty means no scoped model renders — see
     /// `model::menu_model`.
     shown: HashSet<String>,
+    /// How many days of the week the weekly quota is paced over (issue #16),
+    /// 5–7. Feeds `UsageSnapshot::pace_signal`'s weekly basis.
+    weekly_pace_days: u8,
+    /// Whether the flame/snowflake badge and the pace line are shown (issue
+    /// #16). Off by default: quota-first mode never computes a pace signal.
+    pace_first_display: bool,
     status_item: MenuItem<R>,
+    /// The off-pace tooltip line (Linux has no tray tooltip, so this is its
+    /// only home there), present only while `pace_first_display` is set and
+    /// a signal exists.
+    pace_item: Option<MenuItem<R>>,
     usage_items: Vec<MenuItem<R>>,
 }
 
@@ -76,20 +100,29 @@ fn lock<R: Runtime>(updater: &TrayUpdater<R>) -> MutexGuard<'_, TrayResources<R>
 /// [`apply_state`] can drive live updates. Must run before the scheduler
 /// starts broadcasting, or early states would be dropped. `initial` is the
 /// state to render right away — the caller passes the cache-restored state
-/// so a restart never flashes an empty gauge. `style`, `mono` and `shown`
-/// seed from the persisted [`crate::settings::AppSettings`] (issue #6) so a
-/// restart renders exactly as the user last configured it, not the
-/// hardcoded defaults.
+/// so a restart never flashes an empty gauge. `seed` carries the persisted
+/// [`crate::settings::AppSettings`] choices (issues #6, #16) so a restart
+/// renders exactly as the user last configured it, not the hardcoded
+/// defaults.
 pub fn init<R: Runtime>(
     app: &AppHandle<R>,
     initial: &MeterState,
-    style: IconStyle,
-    mono: bool,
-    shown: HashSet<String>,
+    seed: TraySeed,
 ) -> tauri::Result<()> {
+    let TraySeed {
+        style,
+        mono,
+        shown,
+        weekly_pace_days,
+        pace_first_display,
+    } = seed;
+    let pace = PaceOptions {
+        weekly_pace_days,
+        pace_first_display,
+    };
     let now = Timestamp::now();
-    let menu_model = model::menu_model(initial, now, &shown);
-    let (menu, status_item, usage_items) = build_menu(app, &menu_model)?;
+    let menu_model = model::menu_model(initial, now, &shown, pace);
+    let (menu, status_item, usage_items, pace_item) = build_menu(app, &menu_model)?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
@@ -123,7 +156,16 @@ pub fn init<R: Runtime>(
     // retries the real gauge.
     let mut cache = IconCache::new();
     let mut diff = TrayDiff::default();
-    let icon = model::icon_state(initial, now, style, mono, Scale::X2);
+    let icon = model::icon_state(
+        initial,
+        now,
+        IconOptions {
+            style,
+            mono,
+            scale: Scale::X2,
+        },
+        pace,
+    );
     match cache.get_or_render(icon) {
         Ok(rendered) => {
             tray = tray
@@ -148,7 +190,10 @@ pub fn init<R: Runtime>(
         style,
         mono,
         shown,
+        weekly_pace_days,
+        pace_first_display,
         status_item,
+        pace_item,
         usage_items,
     })));
     Ok(())
@@ -188,6 +233,28 @@ pub fn set_shown_scoped_models<R: Runtime>(
     apply_state(app, state);
 }
 
+/// Change the weekly pace basis (5/6/7 days) and pace-first display mode
+/// together and re-render immediately — the live-switch path Settings
+/// drives (issue #16). Both are set in one call because they always change
+/// together from a single settings command's resolved snapshot, and because
+/// a single two-field setter here is one function, not two near-identical
+/// one-field ones that would otherwise mirror [`set_style`]/[`set_mono`]
+/// closely enough to grow the duplication ceiling (`just dupes`). A no-op if
+/// the tray has not been initialized yet.
+pub fn set_pace_options<R: Runtime>(
+    app: &AppHandle<R>,
+    weekly_pace_days: u8,
+    pace_first_display: bool,
+    state: &MeterState,
+) {
+    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
+        let mut resources = lock(&updater);
+        resources.weekly_pace_days = weekly_pace_days;
+        resources.pace_first_display = pace_first_display;
+    }
+    apply_state(app, state);
+}
+
 /// Live update path: fold one broadcast [`MeterState`] into the tray.
 ///
 /// Safe to call from any thread (tray/menu mutations proxy to the main
@@ -205,8 +272,21 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
     let now = Timestamp::now();
 
     let mut resources = lock(&updater);
-    let menu = model::menu_model(state, now, &resources.shown);
-    let icon = model::icon_state(state, now, resources.style, resources.mono, Scale::X2);
+    let pace = PaceOptions {
+        weekly_pace_days: resources.weekly_pace_days,
+        pace_first_display: resources.pace_first_display,
+    };
+    let menu = model::menu_model(state, now, &resources.shown, pace);
+    let icon = model::icon_state(
+        state,
+        now,
+        IconOptions {
+            style: resources.style,
+            mono: resources.mono,
+            scale: Scale::X2,
+        },
+        pace,
+    );
     let plan = resources.diff.plan(icon, &menu);
     if let Some(icon) = plan.icon {
         match resources.cache.get_or_render(icon) {
@@ -228,28 +308,36 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
     }
 }
 
-/// Update menu text in place when the line count is unchanged; rebuild the
-/// menu (never the tray icon) only when usage lines appeared or vanished.
-/// Returns whether the menu now fully matches `menu`, so the caller only
-/// commits the debounce gate on success.
+/// Update menu text in place when the line count and pace-line presence are
+/// both unchanged; rebuild the menu (never the tray icon) when usage lines
+/// appeared/vanished, or when the pace line (issue #16) appeared/vanished —
+/// the fast path can only update a `MenuItem` already built into the menu,
+/// never add or remove one. Returns whether the menu now fully matches
+/// `menu`, so the caller only commits the debounce gate on success.
 fn apply_menu<R: Runtime>(
     app: &AppHandle<R>,
     tray: &TrayIcon<R>,
     resources: &mut TrayResources<R>,
     menu: &MenuModel,
 ) -> bool {
-    if resources.usage_items.len() == menu.usage_lines.len() {
+    let lines_match = resources.usage_items.len() == menu.usage_lines.len();
+    let pace_presence_matches = resources.pace_item.is_some() == menu.pace_line.is_some();
+    if lines_match && pace_presence_matches {
         let mut applied = resources.status_item.set_text(&menu.status_line).is_ok();
         for (item, line) in resources.usage_items.iter().zip(&menu.usage_lines) {
+            applied &= item.set_text(line).is_ok();
+        }
+        if let (Some(item), Some(line)) = (&resources.pace_item, &menu.pace_line) {
             applied &= item.set_text(line).is_ok();
         }
         return applied;
     }
     match build_menu(app, menu) {
-        Ok((rebuilt, status_item, usage_items)) => {
+        Ok((rebuilt, status_item, usage_items, pace_item)) => {
             if tray.set_menu(Some(rebuilt)).is_ok() {
                 resources.status_item = status_item;
                 resources.usage_items = usage_items;
+                resources.pace_item = pace_item;
                 true
             } else {
                 false
@@ -262,14 +350,21 @@ fn apply_menu<R: Runtime>(
     }
 }
 
-type BuiltMenu<R> = (Menu<R>, MenuItem<R>, Vec<MenuItem<R>>);
+type BuiltMenu<R> = (Menu<R>, MenuItem<R>, Vec<MenuItem<R>>, Option<MenuItem<R>>);
 
-/// Build the full tray menu for a [`MenuModel`]: status line, live usage
-/// lines (informational, disabled), then Open / Settings / Refresh Now /
-/// Quit. "Settings…" is the primary way to reach Settings on Linux, where
-/// the tray delivers no click events for a popover-style affordance.
+/// Build the full tray menu for a [`MenuModel`]: status line, the pace line
+/// when pace-first display has a signal (issue #16 — the only place that
+/// text is visible on Linux, which has no tray tooltip), live usage lines
+/// (informational, disabled), then Open / Settings / Refresh Now / Quit.
+/// "Settings…" is the primary way to reach Settings on Linux, where the tray
+/// delivers no click events for a popover-style affordance.
 fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result<BuiltMenu<R>> {
     let status_item = MenuItem::with_id(app, "status", &menu.status_line, false, None::<&str>)?;
+    let pace_item = menu
+        .pace_line
+        .as_ref()
+        .map(|line| MenuItem::with_id(app, "pace", line, false, None::<&str>))
+        .transpose()?;
     let usage_items = menu
         .usage_lines
         .iter()
@@ -286,6 +381,9 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result
     let actions_separator = PredefinedMenuItem::separator(app)?;
 
     let mut items: Vec<&dyn IsMenuItem<R>> = vec![&status_item];
+    if let Some(item) = &pace_item {
+        items.push(item);
+    }
     if !usage_items.is_empty() {
         items.push(&usage_separator);
         for item in &usage_items {
@@ -299,7 +397,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result
     items.push(&quit);
 
     let built = Menu::with_items(app, &items)?;
-    Ok((built, status_item, usage_items))
+    Ok((built, status_item, usage_items, pace_item))
 }
 
 /// Wrap rendered RGBA bytes in a tray image.
