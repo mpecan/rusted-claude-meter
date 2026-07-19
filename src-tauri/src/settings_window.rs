@@ -22,7 +22,10 @@ use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 /// `main` popover window so both coexist and are addressed independently.
 pub const SETTINGS_WINDOW_LABEL: &str = "settings";
 
-/// The window the popover lives in (defined in `tauri.conf.json`).
+/// The window the popover lives in (defined in `tauri.conf.json`). Only the
+/// macOS focus-loss handler (and the unit test) reference it; on Linux the
+/// popover has no blur behaviour, so gate it to avoid a dead-code error there.
+#[cfg(any(target_os = "macos", test))]
 const MAIN_WINDOW_LABEL: &str = "main";
 
 /// Open the Settings window, or focus it if it is already open — never a second
@@ -72,7 +75,7 @@ pub fn set_app_foreground<R: Runtime>(app: &AppHandle<R>, foreground: bool) {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_app_foreground<R: Runtime>(_app: &AppHandle<R>, _foreground: bool) {}
+pub const fn set_app_foreground<R: Runtime>(_app: &AppHandle<R>, _foreground: bool) {}
 
 /// Whether `label` is the Settings window's label — the one window that is a
 /// real, closable window rather than the always-alive popover.
@@ -80,7 +83,10 @@ pub fn is_settings_label(label: &str) -> bool {
     label == SETTINGS_WINDOW_LABEL
 }
 
-/// Whether `label` is the popover/`main` window's label.
+/// Whether `label` is the popover/`main` window's label. Only used by the
+/// macOS focus-loss handler (popover auto-hide) and the unit test — gated so
+/// Linux, which has no such handler, doesn't flag it as dead code.
+#[cfg(any(target_os = "macos", test))]
 pub fn is_main_label(label: &str) -> bool {
     label == MAIN_WINDOW_LABEL
 }
