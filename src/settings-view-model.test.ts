@@ -17,6 +17,7 @@ function snapshot(scoped: ScopedLimit[]): UsageSnapshot {
     five_hour: null,
     seven_day: null,
     scoped,
+    spend: null,
     fetched_at: "2026-07-17T12:00:00Z",
   };
 }

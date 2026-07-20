@@ -56,7 +56,7 @@ describe("buildViewModel — cards", () => {
   it("omits absent headline windows", () => {
     const viewModel = buildViewModel(
       state({
-        snapshot: { five_hour: window(10, 1000), seven_day: null, scoped: [], fetched_at: NOW.toISOString() },
+        snapshot: { five_hour: window(10, 1000), seven_day: null, scoped: [], spend: null, fetched_at: NOW.toISOString() },
       }),
       NOW,
       ALL_SHOWN,
@@ -71,7 +71,7 @@ describe("buildViewModel — cards", () => {
           five_hour: null,
           seven_day: null,
           scoped: [scoped("Sonnet", true), scoped("CodeOnly", false)],
-          fetched_at: NOW.toISOString(),
+          spend: null, fetched_at: NOW.toISOString(),
         },
       }),
       NOW,
@@ -99,7 +99,7 @@ describe("buildViewModel — cards", () => {
           five_hour: null,
           seven_day: null,
           scoped: [scoped("Sonnet", true), scoped("CodeOnly", false)],
-          fetched_at: NOW.toISOString(),
+          spend: null, fetched_at: NOW.toISOString(),
         },
       }),
       NOW,
@@ -117,7 +117,7 @@ describe("buildViewModel — cards", () => {
     const hot = window(90, 4 * 86_400); // ratio well above 1.2
     const viewModel = buildViewModel(
       state({
-        snapshot: { five_hour: null, seven_day: hot, scoped: [], fetched_at: NOW.toISOString() },
+        snapshot: { five_hour: null, seven_day: hot, scoped: [], spend: null, fetched_at: NOW.toISOString() },
       }),
       NOW,
       ALL_SHOWN,
@@ -143,7 +143,7 @@ function paced(
 
 function pacedState(five: UsageWindow | null, seven: UsageWindow | null): MeterState {
   return state({
-    snapshot: { five_hour: five, seven_day: seven, scoped: [], fetched_at: NOW.toISOString() },
+    snapshot: { five_hour: five, seven_day: seven, scoped: [], spend: null, fetched_at: NOW.toISOString() },
   });
 }
 
@@ -216,7 +216,7 @@ describe("buildViewModel — pace", () => {
     };
     const vm = buildViewModel(
       state({
-        snapshot: { five_hour: null, seven_day: null, scoped: [scopedFive], fetched_at: NOW.toISOString() },
+        snapshot: { five_hour: null, seven_day: null, scoped: [scopedFive], spend: null, fetched_at: NOW.toISOString() },
       }),
       NOW,
       new Set(["Sonnet"]),

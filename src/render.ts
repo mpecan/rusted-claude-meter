@@ -11,6 +11,7 @@
 // ratio, coloured by its pace band, with the quota % demoted to secondary and
 // a flame/snowflake verdict badge — mirroring upstream's `UsageCardView`.
 
+import type { CostViewModel } from "./cost-view-model";
 import { describeRemaining, formatCountdown, formatHitTime, formatResetClock } from "./format";
 import { RISK_THRESHOLD, UNDERUSE_THRESHOLD } from "./pacing";
 import { type UsageStatus, statusLabel } from "./status";
@@ -303,6 +304,81 @@ function buildStatusCard(card: UsageCardViewModel): HTMLElement {
   }
   el.append(resetLine(card));
   return el;
+}
+
+// ---- Token/cost view (Enterprise accounts + the allowance cost-summary) ----
+
+/** Title of the spend card, in both the full cost view and the allowance-mode
+ * summary — the same card in both places. */
+const COST_CARD_TITLE = "Spend this period";
+
+/** The spend card: spend to date, an optional budget gauge with its percentage
+ * caption, and the hard cap when it differs from the budget. Shared by the full
+ * cost view (`renderCostCards`) and the allowance-mode summary (appended after
+ * the limit cards by the popover). */
+export function buildCostCard(vm: CostViewModel): HTMLElement {
+  const el = document.createElement("article");
+  el.className = "cost-card";
+  if (vm.gauge) {
+    el.classList.add(`status-${vm.gauge.status}`);
+  }
+
+  const head = document.createElement("div");
+  head.className = "status-card-head";
+  const name = document.createElement("span");
+  name.className = "meter-name";
+  name.textContent = COST_CARD_TITLE;
+  const value = document.createElement("span");
+  value.className = `meter-percent ${vm.gauge ? `status-${vm.gauge.status}` : ""}`.trim();
+  value.textContent = vm.used ?? "—";
+  head.append(name, value);
+  el.append(head);
+
+  if (vm.gauge) {
+    const meter = document.createElement("div");
+    meter.className = "status-card-meter";
+    meter.append(
+      meterBar(vm.gauge.percent, `status-${vm.gauge.status}`, `${COST_CARD_TITLE} vs budget`, null),
+    );
+    el.append(meter);
+    const caption = document.createElement("div");
+    caption.className = "cost-caption";
+    caption.textContent = `${vm.gauge.percent}% of ${vm.gauge.budget}`;
+    el.append(caption);
+  }
+
+  if (vm.cap) {
+    const cap = document.createElement("div");
+    cap.className = "cost-caption";
+    cap.textContent = `Hard cap ${vm.cap}`;
+    el.append(cap);
+  }
+  return el;
+}
+
+/** A light one-time hint, shown when Auto resolves to the cost view so the
+ * switch to a spend-based display is explained (and points at Settings). */
+function buildCostHint(text: string): HTMLElement {
+  const hint = document.createElement("p");
+  hint.className = "cost-hint";
+  hint.textContent = text;
+  return hint;
+}
+
+/** Render the full cost view: an optional hint, then the spend card. Replaces
+ * the card container's contents like `renderCards`. */
+export function renderCostCards(
+  container: HTMLElement,
+  vm: CostViewModel,
+  hint: string | null = null,
+): void {
+  container.dataset.layout = "cost";
+  const nodes: HTMLElement[] = [];
+  if (hint) {
+    nodes.push(buildCostHint(hint));
+  }
+  nodes.push(buildCostCard(vm));
+  container.replaceChildren(...nodes);
 }
 
 /** Re-read every rendered meter's `data-resets-at` and refresh its countdown

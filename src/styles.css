@@ -429,6 +429,43 @@ body {
   background: var(--tint-critical);
 }
 
+/* ---- Token/cost view (Enterprise) + the allowance cost-summary card ---- */
+.cost-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+  background: var(--card-bg);
+}
+.cost-card.status-safe {
+  background: var(--tint-safe);
+}
+.cost-card.status-warning {
+  background: var(--tint-warning);
+}
+.cost-card.status-critical {
+  background: var(--tint-critical);
+}
+.cost-card .status-card-meter .meter-percent {
+  font-size: 1.05rem;
+}
+.cost-caption {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cost-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+}
+
 /* `.session-form` sets its own `display`, which would otherwise beat the
    UA stylesheet's `[hidden] { display: none }` (same specificity, author
    origin always wins) and keep the form visible even with the `hidden`
@@ -790,6 +827,25 @@ body {
 .settings-field-label {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.debug-log-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.debug-log-path {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--track-bg);
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
 }
 
 .segmented {

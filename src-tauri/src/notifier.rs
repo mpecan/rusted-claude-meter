@@ -206,6 +206,7 @@ mod tests {
                     is_active: true,
                 },
             ],
+            spend: None,
             fetched_at: now(),
         }
     }

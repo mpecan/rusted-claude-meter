@@ -17,6 +17,8 @@ use wiremock::matchers::{body_string_contains, header, header_exists, method, pa
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const FIXTURE: &str = include_str!("fixtures/usage_response.json");
+// PROVISIONAL cost/token payload — see the note in `decode.rs`.
+const COST_FIXTURE: &str = include_str!("fixtures/usage_response_cost.json");
 const RAW_KEY: &str = "sk-ant-sid01-abcDEF123456_-xyz789";
 
 fn session_key() -> SessionKey {
@@ -58,6 +60,34 @@ async fn usage_decodes_the_fixture_corpus_over_the_wire() {
 }
 
 #[tokio::test]
+async fn usage_decodes_a_token_cost_response_over_the_wire() {
+    // A no-limits Enterprise payload: `limits` is empty and the account is
+    // token/cost based, so the decoded response carries a `spend` object.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/organizations/org-1/usage"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(COST_FIXTURE, "application/json"))
+        .mount(&server)
+        .await;
+
+    let usage = client(&server).usage("org-1").await.unwrap();
+    assert!(usage.limits.is_empty());
+    assert!(usage.five_hour.is_none());
+
+    let fetched_at: jiff::Timestamp = "2026-07-19T12:00:00Z".parse().unwrap();
+    let snapshot = usage.into_snapshot(fetched_at);
+    assert!(!snapshot.has_limits());
+    assert_eq!(snapshot.suggested_mode(), meter_core::UsageMode::Cost);
+    let spend = snapshot.spend.unwrap();
+    assert_eq!(spend.used.as_ref().map(|m| m.minor), Some(12_500));
+    assert_eq!(spend.limit.as_ref().map(|m| m.minor), Some(500_000));
+    assert_eq!(
+        spend.used.as_ref().map(|m| m.currency.as_str()),
+        Some("USD")
+    );
+}
+
+#[tokio::test]
 async fn requests_present_the_spoofed_browser_headers() {
     let server = MockServer::start().await;
     // The mock only matches (and therefore only returns 200) when the
@@ -94,29 +124,32 @@ async fn requests_present_the_spoofed_browser_headers() {
 }
 
 #[tokio::test]
-async fn http_401_maps_to_unauthorized() {
-    let server = MockServer::start().await;
+async fn auth_failures_map_to_their_api_error() {
+    // The status→error mapping lives in `UsageClient::get`, shared by every
+    // endpoint: a 401 during org discovery is a session-expired signal, and a
+    // 403 on the usage endpoint is claude.ai's bot block. Both distinct
+    // mappings are exercised on the endpoint each actually occurs on.
+    let unauthorized = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/organizations"))
         .respond_with(ResponseTemplate::new(401))
-        .mount(&server)
+        .mount(&unauthorized)
         .await;
+    assert!(matches!(
+        client(&unauthorized).organizations().await.unwrap_err(),
+        ApiError::Unauthorized
+    ));
 
-    let error = client(&server).organizations().await.unwrap_err();
-    assert!(matches!(error, ApiError::Unauthorized));
-}
-
-#[tokio::test]
-async fn http_403_maps_to_blocked() {
-    let server = MockServer::start().await;
+    let blocked = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/organizations/org-1/usage"))
         .respond_with(ResponseTemplate::new(403))
-        .mount(&server)
+        .mount(&blocked)
         .await;
-
-    let error = client(&server).usage("org-1").await.unwrap_err();
-    assert!(matches!(error, ApiError::Blocked));
+    assert!(matches!(
+        client(&blocked).usage("org-1").await.unwrap_err(),
+        ApiError::Blocked
+    ));
 }
 
 #[tokio::test]

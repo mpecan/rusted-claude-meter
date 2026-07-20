@@ -52,11 +52,19 @@ impl UsageClient {
         Ok(serde_json::from_str(&body)?)
     }
 
-    /// Fetch the raw usage payload for one organization.
+    /// Fetch and decode the usage payload for one organization.
     pub async fn usage(&self, org_id: &str) -> Result<UsageResponse, ApiError> {
+        Ok(serde_json::from_str(&self.usage_raw(org_id).await?)?)
+    }
+
+    /// Fetch the usage payload as the exact JSON text the endpoint returned,
+    /// undecoded — the seam the shell's debug logging taps to capture real
+    /// responses (e.g. to verify the `spend` shape against more account types)
+    /// before they are mapped into the domain. The body carries only usage data;
+    /// the session key travels in a request header and is never part of it.
+    pub async fn usage_raw(&self, org_id: &str) -> Result<String, ApiError> {
         let url = format!("{}/organizations/{org_id}/usage", self.base_url);
-        let body = self.get(&url).await?;
-        Ok(serde_json::from_str(&body)?)
+        self.get(&url).await
     }
 
     async fn get(&self, url: &str) -> Result<String, ApiError> {

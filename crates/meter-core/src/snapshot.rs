@@ -3,8 +3,10 @@ use std::collections::HashSet;
 use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 
+use crate::mode::UsageMode;
 use crate::pace_signal::{PaceKind, PaceSignal};
 use crate::pacing::{PacingAssessment, RISK_THRESHOLD, UNDERUSE_THRESHOLD, weekly_pacing_duration};
+use crate::spend::Spend;
 use crate::status::UsageStatus;
 use crate::window::UsageWindow;
 
@@ -39,15 +41,47 @@ impl ScopedLimit {
 /// `five_hour` and `seven_day` are the headline windows; `scoped` holds one
 /// entry per model-scoped limit. Headline kinds are excluded from the scoped
 /// list at decode time so an entry the API later scopes cannot render twice.
+///
+/// `spend` carries token/cost-based usage when the account reports it
+/// (Enterprise, or alongside an allowance response); it is `None` when the
+/// response surfaces no usable cost figures.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UsageSnapshot {
     pub five_hour: Option<UsageWindow>,
     pub seven_day: Option<UsageWindow>,
     pub scoped: Vec<ScopedLimit>,
+    /// Boxed so the rarely-present, comparatively large spend payload does not
+    /// inflate every `UsageSnapshot` (kept cheap to move/clone across the tray,
+    /// cache and scheduler) — serde treats `Box<Spend>` transparently, so the
+    /// wire/JSON shape is unchanged.
+    #[serde(default)]
+    pub spend: Option<Box<Spend>>,
     pub fetched_at: Timestamp,
 }
 
 impl UsageSnapshot {
+    /// Whether the account reports any allowance limit — either headline
+    /// window or a model-scoped one. When false the account is token/cost
+    /// based and [`Self::suggested_mode`] selects the spend view.
+    #[must_use]
+    pub const fn has_limits(&self) -> bool {
+        self.five_hour.is_some() || self.seven_day.is_some() || !self.scoped.is_empty()
+    }
+
+    /// The view auto-detection would pick for this snapshot: the allowance
+    /// (percentage-of-limit) view when limits are present, otherwise the cost
+    /// view — but only when there is actually cost data to show. A snapshot
+    /// with neither limits nor spend (a transient/degenerate response) stays
+    /// on the allowance view rather than switching to an empty cost view.
+    #[must_use]
+    pub const fn suggested_mode(&self) -> UsageMode {
+        if self.has_limits() || self.spend.is_none() {
+            UsageMode::Allowance
+        } else {
+            UsageMode::Cost
+        }
+    }
+
     /// Worst status across every window, headline and scoped alike.
     /// Drives the tray icon colour.
     pub fn overall_status(&self) -> UsageStatus {
@@ -198,6 +232,7 @@ mod tests {
                 usage: window(scoped),
                 is_active: true,
             }],
+            spend: None,
             fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
         }
     }
@@ -220,6 +255,7 @@ mod tests {
             five_hour: None,
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
         };
         assert_eq!(empty.overall_status(), UsageStatus::Safe);
@@ -241,6 +277,63 @@ mod tests {
             window: LimitWindow::SevenDay,
         };
         assert!(hot.at_risk(now));
+    }
+
+    #[test]
+    fn has_limits_and_suggested_mode_track_allowance_windows() {
+        let with_limits = snapshot(10.0, 20.0, 30.0);
+        assert!(with_limits.has_limits());
+        assert_eq!(with_limits.suggested_mode(), UsageMode::Allowance);
+
+        let cost_only = UsageSnapshot {
+            five_hour: None,
+            seven_day: None,
+            scoped: vec![],
+            spend: Some(Box::new(crate::spend::Spend {
+                used: Some(crate::spend::Money {
+                    minor: 12_500,
+                    currency: "USD".to_owned(),
+                    exponent: 2,
+                }),
+                ..crate::spend::Spend::default()
+            })),
+            fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
+        };
+        assert!(!cost_only.has_limits());
+        assert_eq!(cost_only.suggested_mode(), UsageMode::Cost);
+    }
+
+    #[test]
+    fn suggested_mode_without_limits_or_spend_stays_allowance() {
+        // A transient/degenerate response with no limits and no spend must not
+        // switch Auto to an empty cost view.
+        let empty = UsageSnapshot {
+            five_hour: None,
+            seven_day: None,
+            scoped: vec![],
+            spend: None,
+            fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
+        };
+        assert!(!empty.has_limits());
+        assert_eq!(empty.suggested_mode(), UsageMode::Allowance);
+    }
+
+    #[test]
+    fn has_limits_counts_a_lone_scoped_window() {
+        let scoped_only = UsageSnapshot {
+            five_hour: None,
+            seven_day: None,
+            scoped: vec![ScopedLimit {
+                display_name: "Fable".to_owned(),
+                model_id: None,
+                usage: window(10.0),
+                is_active: true,
+            }],
+            spend: None,
+            fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
+        };
+        assert!(scoped_only.has_limits());
+        assert_eq!(scoped_only.suggested_mode(), UsageMode::Allowance);
     }
 
     #[test]
@@ -273,6 +366,7 @@ mod tests {
             five_hour: Some(session),
             seven_day: Some(weekly),
             scoped: vec![],
+            spend: None,
             fetched_at: pace_now(),
         }
     }

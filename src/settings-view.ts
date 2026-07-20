@@ -22,6 +22,7 @@ import {
   type Browser,
   type PopoverLayout,
   type RefreshInterval,
+  type UsageMode,
   type UsageSnapshot,
 } from "./types";
 import { describeWizardValidation } from "./wizard-view-model";
@@ -80,6 +81,7 @@ export function initSettingsView(backend: UsageBackend): void {
   const iconStyleContainer = requireElement<HTMLElement>("icon-style-picker");
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
   const showResetTimeToggle = requireElement<HTMLInputElement>("show-reset-time-toggle");
+  const usageModeToggle = requireElement<HTMLElement>("usage-mode-toggle");
   const popoverLayoutToggle = requireElement<HTMLElement>("popover-layout-toggle");
   const paceTrackingToggle = requireElement<HTMLInputElement>("pace-tracking-toggle");
   const paceConfig = requireElement<HTMLElement>("pace-config");
@@ -87,6 +89,10 @@ export function initSettingsView(backend: UsageBackend): void {
   const weeklyPaceDaysToggle = requireElement<HTMLElement>("weekly-pace-days-toggle");
   const autostartToggle = requireElement<HTMLInputElement>("autostart-toggle");
   const autostartError = requireElement<HTMLElement>("autostart-error");
+  const debugLoggingToggle = requireElement<HTMLInputElement>("debug-logging-toggle");
+  const debugLogLocation = requireElement<HTMLElement>("debug-log-location");
+  const debugLogPathEl = requireElement<HTMLElement>("debug-log-path");
+  const revealDebugLogButton = requireElement<HTMLButtonElement>("reveal-debug-log-button");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
   const settingsSessionForm = requireElement<HTMLFormElement>("settings-session-form");
   const settingsSessionInput = requireElement<HTMLInputElement>("settings-session-input");
@@ -137,6 +143,8 @@ export function initSettingsView(backend: UsageBackend): void {
     iconStylePicker.setSelected(settings.icon_style);
     monochromeToggle.checked = settings.monochrome;
     showResetTimeToggle.checked = settings.show_reset_time;
+    debugLoggingToggle.checked = settings.debug_logging;
+    setSegmentedValue(usageModeToggle, settings.usage_mode);
     setSegmentedValue(popoverLayoutToggle, settings.popover_layout);
     paceTrackingToggle.checked = settings.pace_tracking_enabled;
     paceConfig.hidden = !settings.pace_tracking_enabled;
@@ -153,6 +161,23 @@ export function initSettingsView(backend: UsageBackend): void {
       })
       .catch((error: unknown) => {
         console.error("failed to read session status", error);
+      });
+  }
+
+  /** Show the resolved API-response log path (Debug section). Called on load;
+   * the path is fixed for the process, so a failure or a `null` (no log dir
+   * resolvable) simply leaves the location row hidden. */
+  function loadDebugLogPath(): void {
+    backend
+      .debugLogPath()
+      .then((path) => {
+        if (path) {
+          debugLogPathEl.textContent = path;
+          debugLogLocation.hidden = false;
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("failed to read debug log path", error);
       });
   }
 
@@ -261,6 +286,7 @@ export function initSettingsView(backend: UsageBackend): void {
   refreshSessionStatus();
   loadBrowserList();
   refreshAutostartStatus();
+  loadDebugLogPath();
 
   refreshIntervalSelect.addEventListener("change", () => {
     const interval = refreshIntervalSelect.value as RefreshInterval;
@@ -306,6 +332,20 @@ export function initSettingsView(backend: UsageBackend): void {
     });
   });
 
+  debugLoggingToggle.addEventListener("change", () => {
+    const enabled = debugLoggingToggle.checked;
+    settings = { ...settings, debug_logging: enabled };
+    backend.setDebugLogging(enabled).catch((error: unknown) => {
+      console.error("failed to persist debug-logging setting", error);
+    });
+  });
+
+  revealDebugLogButton.addEventListener("click", () => {
+    backend.revealDebugLog().catch((error: unknown) => {
+      console.error("failed to reveal debug log", error);
+    });
+  });
+
   paceTrackingToggle.addEventListener("change", () => {
     const enabled = paceTrackingToggle.checked;
     settings = { ...settings, pace_tracking_enabled: enabled };
@@ -316,6 +356,17 @@ export function initSettingsView(backend: UsageBackend): void {
       console.error("failed to persist pace-tracking setting", error);
     });
   });
+
+  bindSegmented<UsageMode>(
+    usageModeToggle,
+    (mode) => settings.usage_mode === mode,
+    (raw) => raw as UsageMode,
+    (mode) => {
+      settings = { ...settings, usage_mode: mode };
+      return backend.setUsageMode(mode);
+    },
+    "usage mode",
+  );
 
   bindSegmented<PopoverLayout>(
     popoverLayoutToggle,

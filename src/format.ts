@@ -3,6 +3,8 @@
 // `src-tauri/src/tray/model.rs` so the popover and the tray menu read the
 // same way.
 
+import type { Money } from "./types";
+
 /** Round a raw utilization percentage to the whole number cards display,
  * clamped to `0..=100` (the API can report utilization above 100). */
 export function roundPercent(percent: number): number {
@@ -98,6 +100,34 @@ export function describeRemaining(totalSecs: number): string {
     return `${days} ${pluralize("day", days)}`;
   }
   return `${days} ${pluralize("day", days)} ${hours} ${pluralize("hour", hours)}`;
+}
+
+/** Known currency glyphs. Anything else falls back to showing the ISO code
+ * after the amount, matching the Rust `currency_symbol` on the tray side. */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  JPY: "¥",
+};
+
+/** Format a `Money` in its own currency, e.g. `"€0.35"`, `"$125.00"`, or
+ * `"1000.00 SEK"` for a currency without a known glyph. Mirrors the tray's Rust
+ * `format_money` (`src-tauri/src/tray/model/mod.rs`). The value comes from the
+ * API in minor units with the currency's decimal-place count, so the exact
+ * figure is preserved without floating-point rounding. A negative amount (which
+ * should not normally occur) keeps a leading `-` so a bad figure stays visible. */
+export function formatMoney(money: Money): string {
+  const sign = money.minor < 0 ? "-" : "";
+  const abs = Math.abs(Math.trunc(money.minor));
+  const divisor = 10 ** money.exponent;
+  const major = Math.floor(abs / divisor);
+  const amount =
+    money.exponent === 0
+      ? String(major)
+      : `${major}.${String(abs % divisor).padStart(money.exponent, "0")}`;
+  const symbol = CURRENCY_SYMBOLS[money.currency];
+  return symbol ? `${sign}${symbol}${amount}` : `${sign}${amount} ${money.currency}`;
 }
 
 /** Wall-clock time for a projected limit-hit: time-only when it lands today

@@ -14,4 +14,4 @@ mod response;
 
 pub use client::{DEFAULT_BASE_URL, Organization, UsageClient};
 pub use error::ApiError;
-pub use response::{RawLimit, RawWindow, UsageResponse};
+pub use response::{RawLimit, RawSpend, RawWindow, UsageResponse};

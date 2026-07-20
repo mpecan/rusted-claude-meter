@@ -10,9 +10,13 @@
 //! the menu (no flicker, no redundant `set_icon` calls).
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 use jiff::Timestamp;
-use meter_core::{LimitWindow, PaceSignal, UsageWindow, weekly_pacing_duration};
+use meter_core::{
+    LimitWindow, Money, PaceSignal, Spend, UsageMode, UsageStatus, UsageWindow,
+    weekly_pacing_duration,
+};
 use meter_render::{IconState, IconStyle, Scale, round_percent};
 
 use crate::scheduler::{MeterState, Phase, Staleness};
@@ -90,28 +94,40 @@ pub fn icon_state(
     now: Timestamp,
     icon: IconOptions,
     pace: PaceOptions,
+    usage_mode: UsageMode,
 ) -> IconState {
-    let base = state.snapshot.as_ref().map_or(
-        IconState {
-            style: icon.style,
-            percent: 0,
-            secondary_percent: 0,
-            status: meter_core::UsageStatus::Safe,
-            at_risk: false,
-            pace_kind: None,
-            pace_band: None,
-            pace_ratio: None,
-            mono: icon.mono,
-            scale: icon.scale,
-        },
-        |snapshot| IconState::from_snapshot(snapshot, now, icon.style, icon.mono, icon.scale),
-    );
+    // The empty "safe" gauge: shown when there is no snapshot at all, and also
+    // the Cost-mode fallback when there is no spend figure to gauge — never the
+    // allowance percentage, even for a limits-bearing snapshot pinned to Cost.
+    let empty = IconState {
+        style: icon.style,
+        percent: 0,
+        secondary_percent: 0,
+        status: UsageStatus::Safe,
+        at_risk: false,
+        pace_kind: None,
+        pace_band: None,
+        pace_ratio: None,
+        mono: icon.mono,
+        scale: icon.scale,
+    };
+    let Some(snapshot) = state.snapshot.as_ref() else {
+        return empty;
+    };
+    let base = IconState::from_snapshot(snapshot, now, icon.style, icon.mono, icon.scale);
+    // A cost/spend account drives the icon from spend, not the percentage
+    // windows or pace: a spend cap becomes the gauge; without a usable spend
+    // figure the icon stays the empty gauge (not the allowance percentage) and
+    // the "$" figure, if any, surfaces in the menu.
+    if usage_mode.effective(snapshot) == UsageMode::Cost {
+        return snapshot
+            .spend
+            .as_deref()
+            .map_or(empty, |spend| cost_icon(empty, spend));
+    }
     if !pace.pace_first_display {
         return base;
     }
-    let Some(snapshot) = state.snapshot.as_ref() else {
-        return base;
-    };
     let signal = snapshot.pace_signal(now, pace.weekly_pace_days);
     let weekly_pacing = weekly_pacing_duration(pace.weekly_pace_days);
     let ratio = signal
@@ -134,6 +150,83 @@ pub fn icon_state(
     })
 }
 
+/// The symbol for a currency code, when it's one we render with a glyph.
+/// Anything else falls back to showing the ISO code after the amount.
+const fn currency_symbol(code: &str) -> Option<&'static str> {
+    match code.as_bytes() {
+        b"USD" => Some("$"),
+        b"EUR" => Some("€"),
+        b"GBP" => Some("£"),
+        b"JPY" => Some("¥"),
+        _ => None,
+    }
+}
+
+/// Format a [`Money`] in its own currency, e.g. `"€0.35"`, `"$125.00"`, or
+/// `"1,000 SEK"` for a currency without a known glyph. The value comes from the
+/// API in minor units with the currency's decimal-place count, so the exact
+/// figure is preserved without floating-point rounding. A negative amount
+/// (which should not normally occur) keeps a leading `-` so a bad figure is
+/// visible rather than silently mangled. Mirrors the frontend `formatMoney`.
+fn format_money(money: &Money) -> String {
+    let exponent = u32::from(money.exponent);
+    let divisor = 10_u64.pow(exponent);
+    let sign = if money.minor < 0 { "-" } else { "" };
+    let abs = money.minor.unsigned_abs();
+    let amount = if exponent == 0 {
+        (abs / divisor).to_string()
+    } else {
+        format!(
+            "{}.{:0width$}",
+            abs / divisor,
+            abs % divisor,
+            width = exponent as usize
+        )
+    };
+    currency_symbol(&money.currency).map_or_else(
+        || format!("{sign}{amount} {}", money.currency),
+        |symbol| format!("{sign}{symbol}{amount}"),
+    )
+}
+
+/// The icon gauge for a cost/spend account. A spend limit/cap turns
+/// spend-to-date into a percentage gauge (coloured by that fraction, like the
+/// allowance windows); without a denominator the `empty` gauge stands and the
+/// compact spend figure surfaces in the menu instead.
+fn cost_icon(empty: IconState, spend: &Spend) -> IconState {
+    spend.fraction_used().map_or(empty, |fraction| {
+        let percent_value = fraction * 100.0;
+        IconState {
+            percent: round_percent(percent_value),
+            secondary_percent: 0,
+            status: UsageStatus::from_utilization(percent_value),
+            at_risk: false,
+            pace_kind: None,
+            pace_band: None,
+            pace_ratio: None,
+            ..empty
+        }
+    })
+}
+
+/// The tray usage line(s) for a cost/spend account: the spend to date, annotated
+/// with the percentage of the spend limit (or hard cap) when one is set. Empty
+/// when the spend object holds no usable figure (e.g. the `{"unsurfaced": true}`
+/// stub decoded to `None`), so the menu shows no line rather than a bogus `$0`.
+fn cost_usage_lines(spend: &Spend) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(used) = &spend.used {
+        let mut line = format!("Spend {} this period", format_money(used));
+        let budget = spend.limit.as_ref().or(spend.cap.as_ref());
+        if let (Some(budget), Some(fraction)) = (budget, spend.fraction_used()) {
+            let percent = round_percent(fraction * 100.0);
+            let _ = write!(line, " · {percent}% of {}", format_money(budget));
+        }
+        lines.push(line);
+    }
+    lines
+}
+
 /// Build the menu view-model for a state at `now`.
 ///
 /// `shown` is the user's opt-in set of scoped-model display names from
@@ -147,31 +240,42 @@ pub fn menu_model(
     now: Timestamp,
     shown: &HashSet<String>,
     pace: PaceOptions,
+    usage_mode: UsageMode,
 ) -> MenuModel {
     let mut usage_lines = Vec::new();
+    let mut pace_line = None;
     if let Some(snapshot) = &state.snapshot {
-        if let Some(window) = &snapshot.five_hour {
-            usage_lines.push(usage_line(window_label(window.window), window, now));
-        }
-        if let Some(window) = &snapshot.seven_day {
-            usage_lines.push(usage_line(window_label(window.window), window, now));
-        }
-        for limit in &snapshot.scoped {
-            if !limit.is_visible(shown) {
-                continue;
+        if usage_mode.effective(snapshot) == UsageMode::Cost {
+            // Cost/spend account: spend lines replace the percentage windows,
+            // and there is no pace line (pacing is an allowance concept).
+            if let Some(spend) = snapshot.spend.as_deref() {
+                usage_lines = cost_usage_lines(spend);
             }
-            let label = format!(
-                "{} ({})",
-                limit.display_name,
-                window_label(limit.usage.window)
-            );
-            usage_lines.push(usage_line(&label, &limit.usage, now));
+        } else {
+            if let Some(window) = &snapshot.five_hour {
+                usage_lines.push(usage_line(window_label(window.window), window, now));
+            }
+            if let Some(window) = &snapshot.seven_day {
+                usage_lines.push(usage_line(window_label(window.window), window, now));
+            }
+            for limit in &snapshot.scoped {
+                if !limit.is_visible(shown) {
+                    continue;
+                }
+                let label = format!(
+                    "{} ({})",
+                    limit.display_name,
+                    window_label(limit.usage.window)
+                );
+                usage_lines.push(usage_line(&label, &limit.usage, now));
+            }
+            pace_line = pace_signal(state, now, pace).map(|signal| signal.tooltip());
         }
     }
     MenuModel {
         status_line: status_line(state, now),
         usage_lines,
-        pace_line: pace_signal(state, now, pace).map(|signal| signal.tooltip()),
+        pace_line,
     }
 }
 

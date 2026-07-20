@@ -15,12 +15,13 @@
 //!   [`run_store_op`]'s blocking pool, so a slow or stuck credential daemon
 //!   can never freeze tray or window redraws.
 
+pub mod debug;
 pub mod pace;
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use meter_core::{SessionKey, SessionKeyError, UsageStatus};
+use meter_core::{SessionKey, SessionKeyError, UsageMode, UsageStatus};
 use meter_render::{IconState, IconStyle, Scale, render_icon};
 use serde::Serialize;
 use tauri::{Emitter, State};
@@ -395,6 +396,32 @@ fn store_popover_layout(settings: &SettingsState, layout: PopoverLayout) -> AppS
     settings.update(|s| s.popover_layout = layout)
 }
 
+/// Switch how usage is presented — Auto (follow the account), Allowance
+/// (percentage-of-limit) or Cost (spend). Emits `settings-changed` so the
+/// popover, a separate window, re-renders in the new mode, and pushes the
+/// resolved mode into the live tray so its icon and menu switch between the
+/// percentage and spend views immediately — via `pace::broadcast_and_push`,
+/// the shared settings-command broadcast/push helper, rather than a new
+/// near-duplicate emit-and-push block.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn set_usage_mode(
+    app: tauri::AppHandle,
+    scheduler: State<'_, SchedulerHandle>,
+    settings: State<'_, SettingsState>,
+    mode: UsageMode,
+) -> AppSettings {
+    let updated = store_usage_mode(&settings, mode);
+    pace::broadcast_and_push(&app, &scheduler, &updated);
+    updated
+}
+
+/// Persist the usage mode. Split from the command so the settings mutation is
+/// unit-testable without a Tauri `AppHandle`, mirroring `store_popover_layout`.
+fn store_usage_mode(settings: &SettingsState, mode: UsageMode) -> AppSettings {
+    settings.update(|s| s.usage_mode = mode)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -449,6 +476,24 @@ mod tests {
         assert_eq!(
             store_popover_layout(&state, PopoverLayout::Rows).popover_layout,
             PopoverLayout::Rows
+        );
+    }
+
+    #[test]
+    fn usage_mode_persists() {
+        let state = SettingsState::new(None, AppSettings::default());
+        // Default is Auto; pinning Cost and Allowance both round-trip.
+        assert_eq!(
+            store_usage_mode(&state, UsageMode::Auto).usage_mode,
+            UsageMode::Auto
+        );
+        assert_eq!(
+            store_usage_mode(&state, UsageMode::Cost).usage_mode,
+            UsageMode::Cost
+        );
+        assert_eq!(
+            store_usage_mode(&state, UsageMode::Allowance).usage_mode,
+            UsageMode::Allowance
         );
     }
 

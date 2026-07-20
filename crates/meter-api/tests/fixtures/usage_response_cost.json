@@ -1,0 +1,26 @@
+{
+  "five_hour": null,
+  "seven_day": null,
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [],
+  "extra_usage": {
+    "is_enabled": true,
+    "monthly_limit": 500000,
+    "used_credits": 12500.0,
+    "utilization": 2.5,
+    "currency": "USD",
+    "decimal_places": 2
+  },
+  "spend": {
+    "used": { "amount_minor": 12500, "currency": "USD", "exponent": 2 },
+    "limit": { "amount_minor": 500000, "currency": "USD", "exponent": 2 },
+    "percent": 3,
+    "severity": "normal",
+    "enabled": true,
+    "disabled_reason": null,
+    "cap": { "money": { "amount_minor": 500000, "currency": "USD", "exponent": 2 }, "credits": null },
+    "balance": null,
+    "auto_reload": null
+  }
+}

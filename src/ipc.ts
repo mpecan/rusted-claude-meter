@@ -11,7 +11,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-import { DEMO_STATE } from "./demo";
+import { DEMO_ALLOWANCE_WITH_COST_STATE, DEMO_COST_STATE, DEMO_STATE } from "./demo";
 import { DEFAULT_SETTINGS } from "./settings-view-model";
 import type {
   AppSettings,
@@ -26,6 +26,7 @@ import type {
   SessionCommandError,
   SessionStatus,
   SessionSubmission,
+  UsageMode,
 } from "./types";
 
 const USAGE_STATE_EVENT = "usage-state";
@@ -97,6 +98,18 @@ export interface UsageBackend {
   setPaceFirstDisplay(enabled: boolean): Promise<AppSettings>;
   /** Master switch for the whole pace-tracking feature (issue #16). */
   setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings>;
+  /** Switch the usage view mode (Auto / Allowance / Cost). Resolves with the
+   * resulting settings. */
+  setUsageMode(mode: UsageMode): Promise<AppSettings>;
+  /** Toggle debug logging of raw API responses to a local file. Resolves with
+   * the resulting settings. */
+  setDebugLogging(enabled: boolean): Promise<AppSettings>;
+  /** The absolute path of the API-response log for display, or `null` when no
+   * log location could be resolved. */
+  debugLogPath(): Promise<string | null>;
+  /** Reveal the API-response log in the OS file manager (or its folder when
+   * nothing has been logged yet). */
+  revealDebugLog(): Promise<void>;
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
@@ -214,6 +227,22 @@ class TauriBackend implements UsageBackend {
     return invoke<AppSettings>("set_pace_tracking_enabled", { enabled });
   }
 
+  setUsageMode(mode: UsageMode): Promise<AppSettings> {
+    return invoke<AppSettings>("set_usage_mode", { mode });
+  }
+
+  setDebugLogging(enabled: boolean): Promise<AppSettings> {
+    return invoke<AppSettings>("set_debug_logging", { enabled });
+  }
+
+  debugLogPath(): Promise<string | null> {
+    return invoke<string | null>("debug_log_path");
+  }
+
+  revealDebugLog(): Promise<void> {
+    return invoke<void>("reveal_debug_log");
+  }
+
   wizardShouldRun(): Promise<boolean> {
     return invoke<boolean>("wizard_should_run");
   }
@@ -263,27 +292,57 @@ function subscribe<T>(event: string, callback: (payload: T) => void): () => void
  * reachable without a real backend. Settings start from
  * `DEFAULT_SETTINGS` — opted out of every scoped model, same as a real
  * fresh install — so the opt-in toggle is exercisable in `npm run dev` too. */
+/** The `?mode=` preview override, when it names a real usage mode. */
+function demoModeOverride(): UsageMode | null {
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  return mode === "auto" || mode === "allowance" || mode === "cost" ? mode : null;
+}
+
 /** Dev/design preview overrides read from the URL (browser only). When a
- * `?layout=` is present we also opt into the demo's scoped models so the
- * preview shows a fuller set of meters. */
+ * `?layout=` or `?mode=` is present we also opt into the demo's scoped models
+ * so the preview shows a fuller set of meters. */
 function demoSettingOverrides(): Partial<AppSettings> {
+  const overrides: Partial<AppSettings> = {};
   const layout = new URLSearchParams(window.location.search).get("layout");
-  if (layout !== "rows" && layout !== "cards") {
-    return {};
+  if (layout === "rows" || layout === "cards") {
+    overrides.popover_layout = layout;
   }
-  return { popover_layout: layout, shown_scoped_models: ["Fable", "Sonnet"] };
+  const mode = demoModeOverride();
+  if (mode !== null) {
+    overrides.usage_mode = mode;
+  }
+  if (Object.keys(overrides).length > 0) {
+    overrides.shown_scoped_models = ["Fable", "Sonnet"];
+  }
+  return overrides;
+}
+
+/** The demo snapshot for the current preview: a token/cost account for
+ * `?mode=cost`, an allowance account carrying spend (so the cost-summary card
+ * shows) for `?mode=allowance`, otherwise the plain allowance fixture. */
+function demoState(): MeterState {
+  switch (demoModeOverride()) {
+    case "cost":
+      return DEMO_COST_STATE;
+    case "allowance":
+      return DEMO_ALLOWANCE_WITH_COST_STATE;
+    default:
+      return DEMO_STATE;
+  }
 }
 
 class DemoBackend implements UsageBackend {
   // Dev/design preview: outside Tauri a `?layout=rows|cards` query seeds the
-  // popover layout so both directions can be captured in a plain browser.
+  // popover layout and a `?mode=auto|allowance|cost` query seeds the usage
+  // view (and its matching demo snapshot) so every direction can be captured
+  // in a plain browser.
   private settings: AppSettings = { ...DEFAULT_SETTINGS, ...demoSettingOverrides() };
   private sessionPresent = false;
   private wizardCompleted = false;
   private autostartEnabled = false;
 
   initialState(): Promise<MeterState> {
-    return Promise.resolve(DEMO_STATE);
+    return Promise.resolve(demoState());
   }
 
   onStateChange(): () => void {
@@ -431,6 +490,26 @@ class DemoBackend implements UsageBackend {
   setPaceTrackingEnabled(enabled: boolean): Promise<AppSettings> {
     this.settings = { ...this.settings, pace_tracking_enabled: enabled };
     return Promise.resolve({ ...this.settings });
+  }
+
+  setUsageMode(mode: UsageMode): Promise<AppSettings> {
+    this.settings = { ...this.settings, usage_mode: mode };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setDebugLogging(enabled: boolean): Promise<AppSettings> {
+    this.settings = { ...this.settings, debug_logging: enabled };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  debugLogPath(): Promise<string | null> {
+    // A representative path so the Settings row is exercisable in a plain
+    // browser; the real path is the OS log dir resolved on the Rust side.
+    return Promise.resolve("~/Library/Logs/rusted-claude-meter/api-responses.log");
+  }
+
+  revealDebugLog(): Promise<void> {
+    return Promise.resolve();
   }
 
   wizardShouldRun(): Promise<boolean> {
