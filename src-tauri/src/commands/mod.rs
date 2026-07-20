@@ -17,6 +17,7 @@
 
 pub mod debug;
 pub mod pace;
+pub mod popover;
 
 use std::collections::HashSet;
 use std::sync::Arc;
