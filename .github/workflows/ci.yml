@@ -17,6 +17,10 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    # Bounds every job well above a warm run but far below GitHub's 6h default,
+    # so a hung step (a wedged install, a stuck test) is killed in minutes
+    # instead of burning hours of Actions minutes.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -68,6 +72,7 @@ jobs:
   quality:
     name: Quality (licenses, advisories, duplication)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -103,6 +108,9 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    # Higher ceiling: the instrumented llvm-cov build of the whole workspace is
+    # the slowest job, especially on a cold cache.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -163,6 +171,7 @@ jobs:
         # parked for exactly that. (macOS runners also cost 10x the minutes.)
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 

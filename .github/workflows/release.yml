@@ -34,6 +34,7 @@ jobs:
   changelog:
     name: Draft release + changelog
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # Passed through env (not spliced into run: script text) so a tag name
       # containing shell metacharacters can't break out of the quoting and
@@ -83,6 +84,11 @@ jobs:
           # older glibc, so it stays installable on older distros too.
           - platform: ubuntu-22.04
     runs-on: ${{ matrix.platform }}
+    # The one legitimately long job: a full Tauri bundle plus, on macOS, Apple
+    # notarization (whose notary service can take a while). Generous ceiling so
+    # a normal build+notarize never trips it, but a truly stuck build still
+    # can't run for hours on a 10x-cost macOS runner.
+    timeout-minutes: 45
     env:
       # See the identical comment in the changelog job: keep tag names out
       # of run: script text and use gh's own token env var instead of git's
@@ -149,6 +155,7 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       TAG: ${{ github.ref_name }}
     steps:
