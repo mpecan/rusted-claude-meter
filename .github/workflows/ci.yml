@@ -10,9 +10,21 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
+# Least privilege by default: CI executes third-party code (npm ci, the
+# frontend build, vitest, and cargo builds of every dependency), so the
+# ambient GITHUB_TOKEN must not be able to write to the repo. Jobs that need
+# more (the lint job posts actionlint results as a check run) opt in
+# explicitly at the job level. This blunts the Shai-Hulud playbook of using a
+# writable CI token to plant malicious workflows / branches.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
+# Third-party actions are pinned to a full commit SHA (with the human-readable
+# tag in a trailing comment) so a hijacked tag/branch can't swap in malicious
+# action code — Dependabot bumps the SHA and keeps the comment current.
 jobs:
   lint:
     name: Lint
@@ -21,23 +33,30 @@ jobs:
     # so a hung step (a wedged install, a stuck test) is killed in minutes
     # instead of burning hours of Actions minutes.
     timeout-minutes: 20
+    # Overrides the top-level read-only default: reviewdog's github-check
+    # reporter (below) creates a check run to surface actionlint findings,
+    # which needs checks: write. contents: read must be restated because
+    # job-level permissions replace, not merge with, the workflow default.
+    permissions:
+      contents: read
+      checks: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/tauri-linux-deps
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: "1.96.0"
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Build frontend (required by tauri-build)
         run: |
@@ -54,7 +73,7 @@ jobs:
         run: bash scripts/check-file-sizes.sh
 
       - name: Lint GitHub Actions workflows
-        uses: reviewdog/action-actionlint@v1
+        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1
         with:
           fail_level: error
           # github-pr-check (the action's default reporter) requires an open
@@ -74,22 +93,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: "1.96.0"
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-bin: true
 
-      - uses: extractions/setup-just@v4
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
       # cargo-deny and cargo-dupes only read Cargo.lock/manifests and source
       # text respectively — no compilation, so no Tauri system deps needed.
       - name: cargo-deny check (licenses, advisories, bans, sources)
-        uses: EmbarkStudios/cargo-deny-action@v2
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
           command: check
 
@@ -112,27 +131,29 @@ jobs:
     # the slowest job, especially on a cold cache.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/tauri-linux-deps
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: "1.96.0"
           components: llvm-tools-preview
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: cargo-llvm-cov
 
-      - uses: extractions/setup-just@v4
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
       - name: Build frontend (required by tauri-build)
         run: |
@@ -173,26 +194,28 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Install Tauri system dependencies
         if: runner.os == 'Linux'
         uses: ./.github/actions/tauri-linux-deps
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: "1.96.0"
           components: clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: nextest
 
       - name: Build frontend (required by tauri-build)
         run: |
