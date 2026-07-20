@@ -96,7 +96,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>Notification thresholds</h3>
+          <h3>Notifications</h3>
           <label class="settings-slider">
             Warning
             <input id="warning-threshold" type="range" min="0" max="100" step="1" />
@@ -107,6 +107,16 @@
             <input id="critical-threshold" type="range" min="0" max="100" step="1" />
             <span id="critical-threshold-value" class="settings-slider-value"></span>
           </label>
+          <label class="settings-checkbox">
+            <input id="notify-on-reset-toggle" type="checkbox" />
+            Notify when a usage window resets
+          </label>
+          <div class="settings-field">
+            <button id="send-test-notification-button" class="ghost-button" type="button">
+              Send test notification
+            </button>
+            <p id="test-notification-status" class="settings-hint" role="status" hidden></p>
+          </div>
         </div>
 
         <div class="settings-section">

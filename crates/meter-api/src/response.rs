@@ -131,26 +131,20 @@ impl UsageResponse {
     }
 }
 
-/// The reset instant to use when the API reports the window but omits
-/// `resets_at`. A window with no recent usage has nothing scheduled to reset,
-/// so the API sends `resets_at: null`; dropping the whole window there would
-/// hide, e.g., the 5-hour session card whenever usage is idle. Mirrors
-/// `ClaudeMeter`'s `UsageAPIResponse.toDomain` fallback of `now + window`.
-fn fallback_reset(window: LimitWindow, fetched_at: Timestamp) -> Timestamp {
-    fetched_at
-        .checked_add(window.duration())
-        .unwrap_or(fetched_at)
-}
-
 impl RawWindow {
     /// Map a headline window, substituting a fallback reset when the API
     /// omits `resets_at` so the window is never dropped for lack of a reset.
+    /// A window with no recent usage has nothing scheduled to reset, so the
+    /// API sends `resets_at: null`; dropping the whole window there would
+    /// hide, e.g., the 5-hour session card whenever usage is idle. The
+    /// fallback (`fetched_at + window`, see [`LimitWindow::fallback_reset`])
+    /// mirrors `ClaudeMeter`'s `UsageAPIResponse.toDomain`.
     fn into_window(self, window: LimitWindow, fetched_at: Timestamp) -> UsageWindow {
         UsageWindow {
             utilization: self.utilization,
             resets_at: self
                 .resets_at
-                .unwrap_or_else(|| fallback_reset(window, fetched_at)),
+                .unwrap_or_else(|| window.fallback_reset(fetched_at)),
             window,
         }
     }
@@ -159,14 +153,14 @@ impl RawWindow {
 impl RawLimit {
     /// A scoped limit is skipped only when the essentials are missing — model
     /// scope, display name, or percent. A missing `resets_at` is filled from
-    /// [`fallback_reset`] rather than dropping the limit, matching the
-    /// headline-window behaviour above.
+    /// [`LimitWindow::fallback_reset`] rather than dropping the limit, matching
+    /// the headline-window behaviour above.
     fn into_scoped(self, fetched_at: Timestamp) -> Option<ScopedLimit> {
         let window = window_for_kind(&self.kind);
         let percent = self.percent?;
         let resets_at = self
             .resets_at
-            .unwrap_or_else(|| fallback_reset(window, fetched_at));
+            .unwrap_or_else(|| window.fallback_reset(fetched_at));
         let model = self.scope?.model?;
         let display_name = model.display_name?;
         Some(ScopedLimit {

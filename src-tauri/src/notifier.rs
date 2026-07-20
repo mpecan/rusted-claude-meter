@@ -77,6 +77,7 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
         tracked_windows(snapshot, &shown),
         thresholds,
         settings.notify_on_reset,
+        snapshot.fetched_at,
     );
     for event in &events {
         show(app, event);
@@ -118,7 +119,38 @@ fn tracked_windows<'a>(
 /// otherwise disrupt polling.
 fn show<R: Runtime>(app: &AppHandle<R>, event: &NotificationEvent) {
     let (title, body) = describe(event);
-    let _ = app.notification().builder().title(title).body(body).show();
+    let _ = emit(app, &title, &body);
+}
+
+/// The single OS-send chokepoint, shared by the scheduler-driven [`show`] and
+/// the on-demand [`send_test_notification`]. Returns whether the platform
+/// accepted the notification — `false` when the desktop backend rejects it
+/// (no notification daemon on a headless Linux session, authorization denied
+/// on macOS, etc.).
+fn emit<R: Runtime>(app: &AppHandle<R>, title: &str, body: &str) -> bool {
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .is_ok()
+}
+
+/// Fire a one-off test notification on demand, bypassing the dedup tracker
+/// and the scheduler entirely, so the user can confirm from Settings that
+/// banners actually reach them in their current environment (macOS Focus /
+/// notification authorization, a Linux notification daemon, etc.) rather than
+/// waiting for a real threshold crossing. Returns whether the OS accepted the
+/// send so the Settings button can report success or a likely-suppressed
+/// delivery.
+///
+/// `AppHandle` is taken by value: it is Tauri's command-extractor type, not a
+/// choice this function makes.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn send_test_notification(app: tauri::AppHandle) -> bool {
+    let (title, body) = describe_test();
+    emit(&app, &title, &body)
 }
 
 /// Notification copy for one event. Pure and unit-tested separately from
@@ -151,6 +183,16 @@ fn describe(event: &NotificationEvent) -> (String, String) {
             )
         }
     }
+}
+
+/// Notification copy for the on-demand test notification (Settings' "Send
+/// test notification"). Pure and unit-tested, like [`describe`], since the
+/// OS send in [`send_test_notification`] cannot run headlessly.
+fn describe_test() -> (String, String) {
+    (
+        "Rusted Claude Meter".to_owned(),
+        "Test notification — if you can read this, notifications are working.".to_owned(),
+    )
 }
 
 fn window_label(id: &WindowId) -> String {
@@ -273,6 +315,16 @@ mod tests {
                 "Warning: Fable usage".to_owned(),
                 "Fable is at 76% of its limit.".to_owned(),
             )
+        );
+    }
+
+    #[test]
+    fn describe_test_reads_as_a_recognisable_test_banner() {
+        let (title, body) = describe_test();
+        assert_eq!(title, "Rusted Claude Meter");
+        assert!(
+            body.contains("Test notification"),
+            "body should name itself a test: {body}"
         );
     }
 
