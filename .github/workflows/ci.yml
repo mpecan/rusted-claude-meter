@@ -155,7 +155,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS runners are intentionally dropped: the app is developed on
+        # macOS, so the `target_os = "macos"` surface (popover, tray click
+        # handling) is compiled, linted and tested by a local `just check` on
+        # every change. Re-add `macos-latest` here to restore the macOS clippy
+        # + test leg in CI — the `runner.os == 'macOS'` steps below are kept
+        # parked for exactly that. (macOS runners also cost 10x the minutes.)
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
