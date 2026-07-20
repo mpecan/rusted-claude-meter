@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; }
+  /* 1024px tile = the design's 104px tile scaled ×9.846 (conic + mask CSS
+     copied verbatim from the "Spark Bolt" concept). */
+  #tile {
+    width: 1024px; height: 1024px;
+    border-radius: 236px;
+    background: radial-gradient(120% 120% at 30% 16%, #33231c 0%, #1c0f0a 100%);
+    box-shadow: inset 0 15px 0 #ffffff1f, inset 0 -59px 158px #00000050;
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #track {
+    position: absolute; width: 650px; height: 650px;
+    border-radius: 50%; border: 69px solid #ffffff14;
+  }
+  #donut {
+    position: absolute; width: 650px; height: 650px; border-radius: 50%;
+    background: conic-gradient(from -20deg, #f5a623, #e8850c 55%, transparent 68%);
+    -webkit-mask: radial-gradient(circle, transparent 40%, #000 41%);
+    mask: radial-gradient(circle, transparent 40%, #000 41%);
+  }
+  #bolt {
+    position: relative; width: 1024px; height: 1024px;
+    padding: 295px;
+  }
+</style>
+</head>
+<body>
+  <div id="tile">
+    <div id="track"></div>
+    <div id="donut"></div>
+    <svg id="bolt" viewBox="0 0 100 100">
+      <path d="M56 14 L30 54 L47 54 L43 86 L72 42 L54 42 Z" fill="#fbe6cf"/>
+    </svg>
+  </div>
+</body>
+</html>
