@@ -22,7 +22,7 @@ jobs:
     # instead of burning hours of Actions minutes.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/tauri-linux-deps
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -112,7 +112,7 @@ jobs:
     # the slowest job, especially on a cold cache.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/tauri-linux-deps
@@ -173,7 +173,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Tauri system dependencies
         if: runner.os == 'Linux'

@@ -42,7 +42,7 @@ jobs:
       # who can push a v* tag).
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # This job never pushes with git — gh/git-cliff use GH_TOKEN/the
@@ -95,7 +95,7 @@ jobs:
       # persisted credentials.
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
