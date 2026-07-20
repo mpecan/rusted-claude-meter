@@ -88,6 +88,7 @@ pub fn run() -> tauri::Result<()> {
             commands::debug::set_debug_logging,
             commands::debug::debug_log_path,
             commands::debug::reveal_debug_log,
+            commands::popover::set_popover_height,
             commands::pace::set_weekly_pace_days,
             commands::pace::set_pace_first_display,
             commands::pace::set_pace_tracking_enabled,

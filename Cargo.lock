@@ -4419,6 +4419,8 @@ dependencies = [
  "meter-api",
  "meter-core",
  "meter-render",
+ "objc2-app-kit",
+ "objc2-foundation",
  "pretty_assertions",
  "rookie",
  "serde",

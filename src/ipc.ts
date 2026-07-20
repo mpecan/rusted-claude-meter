@@ -110,6 +110,9 @@ export interface UsageBackend {
   /** Reveal the API-response log in the OS file manager (or its folder when
    * nothing has been logged yet). */
   revealDebugLog(): Promise<void>;
+  /** Resize the popover to the given content height (macOS binds the NSPopover
+   * to it; a no-op elsewhere). Width is fixed. */
+  setPopoverHeight(height: number): Promise<void>;
   /** Whether the setup wizard (issue #11) should open automatically on this
    * launch — `settings.json` did not exist before this launch loaded it. */
   wizardShouldRun(): Promise<boolean>;
@@ -241,6 +244,10 @@ class TauriBackend implements UsageBackend {
 
   revealDebugLog(): Promise<void> {
     return invoke<void>("reveal_debug_log");
+  }
+
+  setPopoverHeight(height: number): Promise<void> {
+    return invoke<void>("set_popover_height", { height });
   }
 
   wizardShouldRun(): Promise<boolean> {
@@ -509,6 +516,11 @@ class DemoBackend implements UsageBackend {
   }
 
   revealDebugLog(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  setPopoverHeight(): Promise<void> {
+    // No popover outside a Tauri shell; the demo renders in a plain browser.
     return Promise.resolve();
   }
 

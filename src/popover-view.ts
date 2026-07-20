@@ -259,4 +259,41 @@ export function initPopoverView(backend: UsageBackend): void {
   window.setInterval(() => {
     tickCountdowns(cardsEl, new Date());
   }, COUNTDOWN_TICK_MS);
+
+  bindPopoverHeightToContent(backend);
+}
+
+/** Keep the (macOS) popover container sized to its content: measure the
+ * rendered height of the `.popover` panel and push it to the shell, which
+ * resizes the NSPopover so short views (e.g. just two windows + a spend line)
+ * don't leave dead space below. A `ResizeObserver` catches every layout change
+ * — mode switches, added scoped cards, banners, the session form — and the call
+ * is coalesced to one per animation frame. No-op outside a Tauri shell (the
+ * demo backend), and harmless on Linux (the command is a no-op there). */
+function bindPopoverHeightToContent(backend: UsageBackend): void {
+  const panel = document.querySelector<HTMLElement>(".popover");
+  if (!panel || typeof ResizeObserver === "undefined") {
+    return;
+  }
+  let pending = 0;
+  let lastSent = -1;
+  const sync = (): void => {
+    if (pending) {
+      return;
+    }
+    pending = window.requestAnimationFrame(() => {
+      pending = 0;
+      const height = Math.ceil(panel.getBoundingClientRect().height);
+      // Skip while the view is hidden/unlaid-out (height ~0), and don't re-send
+      // an unchanged height — the observer also fires on width-only changes.
+      if (height < 1 || height === lastSent) {
+        return;
+      }
+      lastSent = height;
+      backend.setPopoverHeight(height).catch((error: unknown) => {
+        console.error("failed to size popover to content", error);
+      });
+    });
+  };
+  new ResizeObserver(sync).observe(panel);
 }

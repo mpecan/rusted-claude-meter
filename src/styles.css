@@ -74,9 +74,10 @@ body {
   margin: 0;
 }
 
-/* The NSPopover has a fixed content height (set once from the window frame),
-   so when more usage cards are shown than fit, scroll inside the popover
-   rather than clipping. */
+/* The popover binds its height to this content (see `bindPopoverHeightToContent`
+   in popover-view.ts, which resizes the NSPopover to the `.popover` panel).
+   When content would exceed the popover's height cap, scroll inside rather than
+   clipping — the `100vh` here is that capped popover height. */
 #popover-view {
   max-height: 100vh;
   overflow-y: auto;
@@ -87,9 +88,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  /* Extra top room so the header clears the NSPopover arrow and doesn't
-     crowd the top edge; slightly roomier sides/bottom too. */
-  padding: 1.9rem 1.15rem 1.15rem;
+  /* Extra top room so the header clears the NSPopover arrow and doesn't crowd
+     the top edge. The bottom padding is the popover's bottom margin: the
+     container is sized to this panel's border-box (see
+     `bindPopoverHeightToContent`), so padding — not a CSS margin, which sits
+     outside the box and wouldn't be measured — is what leaves a clean gap
+     below the last card. */
+  padding: 1.9rem 1.15rem 1.6rem;
   max-width: 26rem;
   margin: 0 auto;
 }

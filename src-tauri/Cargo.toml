@@ -41,6 +41,20 @@ apple-native-keyring-store = { version = "1", features = ["keychain"] }
 # `tray-icon` (which would collide with tauri's `tray-icon` feature). Source is
 # allow-listed in `deny.toml`.
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", rev = "b571e0e665da7016d967bbf027b92951ac88f78e" }
+# Resize the NSPopover to fit its rendered content (bind the popover height to
+# what the frontend measures). Same objc2 versions the nspopover plugin
+# resolves to, so the `Retained<NSPopover>` it hands back is the type we call
+# `setContentSize` on. `setContentSize`/`NSSize` are generated as safe APIs, so
+# no `unsafe` is needed (the workspace forbids `unsafe_code`).
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSResponder",
+    "NSPopover",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSGeometry",
+] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
