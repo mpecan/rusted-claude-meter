@@ -22,12 +22,12 @@ jobs:
     # instead of burning hours of Actions minutes.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/tauri-linux-deps
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -84,7 +84,7 @@ jobs:
         with:
           cache-bin: true
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
 
       # cargo-deny and cargo-dupes only read Cargo.lock/manifests and source
       # text respectively — no compilation, so no Tauri system deps needed.
@@ -112,12 +112,12 @@ jobs:
     # the slowest job, especially on a cold cache.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/tauri-linux-deps
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -132,7 +132,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
 
       - name: Build frontend (required by tauri-build)
         run: |
@@ -173,13 +173,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Tauri system dependencies
         if: runner.os == 'Linux'
         uses: ./.github/actions/tauri-linux-deps
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
