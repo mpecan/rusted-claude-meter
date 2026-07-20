@@ -9,8 +9,9 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use jiff::Timestamp;
-use meter_api::{ApiError, DEFAULT_BASE_URL, UsageClient};
+use meter_api::{ApiError, DEFAULT_BASE_URL, UsageClient, UsageResponse};
 
+use crate::debug_log::ResponseLog;
 use crate::scheduler::core::FetchOutcome;
 use crate::store::{SessionStore, run_store_op};
 
@@ -31,6 +32,11 @@ pub struct LiveTransport {
     /// polling costs one request, not two. Cleared on 401 so a replacement
     /// key (possibly for another account) rediscovers its organization.
     org_id: Mutex<Option<String>>,
+    /// Opt-in raw-response logger. Off (a no-op [`ResponseLog::disabled`]) until
+    /// production wiring attaches the real one via [`Self::with_response_log`];
+    /// the usage body is written through it before it's decoded, so a real
+    /// payload can be captured to verify the `spend` shape against more accounts.
+    response_log: Arc<ResponseLog>,
 }
 
 impl LiveTransport {
@@ -46,7 +52,17 @@ impl LiveTransport {
             store,
             base_url: base_url.into(),
             org_id: Mutex::new(None),
+            response_log: Arc::new(ResponseLog::disabled()),
         }
+    }
+
+    /// Attach the shared debug response log (Settings' "Log API responses").
+    /// Builder-style so production wiring reads
+    /// `LiveTransport::new(store).with_response_log(log)`.
+    #[must_use]
+    pub fn with_response_log(mut self, response_log: Arc<ResponseLog>) -> Self {
+        self.response_log = response_log;
+        self
     }
 
     fn cached_org(&self) -> Option<String> {
@@ -81,8 +97,18 @@ impl LiveTransport {
                 Err(outcome) => return outcome,
             },
         };
-        match client.usage(&org_id).await {
-            Ok(response) => FetchOutcome::Success(response.into_snapshot(Timestamp::now())),
+        // Fetch the raw body so debug logging can capture it verbatim, then
+        // decode. A decode failure routes through `classify_and_reset` as an
+        // `ApiError::Decode`, so it follows the same classification as a decode
+        // failure inside `UsageClient::usage` rather than hardcoding the outcome.
+        match client.usage_raw(&org_id).await {
+            Ok(body) => {
+                self.response_log.record("usage", &body);
+                serde_json::from_str::<UsageResponse>(&body).map_or_else(
+                    |error| self.classify_and_reset(&ApiError::Decode(error)),
+                    |response| FetchOutcome::Success(response.into_snapshot(Timestamp::now())),
+                )
+            }
             Err(error) => self.classify_and_reset(&error),
         }
     }
@@ -161,6 +187,51 @@ mod tests {
         let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
         let outcome = transport.fetch().await;
         assert!(matches!(outcome, FetchOutcome::Success(_)));
+    }
+
+    #[tokio::test]
+    async fn enabled_response_log_captures_the_raw_usage_body() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join(crate::debug_log::LOG_FILE);
+        let log = Arc::new(ResponseLog::new(Some(log_path.clone()), true));
+        let transport =
+            LiveTransport::with_base_url(store_with_key(), server.uri()).with_response_log(log);
+
+        let outcome = transport.fetch().await;
+        assert!(matches!(outcome, FetchOutcome::Success(_)));
+        // The exact wire body was written verbatim (the whole point: capturing
+        // real payloads to reconcile the `spend` shape).
+        let logged = std::fs::read_to_string(&log_path).unwrap();
+        assert!(logged.contains(USAGE_BODY.trim_end()));
+        assert!(logged.contains("usage ====="));
+    }
+
+    #[tokio::test]
+    async fn disabled_response_log_writes_nothing_on_success() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join(crate::debug_log::LOG_FILE);
+        let log = Arc::new(ResponseLog::new(Some(log_path.clone()), false));
+        let transport =
+            LiveTransport::with_base_url(store_with_key(), server.uri()).with_response_log(log);
+
+        assert!(matches!(transport.fetch().await, FetchOutcome::Success(_)));
+        assert!(!log_path.exists(), "a disabled log must not be written");
     }
 
     #[tokio::test]

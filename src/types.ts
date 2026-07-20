@@ -22,13 +22,44 @@ export interface ScopedLimit {
   is_active: boolean;
 }
 
-/** Mirrors `meter_core::UsageSnapshot`. `fetched_at` is an RFC 3339 string. */
+/** Mirrors `meter_core::Money`. A money amount in minor units, tagged with its
+ * currency and decimal-place count — the exact shape claude.ai returns
+ * (`{ minor: 35, currency: "EUR", exponent: 2 }` = €0.35). Kept in minor units
+ * so no rounding creeps in; `€0.35` formatting is a frontend concern
+ * (`formatMoney`). */
+export interface Money {
+  minor: number;
+  currency: string;
+  exponent: number;
+}
+
+/** Mirrors `meter_core::Spend`. Token/cost-based usage ("usage credits" /
+ * paid overage) for the current period, present for accounts whose usage
+ * response carries no allowance limits (Enterprise) and alongside allowance
+ * limits when an account has opted into paid overage. `limit` is the spend
+ * budget the gauge measures against and `cap` the hard ceiling (often equal);
+ * either may be `null`. */
+export interface Spend {
+  used: Money | null;
+  limit: Money | null;
+  cap: Money | null;
+  enabled: boolean;
+}
+
+/** Mirrors `meter_core::UsageSnapshot`. `fetched_at` is an RFC 3339 string.
+ * `spend` carries token/cost usage when the account reports it, else `null`
+ * (serde `Box<Spend>` is transparent, so it decodes as a plain object). */
 export interface UsageSnapshot {
   five_hour: UsageWindow | null;
   seven_day: UsageWindow | null;
   scoped: ScopedLimit[];
+  spend: Spend | null;
   fetched_at: string;
 }
+
+/** Mirrors `meter_core::UsageMode`. `auto` follows the account (allowance when
+ * it reports limits, cost otherwise); `allowance`/`cost` pin the view. */
+export type UsageMode = "auto" | "allowance" | "cost";
 
 /** Mirrors `scheduler::core::Staleness`. */
 export type Staleness = "missing" | "fresh" | "stale";
@@ -184,6 +215,14 @@ export interface AppSettings {
    * the popover drops projections / pace line / verdict badge and the tray
    * shows no pace ratio or badge. On by default. */
   pace_tracking_enabled: boolean;
+  /** Which usage view to render: `auto` follows the account (allowance vs
+   * cost), `allowance`/`cost` pin it. Defaults to `auto`. */
+  usage_mode: UsageMode;
+  /** Whether raw claude.ai API responses are appended to a local log file for
+   * troubleshooting (how the token/cost `spend` shape was captured, and the way
+   * to verify it against account types not yet observed). Off by default; the
+   * log holds only usage data, never the session key. */
+  debug_logging: boolean;
 }
 
 /** Mirrors `meter_shell::settings::PopoverLayout` — the two popover layouts

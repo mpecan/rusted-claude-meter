@@ -2,7 +2,7 @@
 
 use super::*;
 use jiff::SignedDuration;
-use meter_core::{ScopedLimit, UsageSnapshot, UsageStatus};
+use meter_core::{Money, ScopedLimit, Spend, UsageMode, UsageSnapshot, UsageStatus};
 use pretty_assertions::assert_eq;
 
 fn now() -> Timestamp {
@@ -35,6 +35,7 @@ fn snapshot() -> UsageSnapshot {
                 is_active: true,
             },
         ],
+        spend: None,
         fetched_at: now() - SignedDuration::from_secs(30),
     }
 }
@@ -74,13 +75,20 @@ fn icon_of(
     mono: bool,
     scale: Scale,
 ) -> IconState {
-    icon_state(state, now, IconOptions { style, mono, scale }, pace_off())
+    icon_state(
+        state,
+        now,
+        IconOptions { style, mono, scale },
+        pace_off(),
+        UsageMode::Auto,
+    )
 }
 
 /// `menu_model` with quota-first pace options, for the many tests that
-/// predate issue #16 and don't exercise the pace line.
+/// predate issue #16 and don't exercise the pace line. Uses `Auto`, which
+/// resolves to the allowance view for the limits-bearing fixtures here.
 fn menu_of(state: &MeterState, now: Timestamp, shown: &HashSet<String>) -> MenuModel {
-    menu_model(state, now, shown, pace_off())
+    menu_model(state, now, shown, pace_off(), UsageMode::Auto)
 }
 
 /// A session window burning fast enough to produce a hot `PaceSignal`:
@@ -94,6 +102,7 @@ fn hot_session_state() -> MeterState {
             five_hour: Some(window(60.0, 225 * 60, LimitWindow::FiveHour)),
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at: now(),
         }),
     )
@@ -113,11 +122,18 @@ fn pace_first_display_off_never_computes_a_signal_even_when_burning_hot() {
             scale: Scale::X2,
         },
         pace,
+        UsageMode::Auto,
     );
     assert_eq!(icon.pace_kind, None);
     assert_eq!(icon.pace_ratio, None);
 
-    let menu = menu_model(&hot_session_state(), now(), &HashSet::new(), pace);
+    let menu = menu_model(
+        &hot_session_state(),
+        now(),
+        &HashSet::new(),
+        pace,
+        UsageMode::Auto,
+    );
     assert_eq!(menu.pace_line, None);
 }
 
@@ -143,6 +159,7 @@ fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
             scale: Scale::X2,
         },
         pace,
+        UsageMode::Auto,
     );
     // No hybrid signal -> no badge, but the fallback session ratio drives
     // the primary metric and its band colour.
@@ -156,7 +173,7 @@ fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
 
     // The tooltip/pace line stays hybrid-signal-only (upstream `toolTip =
     // paceSignal?.tooltip`), so an on-pace snapshot produces no pace line.
-    let menu = menu_model(&healthy(), now(), &all_shown(), pace);
+    let menu = menu_model(&healthy(), now(), &all_shown(), pace, UsageMode::Auto);
     assert_eq!(menu.pace_line, None);
 }
 
@@ -175,11 +192,18 @@ fn pace_first_display_on_overlays_the_icon_badge_and_the_menu_pace_line() {
             scale: Scale::X2,
         },
         pace,
+        UsageMode::Auto,
     );
     assert_eq!(icon.pace_kind, Some(meter_core::PaceKind::Hot));
     assert_eq!(icon.pace_ratio, Some(2.4));
 
-    let menu = menu_model(&hot_session_state(), now(), &HashSet::new(), pace);
+    let menu = menu_model(
+        &hot_session_state(),
+        now(),
+        &HashSet::new(),
+        pace,
+        UsageMode::Auto,
+    );
     assert!(
         menu.pace_line.is_some(),
         "hot session must produce a pace line"
@@ -498,3 +522,7 @@ fn icon_change_is_planned_even_when_the_menu_is_identical() {
     assert_eq!(plan.icon, Some(hotter));
     assert_eq!(plan.menu, None);
 }
+
+// The cost/spend (Enterprise) view-model tests live in a sibling submodule to
+// keep this file under the 700-line hard gate.
+mod cost;

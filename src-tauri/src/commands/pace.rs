@@ -37,19 +37,23 @@ fn store_pace_tracking_enabled(settings: &SettingsState, enabled: bool) -> AppSe
 }
 
 /// Broadcast `settings-changed` (so the popover, a separate window, picks up
-/// the resolved snapshot live) and push both pace fields into the live tray
-/// immediately — its own pace ratio, badge and menu line read
-/// `weekly_pace_days`/`pace_first_display` directly out of `TrayResources`
-/// (see `tray::apply_state`), so without this push they would otherwise keep
-/// computing against a stale value indefinitely. Shared by
-/// [`set_weekly_pace_days`] and [`set_pace_first_display`], the only two
-/// settings that change what the tray's pace computation sees.
-fn broadcast_and_push_pace(
+/// the resolved snapshot live) and push the tray-relevant settings into the
+/// live tray immediately — its icon, badge and menu lines read the pace
+/// fields and the usage mode directly out of `TrayResources` (see
+/// `tray::apply_state`), so without this push they would otherwise keep
+/// computing against a stale value indefinitely. Shared by every settings
+/// command that changes what the tray renders: the three pace commands here
+/// and [`super::set_usage_mode`]. Pushing both the pace options and the usage
+/// mode on each call is harmless — the field a given command did not touch is
+/// pushed unchanged — and keeps one broadcast/push helper instead of a
+/// per-setting near-duplicate.
+pub(super) fn broadcast_and_push(
     app: &tauri::AppHandle,
     scheduler: &SchedulerHandle,
     updated: &AppSettings,
 ) {
     let _ = app.emit(SETTINGS_CHANGED_EVENT, updated);
+    let state = scheduler.state_now();
     tray::set_pace_options(
         app,
         updated.weekly_pace_days,
@@ -57,13 +61,14 @@ fn broadcast_and_push_pace(
         // `pace_tracking_enabled` switch collapses into the effective
         // pace-first flag it sees — no separate field to thread through.
         updated.pace_tracking_enabled && updated.pace_first_display,
-        &scheduler.state_now(),
+        &state,
     );
+    tray::set_usage_mode(app, updated.usage_mode, &state);
 }
 
 /// Change how many days of the week the weekly quota is paced over (5/6/7,
 /// issue #16's working-week option), applying it to the live tray
-/// immediately via [`broadcast_and_push_pace`].
+/// immediately via [`broadcast_and_push`].
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_weekly_pace_days(
@@ -73,14 +78,14 @@ pub fn set_weekly_pace_days(
     days: u8,
 ) -> AppSettings {
     let updated = store_weekly_pace_days(&settings, days);
-    broadcast_and_push_pace(&app, &scheduler, &updated);
+    broadcast_and_push(&app, &scheduler, &updated);
     updated
 }
 
 /// Toggle pace-first display mode (issue #16): the tray/popover lead with
 /// the pace ratio instead of the raw quota percentage, and the flame/
 /// snowflake badge appears. Applies to the live tray immediately via
-/// [`broadcast_and_push_pace`].
+/// [`broadcast_and_push`].
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_pace_first_display(
@@ -90,7 +95,7 @@ pub fn set_pace_first_display(
     enabled: bool,
 ) -> AppSettings {
     let updated = store_pace_first_display(&settings, enabled);
-    broadcast_and_push_pace(&app, &scheduler, &updated);
+    broadcast_and_push(&app, &scheduler, &updated);
     updated
 }
 
@@ -98,7 +103,7 @@ pub fn set_pace_first_display(
 /// the popover drops projections/pace lines and the tray shows no pace ratio
 /// or badge, regardless of `pace_first_display`; the sub-settings keep their
 /// stored values. Applies to the live tray immediately via
-/// [`broadcast_and_push_pace`], whose effective pace-first flag already folds
+/// [`broadcast_and_push`], whose effective pace-first flag already folds
 /// in this switch.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
@@ -109,7 +114,7 @@ pub fn set_pace_tracking_enabled(
     enabled: bool,
 ) -> AppSettings {
     let updated = store_pace_tracking_enabled(&settings, enabled);
-    broadcast_and_push_pace(&app, &scheduler, &updated);
+    broadcast_and_push(&app, &scheduler, &updated);
     updated
 }
 

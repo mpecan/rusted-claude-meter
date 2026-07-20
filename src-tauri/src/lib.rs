@@ -12,6 +12,7 @@ mod browser_import;
 mod cache;
 mod commands;
 mod cookie_reader;
+mod debug_log;
 mod export;
 mod io_util;
 mod notifier;
@@ -83,6 +84,10 @@ pub fn run() -> tauri::Result<()> {
             commands::set_notify_on_reset,
             commands::set_show_reset_time,
             commands::set_popover_layout,
+            commands::set_usage_mode,
+            commands::debug::set_debug_logging,
+            commands::debug::debug_log_path,
+            commands::debug::reveal_debug_log,
             commands::pace::set_weekly_pace_days,
             commands::pace::set_pace_first_display,
             commands::pace::set_pace_tracking_enabled,
@@ -123,6 +128,19 @@ pub fn run() -> tauri::Result<()> {
             let app_settings = settings_path
                 .as_deref()
                 .map_or_else(settings::AppSettings::default, settings::load);
+            // Opt-in raw-API-response log (Settings' "Log API responses"). The
+            // file lives in the OS log dir (`~/Library/Logs/<id>/` on macOS);
+            // `None` when unresolvable, in which case logging is a no-op. Shared
+            // between the command (which flips the toggle) and the scheduler's
+            // transport (which writes through it).
+            let response_log = Arc::new(debug_log::ResponseLog::new(
+                app.path()
+                    .app_log_dir()
+                    .ok()
+                    .map(|dir| dir.join(debug_log::LOG_FILE)),
+                app_settings.debug_logging,
+            ));
+            app.manage(Arc::clone(&response_log));
             let core = SchedulerCore::new(
                 app_settings.refresh_interval,
                 cache_path.as_deref().and_then(cache::load),
@@ -142,6 +160,7 @@ pub fn run() -> tauri::Result<()> {
                     // the tray sees (it only shows pace in pace-first mode).
                     pace_first_display: app_settings.pace_tracking_enabled
                         && app_settings.pace_first_display,
+                    usage_mode: app_settings.usage_mode,
                 },
             )?;
             // Host the main window in the NSPopover now that the tray (id
@@ -165,6 +184,7 @@ pub fn run() -> tauri::Result<()> {
                     cache: cache_path,
                     export: export_path,
                 },
+                response_log,
             );
             Ok(())
         })
@@ -225,6 +245,7 @@ fn spawn_scheduler(
     session_store: Arc<dyn SessionStore>,
     core: SchedulerCore,
     persist: PersistPaths,
+    response_log: Arc<debug_log::ResponseLog>,
 ) {
     let core = Arc::new(Mutex::new(core));
     let handle = SchedulerHandle::new(core, Arc::new(Notify::new()));
@@ -232,7 +253,7 @@ fn spawn_scheduler(
 
     let emitter = app.handle().clone();
     tauri::async_runtime::spawn(run_loop(
-        LiveTransport::new(session_store),
+        LiveTransport::new(session_store).with_response_log(response_log),
         SystemClock::default(),
         handle,
         persist,

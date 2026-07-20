@@ -20,6 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use meter_core::UsageMode;
 use meter_render::IconStyle;
 use serde::{Deserialize, Serialize};
 
@@ -97,6 +98,16 @@ pub struct AppSettings {
     /// Which popover layout the frontend renders (redesign 1a/1c). Persisted
     /// here; back-compat via `#[serde(default)]` like the fields above.
     pub popover_layout: PopoverLayout,
+    /// Whether usage is presented as percentage-of-limit (allowance) or spend
+    /// (cost), and whether that choice is auto-detected from the account.
+    /// `Auto` (the default) follows what the account reports — allowance
+    /// accounts show the percentage view, token/cost accounts (Enterprise)
+    /// show the spend view; `Allowance`/`Cost` pin it. Persisted here with
+    /// the same struct-level `#[serde(default)]` back-compat as the fields
+    /// above, so an older settings file (written before this field existed)
+    /// still decodes and defaults to `Auto`. The tray reads it live (see
+    /// `tray::set_usage_mode`); the frontend renders the matching view.
+    pub usage_mode: UsageMode,
     /// How many days of the week the weekly quota is expected to be paced
     /// over (issue #16's working-week option) — 5, 6 or 7. Clamped to
     /// `5..=7` by [`Self::normalize`] on every write and load, so a
@@ -118,6 +129,14 @@ pub struct AppSettings {
     /// default so the feature is visible; users can disable the section
     /// wholesale from Settings.
     pub pace_tracking_enabled: bool,
+    /// Whether raw claude.ai API responses are appended to a local log file
+    /// for troubleshooting (Settings' "Log API responses"). Off by default; how
+    /// the token/cost payload shape was captured, and the way to verify it
+    /// against account types not yet observed. The response body holds only
+    /// usage data — the session key is a request header and never logged. The
+    /// live `ResponseLog` sink is flipped by `set_debug_logging`; this field is
+    /// the persisted state it restores on the next launch.
+    pub debug_logging: bool,
 }
 
 impl Default for AppSettings {
@@ -132,9 +151,11 @@ impl Default for AppSettings {
             monochrome: default_monochrome(),
             show_reset_time: true,
             popover_layout: PopoverLayout::Rows,
+            usage_mode: UsageMode::Auto,
             weekly_pace_days: 7,
             pace_first_display: false,
             pace_tracking_enabled: true,
+            debug_logging: false,
         }
     }
 }
@@ -266,9 +287,11 @@ mod tests {
             monochrome: !default_monochrome(),
             show_reset_time: false,
             popover_layout: PopoverLayout::Cards,
+            usage_mode: UsageMode::Cost,
             weekly_pace_days: 5,
             pace_first_display: true,
             pace_tracking_enabled: false,
+            debug_logging: true,
         }
     }
 
@@ -473,6 +496,31 @@ mod tests {
         settings.notify_on_reset = true;
         save(&path, &settings).unwrap();
         assert!(load(&path).notify_on_reset);
+    }
+
+    #[test]
+    fn usage_mode_defaults_to_auto_and_round_trips() {
+        // Default is Auto (follow the account); a pinned choice round-trips
+        // through the store like the other view settings.
+        assert_eq!(AppSettings::default().usage_mode, UsageMode::Auto);
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        save(&path, &sample()).unwrap();
+        assert_eq!(load(&path).usage_mode, UsageMode::Cost);
+    }
+
+    #[test]
+    fn usage_mode_missing_from_an_old_file_defaults_to_auto() {
+        // A settings file written before `usage_mode` existed must still
+        // decode, defaulting the field to Auto (struct-level `serde(default)`).
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(
+            &path,
+            r#"{"version":1,"settings":{"popover_layout":"cards"}}"#,
+        )
+        .unwrap();
+        assert_eq!(load(&path).usage_mode, UsageMode::Auto);
     }
 
     #[test]

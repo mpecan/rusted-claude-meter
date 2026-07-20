@@ -25,6 +25,7 @@ use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use jiff::Timestamp;
+use meter_core::UsageMode;
 use meter_render::{IconCache, IconStyle, RenderedIcon, Scale};
 use tauri::image::Image;
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -48,6 +49,7 @@ pub struct TraySeed {
     pub shown: HashSet<String>,
     pub weekly_pace_days: u8,
     pub pace_first_display: bool,
+    pub usage_mode: UsageMode,
 }
 
 /// Everything the live update path mutates, behind one lock.
@@ -81,6 +83,10 @@ struct TrayResources<R: Runtime> {
     /// Whether the flame/snowflake badge and the pace line are shown (issue
     /// #16). Off by default: quota-first mode never computes a pace signal.
     pace_first_display: bool,
+    /// How usage is presented — allowance (percentage) vs cost (spend), or
+    /// `Auto` to follow the account. Read fresh on every [`apply_state`], so
+    /// [`set_usage_mode`] takes effect on the next render with no rebuild.
+    usage_mode: UsageMode,
     status_item: MenuItem<R>,
     /// The off-pace tooltip line (Linux has no tray tooltip, so this is its
     /// only home there), present only while `pace_first_display` is set and
@@ -115,13 +121,14 @@ pub fn init<R: Runtime>(
         shown,
         weekly_pace_days,
         pace_first_display,
+        usage_mode,
     } = seed;
     let pace = PaceOptions {
         weekly_pace_days,
         pace_first_display,
     };
     let now = Timestamp::now();
-    let menu_model = model::menu_model(initial, now, &shown, pace);
+    let menu_model = model::menu_model(initial, now, &shown, pace, usage_mode);
     let (menu, status_item, usage_items, pace_item) = build_menu(app, &menu_model)?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -156,16 +163,12 @@ pub fn init<R: Runtime>(
     // retries the real gauge.
     let mut cache = IconCache::new();
     let mut diff = TrayDiff::default();
-    let icon = model::icon_state(
-        initial,
-        now,
-        IconOptions {
-            style,
-            mono,
-            scale: Scale::X2,
-        },
-        pace,
-    );
+    let icon_options = IconOptions {
+        style,
+        mono,
+        scale: Scale::X2,
+    };
+    let icon = model::icon_state(initial, now, icon_options, pace, usage_mode);
     match cache.get_or_render(icon) {
         Ok(rendered) => {
             tray = tray
@@ -192,6 +195,7 @@ pub fn init<R: Runtime>(
         shown,
         weekly_pace_days,
         pace_first_display,
+        usage_mode,
         status_item,
         pace_item,
         usage_items,
@@ -199,24 +203,38 @@ pub fn init<R: Runtime>(
     Ok(())
 }
 
+/// Apply `mutate` to the tray's live resources — a no-op if the tray has not
+/// been initialized yet — then re-render `state` under the new resources.
+///
+/// The shared body behind every live Settings-driven switch (`set_style`,
+/// `set_mono`, `set_shown_scoped_models`, `set_pace_options`,
+/// `set_usage_mode`): each is a one-line closure over the field it owns, so
+/// none of them repeat the `try_state` / `lock` / `apply_state` dance (which,
+/// duplicated per setter, would grow the `just dupes` ceiling).
+fn mutate_and_apply<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &MeterState,
+    mutate: impl FnOnce(&mut TrayResources<R>),
+) {
+    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
+        let mut resources = lock(&updater);
+        mutate(&mut resources);
+    }
+    apply_state(app, state);
+}
+
 /// Change the tray's icon style and re-render the current state under it
 /// immediately — the live-switch path Settings drives (issue #9). A no-op if
 /// the tray has not been initialized yet.
 pub fn set_style<R: Runtime>(app: &AppHandle<R>, style: IconStyle, state: &MeterState) {
-    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
-        lock(&updater).style = style;
-    }
-    apply_state(app, state);
+    mutate_and_apply(app, state, |resources| resources.style = style);
 }
 
 /// Change the tray's monochrome/colour choice and re-render immediately —
 /// the live-switch path Settings drives (issue #6). A no-op if the tray has
 /// not been initialized yet.
 pub fn set_mono<R: Runtime>(app: &AppHandle<R>, mono: bool, state: &MeterState) {
-    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
-        lock(&updater).mono = mono;
-    }
-    apply_state(app, state);
+    mutate_and_apply(app, state, |resources| resources.mono = mono);
 }
 
 /// Change which scoped models render as usage lines and re-render
@@ -227,19 +245,13 @@ pub fn set_shown_scoped_models<R: Runtime>(
     shown: HashSet<String>,
     state: &MeterState,
 ) {
-    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
-        lock(&updater).shown = shown;
-    }
-    apply_state(app, state);
+    mutate_and_apply(app, state, |resources| resources.shown = shown);
 }
 
 /// Change the weekly pace basis (5/6/7 days) and pace-first display mode
 /// together and re-render immediately — the live-switch path Settings
 /// drives (issue #16). Both are set in one call because they always change
-/// together from a single settings command's resolved snapshot, and because
-/// a single two-field setter here is one function, not two near-identical
-/// one-field ones that would otherwise mirror [`set_style`]/[`set_mono`]
-/// closely enough to grow the duplication ceiling (`just dupes`). A no-op if
+/// together from a single settings command's resolved snapshot. A no-op if
 /// the tray has not been initialized yet.
 pub fn set_pace_options<R: Runtime>(
     app: &AppHandle<R>,
@@ -247,12 +259,18 @@ pub fn set_pace_options<R: Runtime>(
     pace_first_display: bool,
     state: &MeterState,
 ) {
-    if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
-        let mut resources = lock(&updater);
+    mutate_and_apply(app, state, |resources| {
         resources.weekly_pace_days = weekly_pace_days;
         resources.pace_first_display = pace_first_display;
-    }
-    apply_state(app, state);
+    });
+}
+
+/// Change how usage is presented — allowance (percentage) vs cost (spend), or
+/// `Auto` to follow the account — and re-render immediately, the live-switch
+/// path the Usage-mode setting drives. A no-op if the tray has not been
+/// initialized yet.
+pub fn set_usage_mode<R: Runtime>(app: &AppHandle<R>, usage_mode: UsageMode, state: &MeterState) {
+    mutate_and_apply(app, state, |resources| resources.usage_mode = usage_mode);
 }
 
 /// Live update path: fold one broadcast [`MeterState`] into the tray.
@@ -276,7 +294,8 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
         weekly_pace_days: resources.weekly_pace_days,
         pace_first_display: resources.pace_first_display,
     };
-    let menu = model::menu_model(state, now, &resources.shown, pace);
+    let usage_mode = resources.usage_mode;
+    let menu = model::menu_model(state, now, &resources.shown, pace, usage_mode);
     let icon = model::icon_state(
         state,
         now,
@@ -286,6 +305,7 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
             scale: Scale::X2,
         },
         pace,
+        usage_mode,
     );
     let plan = resources.diff.plan(icon, &menu);
     if let Some(icon) = plan.icon {

@@ -244,6 +244,7 @@ mod tests {
             five_hour: None,
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at,
         }
     }

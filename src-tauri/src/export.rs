@@ -174,6 +174,7 @@ mod tests {
                     is_active: false,
                 },
             ],
+            spend: None,
             fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
         }
     }
@@ -250,6 +251,7 @@ mod tests {
             five_hour: None,
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
         };
         let payload = UsageExportPayload::from(&snap);

@@ -110,6 +110,28 @@
         </div>
 
         <div class="settings-section">
+          <h3>Usage view</h3>
+          <div class="settings-field">
+            <span class="settings-field-label">Mode</span>
+            <div id="usage-mode-toggle" class="segmented" role="radiogroup" aria-label="Usage mode">
+              <button type="button" class="segmented-option" data-value="auto" role="radio">
+                Auto
+              </button>
+              <button type="button" class="segmented-option" data-value="allowance" role="radio">
+                Allowance
+              </button>
+              <button type="button" class="segmented-option" data-value="cost" role="radio">
+                Cost
+              </button>
+            </div>
+            <p class="settings-hint">
+              Auto follows your account — allowance (percentage) for Pro/Team plans, cost (spend)
+              for token-based plans. Pin Allowance or Cost to override the detection.
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h3>Popover</h3>
           <div class="settings-field">
             <span class="settings-field-label">Layout</span>
@@ -184,6 +206,28 @@
             Launch at login
           </label>
           <p id="autostart-error" class="session-error" role="alert" hidden></p>
+        </div>
+
+        <div class="settings-section">
+          <h3>Debug</h3>
+          <label class="settings-checkbox">
+            <input id="debug-logging-toggle" type="checkbox" />
+            Log API responses
+          </label>
+          <p class="settings-hint">
+            Appends each raw claude.ai usage response to a local file — for troubleshooting,
+            and to help identify token/cost fields on your account. Your session key is never
+            written. Off by default.
+          </p>
+          <div id="debug-log-location" class="settings-field" hidden>
+            <span class="settings-field-label">Log file</span>
+            <div class="debug-log-row">
+              <code id="debug-log-path" class="debug-log-path"></code>
+              <button id="reveal-debug-log-button" class="ghost-button" type="button">
+                Reveal
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="settings-section">

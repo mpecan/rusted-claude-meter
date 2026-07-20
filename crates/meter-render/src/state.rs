@@ -282,6 +282,7 @@ mod tests {
             five_hour: Some(window(30.0, 150, LimitWindow::FiveHour)),
             seven_day: Some(window(90.0, 5000, LimitWindow::SevenDay)),
             scoped: vec![],
+            spend: None,
             fetched_at: now(),
         };
         let s = state(&snapshot);
@@ -298,6 +299,7 @@ mod tests {
             five_hour: Some(window(30.0, 150, LimitWindow::FiveHour)),
             seven_day: Some(window(64.0, 5000, LimitWindow::SevenDay)),
             scoped: vec![],
+            spend: None,
             fetched_at: now(),
         };
         let s = state(&snapshot);
@@ -311,6 +313,7 @@ mod tests {
             five_hour: Some(window(30.0, 150, LimitWindow::FiveHour)),
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at: now(),
         };
         assert_eq!(state(&snapshot).secondary_percent, 0);
@@ -335,6 +338,7 @@ mod tests {
                     is_active: true,
                 },
             ],
+            spend: None,
             fetched_at: now(),
         };
         assert_eq!(state(&snapshot).percent, 47);
@@ -347,6 +351,7 @@ mod tests {
             five_hour: Some(window(90.0, 150, LimitWindow::FiveHour)),
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at: now(),
         };
         assert!(state(&snapshot).at_risk);
@@ -356,6 +361,7 @@ mod tests {
             five_hour: Some(window(50.0, 150, LimitWindow::FiveHour)),
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at: now(),
         };
         assert!(!state(&calm).at_risk);
@@ -371,6 +377,7 @@ mod tests {
                 usage: window(90.0, 4 * 24 * 60, LimitWindow::SevenDay),
                 is_active: true,
             }],
+            spend: None,
             fetched_at: now(),
         };
         assert!(state(&hot_scoped).at_risk);
@@ -477,6 +484,7 @@ mod tests {
             five_hour: None,
             seven_day: None,
             scoped: vec![],
+            spend: None,
             fetched_at: now(),
         };
         let s = state(&empty);
