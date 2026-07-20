@@ -5,6 +5,14 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Supply-chain hardening: don't adopt a version until it has been public
+    # for a few days. A compromised package version (npm/crates worms like
+    # Shai-Hulud) is typically detected and yanked within hours-to-days of
+    # publication; waiting this window keeps a poisoned just-published release
+    # out of an auto-merged Dependabot PR. Security advisories still bypass
+    # this and are raised immediately.
+    cooldown:
+      default-days: 5
     groups:
       cargo-patch-and-minor:
         update-types:
@@ -21,6 +29,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # npm is the primary Shai-Hulud vector — give a slightly longer settle
+    # window here than for cargo. See the cargo block above for rationale.
+    cooldown:
+      default-days: 7
     groups:
       npm-patch-and-minor:
         update-types:
@@ -32,11 +44,16 @@ updates:
       - "dependencies"
       - "frontend"
 
-  # GitHub Actions workflow dependencies
+  # GitHub Actions workflow dependencies. Actions are SHA-pinned in the
+  # workflows (with a `# vN` comment Dependabot keeps in sync); the cooldown
+  # guards against adopting a freshly-hijacked action release before it is
+  # caught.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 5
     commit-message:
       prefix: "chore(ci)"
     labels:
