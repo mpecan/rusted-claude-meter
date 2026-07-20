@@ -42,7 +42,7 @@ jobs:
       # who can push a v* tag).
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # This job never pushes with git — gh/git-cliff use GH_TOKEN/the
@@ -95,7 +95,7 @@ jobs:
       # persisted credentials.
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -103,7 +103,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: ./.github/actions/tauri-linux-deps
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -121,7 +121,7 @@ jobs:
       # bundle.targets restricts this to app+dmg on macOS, deb+appimage on
       # Linux) and uploads it to the draft release created above — found by
       # tag, not created fresh, so both matrix legs land on the same release.
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
