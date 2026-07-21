@@ -139,17 +139,24 @@ jobs:
           mkdir -p dmgs
           find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -exec cp {} dmgs/ \;
 
-      # Build + code-sign the LITE variant (browser import compiled out). Reuses
-      # the cert tauri-action already imported — its cleanup runs as a post-step
-      # at job end, so the identity is still on the keychain search list here. A
+      # Build + code-sign the LITE variant (browser import compiled out) through
+      # tauri-action, so it imports the Developer ID cert into its own keychain
+      # and signs exactly like the full build above. A raw `tauri build` here
+      # can't see the identity the full step's keychain held (codesign fails
+      # with "no identity found"), so signing is delegated to tauri-action too.
+      # `tauri build` has no --no-default-features flag; the cargo feature arg
+      # goes after a second `--` (the CLI forwards trailing args to cargo). A
       # distinct productName/identifier (tauri.lite.conf.json) gives it its own
       # .app/.dmg name so both variants coexist.
       - name: Build + sign — lite (no browser import)
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        # `tauri build` has no --no-default-features flag; cargo args go after a
-        # second `--` (the CLI forwards trailing [ARGS] to the runner/cargo).
-        run: npm run tauri build -- --config src-tauri/tauri.lite.conf.json -- --no-default-features
+        with:
+          args: --config src-tauri/tauri.lite.conf.json -- --no-default-features
 
       - name: Stage the lite DMG
         run: |
