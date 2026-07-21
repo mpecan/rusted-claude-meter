@@ -147,7 +147,9 @@ jobs:
       - name: Build + sign — lite (no browser import)
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: npm run tauri build -- --no-default-features --config src-tauri/tauri.lite.conf.json
+        # `tauri build` has no --no-default-features flag; cargo args go after a
+        # second `--` (the CLI forwards trailing [ARGS] to the runner/cargo).
+        run: npm run tauri build -- --config src-tauri/tauri.lite.conf.json -- --no-default-features
 
       - name: Stage the lite DMG
         run: |
