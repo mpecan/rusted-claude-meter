@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::window::UsageWindow;
 
-/// Burning usage more than 20% faster than a sustainable, even pace counts
-/// as at-risk (mirrors `ClaudeMeter`'s `Constants.Pacing.riskThreshold`).
-pub const RISK_THRESHOLD: f64 = 1.2;
+/// Any burn above the sustainable line (`1.0×` = on track to reach the limit
+/// exactly at reset) counts as at-risk/overuse (mirrors `ClaudeMeter`'s
+/// `Constants.Pacing.riskThreshold`).
+pub const RISK_THRESHOLD: f64 = 1.0;
 
 /// Below this ratio the weekly quota is likely to go unused before reset
 /// (mirrors `Constants.Pacing.underuseThreshold`).
@@ -13,14 +14,15 @@ pub const UNDERUSE_THRESHOLD: f64 = 0.8;
 
 /// Above this ratio overuse is shown as heavy — red rather than orange
 /// (mirrors `Constants.Pacing.heavyOveruseThreshold`).
-pub const HEAVY_OVERUSE_THRESHOLD: f64 = 2.5;
+pub const HEAVY_OVERUSE_THRESHOLD: f64 = 1.2;
 
-/// Minimum utilization before a limit-hit is projected.
+/// Minimum utilization before pace projections surface.
 ///
 /// Below this an early front-loaded burst is treated as noise; at or above it
-/// a lockout warning surfaces immediately, without waiting out
-/// [`MIN_ELAPSED_FRACTION`] (mirrors `Constants.Pacing.minimumUsageForProjection`).
-pub const MIN_USAGE_FOR_PROJECTION: f64 = 5.0;
+/// the pace ratio, projected end and lockout warning all surface immediately,
+/// without waiting out [`MIN_ELAPSED_FRACTION`] (mirrors
+/// `Constants.Pacing.minimumUsageForProjection`).
+pub const MIN_USAGE_FOR_PROJECTION: f64 = 2.0;
 
 /// Ignore pacing until this fraction of the window has elapsed; ratios
 /// against a nearly-empty denominator are noise, not signal.
@@ -45,17 +47,17 @@ pub fn weekly_pacing_duration(days: u8) -> SignedDuration {
 pub enum PaceBand {
     /// `< 0.8×` — quota likely left unused (blue).
     Underuse,
-    /// `0.8..=1.2×` — sustainable (green).
+    /// `0.8..=1.0×` — sustainable (green).
     Sustainable,
-    /// `1.2..=2.5×` — overuse (orange).
+    /// `1.0..=1.2×` — overuse (orange).
     Overuse,
-    /// `> 2.5×` — heavy overuse (red).
+    /// `> 1.2×` — heavy overuse (red).
     HeavyOveruse,
 }
 
 impl PaceBand {
     /// Classify a pace ratio. Blue underuse (`<0.8×`), green sustainable
-    /// (`0.8–1.2×`), orange overuse (`1.2–2.5×`), red heavy overuse (`>2.5×`).
+    /// (`0.8–1.0×`), orange overuse (`1.0–1.2×`), red heavy overuse (`>1.2×`).
     #[must_use]
     pub fn from_ratio(ratio: f64) -> Self {
         if ratio < UNDERUSE_THRESHOLD {
@@ -111,7 +113,14 @@ impl UsageWindow {
         // windowStart = resets_at - window; elapsed = now - windowStart.
         let elapsed = self.elapsed_secs(now)?;
         let elapsed_fraction = (elapsed / pacing).min(1.0);
-        if elapsed_fraction < MIN_ELAPSED_FRACTION {
+        // Keep the ratio's divisor positive (clock skew can make elapsed <= 0).
+        if elapsed_fraction <= 0.0 {
+            return None;
+        }
+        // A front-loaded burst is meaningful before the elapsed grace: once
+        // utilization clears MIN_USAGE_FOR_PROJECTION the ratio surfaces
+        // immediately, matching projected_limit_date.
+        if elapsed_fraction < MIN_ELAPSED_FRACTION && self.utilization < MIN_USAGE_FOR_PROJECTION {
             return None;
         }
         Some(elapsed_fraction * 100.0)
@@ -146,7 +155,14 @@ impl UsageWindow {
         let window_dur = self.window.duration();
         let window_secs = window_dur.as_secs_f64();
         let elapsed = self.elapsed_secs(now)?;
-        if elapsed < window_secs * MIN_ELAPSED_FRACTION {
+        if elapsed <= 0.0 {
+            return None;
+        }
+        // As with projected_limit_date, a burst clearing MIN_USAGE_FOR_PROJECTION
+        // projects immediately instead of waiting out the elapsed grace.
+        if elapsed < window_secs * MIN_ELAPSED_FRACTION
+            && self.utilization < MIN_USAGE_FOR_PROJECTION
+        {
             return None;
         }
         // Never project a horizon shorter than what has already elapsed.
@@ -286,10 +302,19 @@ mod tests {
     }
 
     #[test]
-    fn pace_ratio_within_grace_period_is_none() {
-        // Only 2% of the window elapsed (< MIN_ELAPSED_FRACTION of 5%).
-        let w = limit(10.0, 0.02, LimitWindow::FiveHour);
+    fn pace_ratio_within_grace_below_usage_floor_is_none() {
+        // 1% used in the first 2% of the window: below both the elapsed grace
+        // and the usage floor, so the ratio stays suppressed as noise.
+        let w = limit(1.0, 0.02, LimitWindow::FiveHour);
         assert!(w.pace_ratio(now(), None).is_none());
+    }
+
+    #[test]
+    fn pace_ratio_within_grace_above_usage_floor_surfaces() {
+        // A front-loaded burst clears the usage floor, so the ratio surfaces
+        // before the elapsed grace ends: 10% used at 2% elapsed -> 5.0.
+        let w = limit(10.0, 0.02, LimitWindow::FiveHour);
+        assert!((w.pace_ratio(now(), None).unwrap() - 5.0).abs() < 0.01);
     }
 
     #[test]
@@ -338,10 +363,18 @@ mod tests {
     }
 
     #[test]
-    fn projected_end_percent_within_grace_period_is_none() {
-        // Only 2% of the window elapsed (< MIN_ELAPSED_FRACTION of 5%).
-        let w = limit(10.0, 0.02, LimitWindow::FiveHour);
+    fn projected_end_percent_within_grace_below_usage_floor_is_none() {
+        // 1% used in the first 2%: below both the elapsed grace and the floor.
+        let w = limit(1.0, 0.02, LimitWindow::FiveHour);
         assert!(w.projected_end_percent(now(), None).is_none());
+    }
+
+    #[test]
+    fn projected_end_percent_within_grace_above_usage_floor_surfaces() {
+        // 10% used at 2% elapsed extrapolates to 500% once the usage floor is
+        // cleared, without waiting out the elapsed grace.
+        let w = limit(10.0, 0.02, LimitWindow::FiveHour);
+        assert!((w.projected_end_percent(now(), None).unwrap() - 500.0).abs() < 1.0);
     }
 
     #[test]
@@ -373,18 +406,17 @@ mod tests {
         // 60% burned in the first 2% of the window: below the pace grace, but a
         // lockout is unambiguous so the projection still fires.
         let w = limit(60.0, 0.02, LimitWindow::FiveHour);
-        assert!(
-            w.pace_ratio(now(), None).is_none(),
-            "grace still suppresses the ratio"
-        );
+        // The migration surfaces the ratio too once usage clears the floor:
+        // 60% at 2% elapsed -> 30.0.
+        assert!((w.pace_ratio(now(), None).unwrap() - 30.0).abs() < 0.01);
         let hit = w.projected_limit_date(now(), None).unwrap();
         assert!(hit < w.resets_at);
     }
 
     #[test]
     fn projected_limit_date_trivial_early_usage_is_none() {
-        // 2% used moments after reset is noise — below the usage floor.
-        let w = limit(2.0, 0.01, LimitWindow::FiveHour);
+        // 1% used moments after reset is noise — below the usage floor.
+        let w = limit(1.0, 0.01, LimitWindow::FiveHour);
         assert!(w.projected_limit_date(now(), None).is_none());
     }
 
@@ -407,9 +439,10 @@ mod tests {
     fn pace_band_classifies_each_tier() {
         assert_eq!(PaceBand::from_ratio(0.4), PaceBand::Underuse);
         assert_eq!(PaceBand::from_ratio(0.8), PaceBand::Sustainable);
-        assert_eq!(PaceBand::from_ratio(1.2), PaceBand::Sustainable);
-        assert_eq!(PaceBand::from_ratio(1.8), PaceBand::Overuse);
-        assert_eq!(PaceBand::from_ratio(2.5), PaceBand::Overuse);
+        assert_eq!(PaceBand::from_ratio(1.0), PaceBand::Sustainable);
+        assert_eq!(PaceBand::from_ratio(1.1), PaceBand::Overuse);
+        assert_eq!(PaceBand::from_ratio(1.2), PaceBand::Overuse);
+        assert_eq!(PaceBand::from_ratio(1.3), PaceBand::HeavyOveruse);
         assert_eq!(PaceBand::from_ratio(3.0), PaceBand::HeavyOveruse);
     }
 
@@ -432,8 +465,10 @@ mod tests {
 
     #[test]
     fn fresh_window_yields_none() {
+        // 1% used at 1% elapsed: below both the elapsed grace and the usage
+        // floor, so no assessment.
         assert!(
-            PacingAssessment::for_window(&limit(5.0, 0.01, LimitWindow::FiveHour), now()).is_none()
+            PacingAssessment::for_window(&limit(1.0, 0.01, LimitWindow::FiveHour), now()).is_none()
         );
     }
 

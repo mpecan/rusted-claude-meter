@@ -76,8 +76,12 @@ describe("paceRatio", () => {
     expect(paceRatio(limit(110, 0.9, "five_hour"), NOW)).toBeCloseTo(100 / 90, 2);
   });
 
-  it("is null within the grace period (2% elapsed < 5%)", () => {
-    expect(paceRatio(limit(10, 0.02, "five_hour"), NOW)).toBeNull();
+  it("is null within the grace period below the usage floor", () => {
+    expect(paceRatio(limit(1, 0.02, "five_hour"), NOW)).toBeNull();
+  });
+
+  it("surfaces within the grace period once usage clears the floor (10% at 2% = 5.0)", () => {
+    expect(paceRatio(limit(10, 0.02, "five_hour"), NOW)).toBeCloseTo(5.0, 2);
   });
 
   it("is null once past reset", () => {
@@ -115,8 +119,12 @@ describe("projectedEndPercent", () => {
     expect(projectedEndPercent(fiveHourWindow(50, -1), NOW)).toBeNull();
   });
 
-  it("is null within the grace period", () => {
-    expect(projectedEndPercent(limit(10, 0.02, "five_hour"), NOW)).toBeNull();
+  it("is null within the grace period below the usage floor", () => {
+    expect(projectedEndPercent(limit(1, 0.02, "five_hour"), NOW)).toBeNull();
+  });
+
+  it("surfaces within the grace period once usage clears the floor (10% at 2% -> 500%)", () => {
+    expect(projectedEndPercent(limit(10, 0.02, "five_hour"), NOW)).toBeCloseTo(500, 0);
   });
 });
 
@@ -141,17 +149,17 @@ describe("projectedLimitDate", () => {
   });
 
   it("still warns on a front-loaded burst within the grace period", () => {
-    // 60% burned in the first 2%: the ratio is suppressed, but the lockout
-    // projection bypasses the elapsed grace (honouring the usage floor).
+    // 60% burned in the first 2%: usage clears the floor, so the ratio now
+    // surfaces (-> 30) alongside the lockout projection.
     const w = limit(60, 0.02, "five_hour");
-    expect(paceRatio(w, NOW)).toBeNull();
+    expect(paceRatio(w, NOW)).toBeCloseTo(30, 2);
     const hit = projectedLimitDate(w, NOW);
     expect(hit).not.toBeNull();
     expect(hit!.getTime()).toBeLessThan(new Date(w.resets_at).getTime());
   });
 
   it("is null for trivial early usage below the floor", () => {
-    expect(projectedLimitDate(limit(2, 0.01, "five_hour"), NOW)).toBeNull();
+    expect(projectedLimitDate(limit(1, 0.01, "five_hour"), NOW)).toBeNull();
   });
 
   it("respects the pacing basis without contradiction", () => {
@@ -168,9 +176,10 @@ describe("paceBand", () => {
   it("classifies each tier at its boundaries", () => {
     expect(paceBand(0.4)).toBe("underuse");
     expect(paceBand(0.8)).toBe("sustainable");
-    expect(paceBand(1.2)).toBe("sustainable");
-    expect(paceBand(1.8)).toBe("overuse");
-    expect(paceBand(2.5)).toBe("overuse");
+    expect(paceBand(1.0)).toBe("sustainable");
+    expect(paceBand(1.1)).toBe("overuse");
+    expect(paceBand(1.2)).toBe("overuse");
+    expect(paceBand(1.3)).toBe("heavy_overuse");
     expect(paceBand(3.0)).toBe("heavy_overuse");
   });
 });
@@ -185,8 +194,8 @@ describe("isAtRisk", () => {
     expect(isAtRisk(fiveHourWindow(80, 150), NOW)).toBe(true);
   });
 
-  it("is not at risk in a barely-started window (below the elapsed floor)", () => {
-    expect(isAtRisk(fiveHourWindow(5, 297), NOW)).toBe(false);
+  it("is not at risk in a barely-started window (below the usage floor)", () => {
+    expect(isAtRisk(fiveHourWindow(1, 297), NOW)).toBe(false);
   });
 
   it("is not at risk once the window has already reset", () => {
@@ -197,8 +206,9 @@ describe("isAtRisk", () => {
     expect(isAtRisk(fiveHourWindow(0, 150), NOW)).toBe(false);
   });
 
-  it("caps utilization at 100 (over-100% usage late in the window is not at risk)", () => {
-    // 110% used at 90% elapsed: capped ratio 100/90 ≈ 1.11 (< 1.2).
-    expect(isAtRisk(fiveHourWindow(110, 30), NOW)).toBe(false);
+  it("caps utilization at 100 (110% used late is capped to ratio 100/90)", () => {
+    // 110% used at 90% elapsed: capped ratio 100/90 ≈ 1.11 (not 110/90), which
+    // is over the 1.0 line -> at risk.
+    expect(isAtRisk(fiveHourWindow(110, 30), NOW)).toBe(true);
   });
 });

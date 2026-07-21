@@ -149,11 +149,12 @@ function pacedState(five: UsageWindow | null, seven: UsageWindow | null): MeterS
 
 describe("buildViewModel — pace", () => {
   it("carries the pace ratio, band and expected-by-now percent per card", () => {
-    // 60% used at 50% elapsed -> ratio 1.2 (sustainable upper edge), expected 50%.
+    // 60% used at 50% elapsed -> ratio 1.2 (overuse, just past the 1.0 line),
+    // expected 50%.
     const vm = buildViewModel(pacedState(paced(60, 0.5, "five_hour"), null), NOW, new Set());
     const card = vm.cards[0]!;
     expect(card.paceRatio).toBeCloseTo(1.2, 2);
-    expect(card.paceBand).toBe("sustainable");
+    expect(card.paceBand).toBe("overuse");
     expect(card.expectedPercent).toBeCloseTo(50, 2);
   });
 
@@ -174,8 +175,9 @@ describe("buildViewModel — pace", () => {
   });
 
   it("swaps to pace-first only once a ratio exists to lead with", () => {
-    // Fresh window (2% elapsed): ratio suppressed, so pace-first stays off.
-    const fresh = buildViewModel(pacedState(paced(10, 0.02, "five_hour"), null), NOW, new Set(), { paceFirst: true });
+    // Fresh window (2% elapsed, below the usage floor): ratio suppressed, so
+    // pace-first stays off.
+    const fresh = buildViewModel(pacedState(paced(1, 0.02, "five_hour"), null), NOW, new Set(), { paceFirst: true });
     expect(fresh.cards[0]!.paceRatio).toBeNull();
     expect(fresh.cards[0]!.paceFirst).toBe(false);
     // Established window: pace-first engages.
@@ -222,18 +224,19 @@ describe("buildViewModel — pace", () => {
       new Set(["Sonnet"]),
     );
     const card = vm.cards.find((c) => c.id === "scoped:Sonnet")!;
-    // 60% used at 50% of the 5-hour window -> sustainable (1.2), expected 50%.
-    expect(card.paceBand).toBe("sustainable");
+    // 60% used at 50% of the 5-hour window -> overuse (1.2), expected 50%.
+    expect(card.paceBand).toBe("overuse");
     expect(card.expectedPercent).toBeCloseTo(50, 2);
     // Session cadence never signals underuse.
     expect(card.showsUnderuse).toBe(false);
   });
 
   it("applies the weekly pace basis to the weekly card", () => {
-    // 40% at 2/7 days: 7-day basis is overuse (1.4), 5-day basis is on-pace (1.0).
+    // 40% at 2/7 days: 7-day basis is heavy overuse (1.4), 5-day basis is
+    // on-pace (1.0).
     const seven = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), { weeklyPaceDays: 7 });
     const five = buildViewModel(pacedState(null, paced(40, 2 / 7, "seven_day")), NOW, new Set(), { weeklyPaceDays: 5 });
-    expect(seven.cards[0]!.paceBand).toBe("overuse");
+    expect(seven.cards[0]!.paceBand).toBe("heavy_overuse");
     expect(five.cards[0]!.paceBand).toBe("sustainable");
   });
 });

@@ -158,6 +158,12 @@ function projectionLine(card: UsageCardViewModel): HTMLElement | null {
       break;
     case "hits": {
       el.classList.add("projection-hits");
+      // Colour the line by pace severity (orange overuse, red heavy overuse)
+      // instead of a fixed warning, so it matches the ratio. Mirrors upstream
+      // `UsageCardView.projectionLine` using `PacePalette.color(for:)`.
+      if (card.paceBand !== null) {
+        el.classList.add(`pace-${card.paceBand}`);
+      }
       const at = formatHitTime(new Date(projection.hitAt), new Date());
       el.textContent = `Hits limit ~${at}, ${describeRemaining(projection.secondsBeforeReset)} before reset`;
       break;
