@@ -11,6 +11,7 @@ mod autostart;
 mod browser_import;
 mod cache;
 mod commands;
+#[cfg(feature = "browser-import")]
 mod cookie_reader;
 mod debug_log;
 mod export;
