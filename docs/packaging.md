@@ -1,32 +1,41 @@
 # Packaging & release
 
 Covers issue [#14](https://github.com/mpecan/rusted-claude-meter/issues/14):
-signed/notarized macOS DMG, Linux AppImage + `.deb`, and a tag-triggered
-release workflow that needs no manual artifact handling.
+signed/notarized macOS DMG, Linux AppImage + `.deb`, and a release-please
+flow that needs no manual version bumps or artifact handling.
 
 ## Release process
 
-1. Bump `version` in `Cargo.toml`'s `[workspace.package]` and in
-   `src-tauri/tauri.conf.json` (Tauri reads its own `version`, it does not
-   inherit the workspace one).
-2. Tag: `git tag v0.2.0 && git push origin v0.2.0`.
-3. `.github/workflows/release.yml` takes it from there:
-   - `changelog` renders release notes from Conventional Commits since the
-     previous tag with [git-cliff](https://git-cliff.org) (`cliff.toml`) and
-     opens a **draft** GitHub Release with them.
-   - `build` runs on `macos-latest` and `ubuntu-22.04` in parallel, builds
-     the bundle for that OS (`bundle.targets` in `tauri.conf.json` restricts
-     this to `app`+`dmg` on macOS, `deb`+`appimage` on Linux) via
-     [`tauri-action`](https://github.com/tauri-apps/tauri-action), and
-     uploads the artifacts to the same draft release (found by tag). The
-     macOS leg also renders and uploads the Homebrew cask
-     (`scripts/render-cask.sh`).
-   - `publish` un-drafts the release once both legs are done, so it's never
-     visible with only half its artifacts attached.
+Two distinct workflows, split on purpose so building never runs on a plain
+tag push:
 
-Nothing beyond pushing the tag is manual. `ubuntu-22.04` (not `-latest`) is
-deliberate: an AppImage/deb built against an older glibc stays installable on
-older distros; `-latest` would narrow that.
+1. **`.github/workflows/release-please.yml`** (on push to `main`) maintains a
+   **release PR** via
+   [release-please](https://github.com/googleapis/release-please). It bumps
+   the version everywhere it lives — `Cargo.toml`'s `[workspace.package]`
+   (annotated with `# x-release-please-version`), `src-tauri/tauri.conf.json`
+   and `package.json` — and rolls up `CHANGELOG.md` from Conventional Commits.
+   Config lives in `.release-please-config.json` +
+   `.release-please-manifest.json`. Merging that PR creates the GitHub Release
+   and the `v*` tag.
+   - It authenticates as a GitHub App (`REPOSITORY_BUTLER_APP_ID` /
+     `REPOSITORY_BUTLER_PEM`), not the default `GITHUB_TOKEN`, **so the
+     `release: published` event actually fires** — a release created by
+     `GITHUB_TOKEN` would not trigger the build stage below.
+2. **`.github/workflows/release.yml`** runs **only** on that published release
+   (plus a manual `workflow_dispatch` by tag, for re-builds). It checks out
+   the tag and, on `macos-latest` and `ubuntu-22.04` in parallel, builds the
+   bundle for that OS (`bundle.targets` in `tauri.conf.json` restricts this to
+   `app`+`dmg` on macOS, `deb`+`appimage` on Linux) via
+   [`tauri-action`](https://github.com/tauri-apps/tauri-action) — signing +
+   notarizing the macOS DMG when the Apple secrets are set. Artifacts upload
+   onto the existing release (found by id), and the macOS leg renders +
+   uploads the Homebrew cask (`scripts/render-cask.sh`).
+
+Nothing beyond merging the release PR is manual — the version bump is
+automatic. `ubuntu-22.04` (not `-latest`) is deliberate: an AppImage/deb built
+against an older glibc stays installable on older distros; `-latest` would
+narrow that.
 
 ## macOS signing & notarization
 
