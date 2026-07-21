@@ -89,9 +89,11 @@ jobs:
           releaseId: ${{ steps.release.outputs.id }}
 
   build-macos:
-    name: Build + sign macOS (.dmg)
+    name: Build + sign macOS (full + lite)
     runs-on: macos-latest
-    timeout-minutes: 40
+    # Two variants, but the dependency compile is shared, so the second is only
+    # our own crates + a re-bundle.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -117,10 +119,11 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # Build + code-sign only. Only the signing secrets are passed, so
-      # tauri-action signs (hardened runtime, per tauri.conf.json) but does
-      # NOT notarize — no notarytool --wait blocking this runner. No release
-      # inputs, so nothing is uploaded here; the DMG leaves as an artifact.
+      # Build + code-sign the FULL variant. tauri-action imports the Developer
+      # ID cert into a keychain and signs (hardened runtime, per
+      # tauri.conf.json); it does NOT notarize — that runs on the Linux job. No
+      # release inputs, so nothing is uploaded here; the DMGs leave as an
+      # artifact.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -128,11 +131,35 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
 
-      - name: Upload signed DMG artifact
+      # Stash the full DMG before the lite build, in case tauri's bundler
+      # clears the dmg dir on the next build.
+      - name: Stage the full DMG
+        run: |
+          set -euo pipefail
+          mkdir -p dmgs
+          find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -exec cp {} dmgs/ \;
+
+      # Build + code-sign the LITE variant (browser import compiled out). Reuses
+      # the cert tauri-action already imported — its cleanup runs as a post-step
+      # at job end, so the identity is still on the keychain search list here. A
+      # distinct productName/identifier (tauri.lite.conf.json) gives it its own
+      # .app/.dmg name so both variants coexist.
+      - name: Build + sign — lite (no browser import)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: npm run tauri build -- --no-default-features --config src-tauri/tauri.lite.conf.json
+
+      - name: Stage the lite DMG
+        run: |
+          set -euo pipefail
+          find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -exec cp {} dmgs/ \;
+          ls -la dmgs
+
+      - name: Upload signed DMGs artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: macos-dmg
-          path: target/release/bundle/dmg/*.dmg
+          name: macos-dmgs
+          path: dmgs/*.dmg
           if-no-files-found: error
           retention-days: 1
 
@@ -149,11 +176,11 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
-      # Land the DMG where render-cask.sh already looks for it.
-      - name: Download signed DMG
+      # Land the DMGs where render-cask.sh looks for them.
+      - name: Download signed DMGs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: macos-dmg
+          name: macos-dmgs
           path: target/release/bundle/dmg
 
       - name: Install rcodesign (apple-codesign)
@@ -165,9 +192,10 @@ jobs:
           sudo install /tmp/apple-codesign-0.29.0-x86_64-unknown-linux-musl/rcodesign /usr/local/bin/rcodesign
           rcodesign --version
 
-      # Notarize the DMG against Apple's notary API and staple the ticket to
-      # it, all from Linux. Staples the DMG in place, so its checksum below is
-      # the notarized artifact's.
+      # Notarize + staple BOTH DMGs (full + lite) against Apple's notary API,
+      # from Linux, in parallel so the (variable) notary wait isn't doubled.
+      # Stapling is in place, so the checksums the casks use are the notarized
+      # artifacts'.
       - name: Notarize + staple
         env:
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -175,32 +203,87 @@ jobs:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           set -euo pipefail
-          dmg=$(find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)
-          if [ -z "$dmg" ]; then echo "no DMG found" >&2; exit 1; fi
+          shopt -s nullglob
+          dmgs=(target/release/bundle/dmg/*.dmg)
+          if [ ${#dmgs[@]} -eq 0 ]; then echo "no DMGs found" >&2; exit 1; fi
           if [ -z "${APPLE_API_KEY_P8:-}" ]; then
-            echo "::warning::App Store Connect API key not set — skipping notarization (unsigned-quality DMG will ship)"
+            echo "::warning::App Store Connect API key not set — skipping notarization"
             exit 0
           fi
           printf '%s' "$APPLE_API_KEY_P8" | base64 -d > AuthKey.p8
           trap 'rm -f AuthKey.p8 key.json' EXIT
           rcodesign encode-app-store-connect-api-key -o key.json \
             "$APPLE_API_ISSUER_ID" "$APPLE_API_KEY_ID" AuthKey.p8
-          rcodesign notary-submit --api-key-file key.json --staple "$dmg"
+          pids=()
+          for dmg in "${dmgs[@]}"; do
+            rcodesign notary-submit --api-key-file key.json --staple "$dmg" &
+            pids+=("$!")
+          done
+          fail=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || fail=1
+          done
+          [ "$fail" -eq 0 ]
 
-      - name: Upload notarized DMG to the release
+      - name: Upload notarized DMGs to the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
-          dmg=$(find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)
-          gh release upload "$TAG" "$dmg" --repo "${{ github.repository }}" --clobber
+          shopt -s nullglob
+          for dmg in target/release/bundle/dmg/*.dmg; do
+            gh release upload "$TAG" "$dmg" --repo "${{ github.repository }}" --clobber
+          done
 
-      - name: Render + upload Homebrew cask
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Render Homebrew casks (full + lite)
         run: |
           set -euo pipefail
-          bash scripts/render-cask.sh "$RELEASE_TAG"
-          gh release upload "$RELEASE_TAG" rusted-claude-meter.rb \
+          bash scripts/render-cask.sh "$RELEASE_TAG" rusted-claude-meter "Rusted Claude Meter_*.dmg"
+          bash scripts/render-cask.sh "$RELEASE_TAG" rusted-claude-meter-lite "Rusted Claude Meter Lite_*.dmg"
+
+      - name: Upload casks to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" rusted-claude-meter.rb rusted-claude-meter-lite.rb \
             --repo "${{ github.repository }}" --clobber
+
+      # Publish both casks to the mpecan/homebrew-tools tap, so
+      # `brew install --cask mpecan/tools/rusted-claude-meter[-lite]` works.
+      # Uses the Repository Butler App token (already used by release-please)
+      # scoped to the tap repo.
+      - name: Generate GitHub App token (tap)
+        id: tap-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.REPOSITORY_BUTLER_APP_ID }}
+          private-key: ${{ secrets.REPOSITORY_BUTLER_PEM }}
+          repositories: homebrew-tools
+
+      - name: Check out the tap
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: mpecan/homebrew-tools
+          token: ${{ steps.tap-token.outputs.token }}
+          path: homebrew-tools
+
+      - name: Publish casks to the tap
+        env:
+          VERSION: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          mkdir -p homebrew-tools/Casks
+          cp rusted-claude-meter.rb rusted-claude-meter-lite.rb homebrew-tools/Casks/
+          cd homebrew-tools
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/rusted-claude-meter.rb Casks/rusted-claude-meter-lite.rb
+          if git diff --staged --quiet; then
+            echo "casks unchanged — nothing to publish"
+            exit 0
+          fi
+          git commit -m "chore: rusted-claude-meter ${VERSION#v}"
+          git push
