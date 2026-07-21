@@ -69,10 +69,12 @@ feature flag, so each variant stores its own session key.
 CI lints the lite config on every run (`Clippy (lite build …)` in the Lint job)
 so it can't rot.
 
-> **Release publishing of the lite variant is not yet wired into `release.yml`**
-> — the release currently builds/ships the full variant only. Publishing both
-> as release assets (sign both on the macOS runner, notarize+staple both on the
-> Linux runner, render a second Homebrew cask) is a follow-up.
+Each release publishes **both** variants: the macOS job builds + signs both
+(the dependency compile is shared, so the lite build is only our crates + a
+re-bundle), the Linux `notarize` job notarizes + staples both in parallel, and
+both DMGs + both casks are attached to the release and pushed to the tap. Linux
+(`.deb`/AppImage) ships the full variant only — the lite variant exists for the
+macOS EDR case.
 
 ## macOS signing & notarization
 
@@ -241,30 +243,22 @@ follow-up issue if Flathub distribution becomes a goal; until then AppImage +
 
 ## Homebrew cask
 
-`Casks/rusted-claude-meter.rb.tmpl` is a template; `scripts/render-cask.sh`
-fills in the version, the built DMG's sha256, and its GitHub Release download
-URL, producing `rusted-claude-meter.rb`, which the release workflow attaches
-to the release as an asset (macOS leg only).
-
-The repo is currently private, so a **private tap** is the right home for it
-per the issue's scope ("private tap OK while the repo is private"). To
-consume a release's cask from a private tap you control:
+Two casks — `Casks/rusted-claude-meter.rb.tmpl` (full) and
+`Casks/rusted-claude-meter-lite.rb.tmpl` (lite, no browser import) — are
+rendered by `scripts/render-cask.sh` (which fills in the version, each DMG's
+sha256, and its Release download URL). The `notarize` job attaches both to the
+GitHub Release **and pushes them to the `mpecan/homebrew-tools` tap** (via the
+Repository Butler App token), so they install directly:
 
 ```sh
-# one-time: create (or reuse) a private tap repo, e.g. mpecan/homebrew-tap
-brew tap-new mpecan/tap   # or clone your existing private tap
-curl -fsSL -o "$(brew --repo mpecan/tap)/Casks/rusted-claude-meter.rb" \
-  "https://github.com/mpecan/rusted-claude-meter/releases/latest/download/rusted-claude-meter.rb"
-cd "$(brew --repo mpecan/tap)" && git add Casks/rusted-claude-meter.rb && git commit -m "rusted-claude-meter <version>" && git push
-
-# thereafter
-brew install --cask mpecan/tap/rusted-claude-meter
+brew tap mpecan/tools   # one-time; repo is github.com/mpecan/homebrew-tools
+brew install --cask mpecan/tools/rusted-claude-meter        # full
+brew install --cask mpecan/tools/rusted-claude-meter-lite   # lite (EDR-safe)
 ```
 
-This repo does not push to a tap automatically — that would require a
-separate tap repo and a token with write access to it, neither of which
-exist yet. Publishing the rendered cask to a tap remains a manual (or
-follow-up-automated) step per release; only rendering it is automated here.
+`homebrew-tools` is the shared mpecan tap (also used by `tokf`). A release
+with no new cask content is a no-op push. Each cask points at that release's
+notarized DMG asset, so it only resolves once the release is published.
 
 ## Fresh-machine install acceptance criteria
 
