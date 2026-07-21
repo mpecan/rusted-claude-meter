@@ -89,6 +89,11 @@ opt-in "import session from a browser" step, which reads your browser's
 
 To resolve it:
 
+- **Use the `-lite` build.** A build variant compiles out browser import (and
+  the `rookie` cookie crate) entirely, so the binary never reads another app's
+  cookie/credential store — the behaviour that trips these heuristics. Manual
+  session-key paste still works. See
+  [`docs/packaging.md`](docs/packaging.md) → "Build variants".
 - **Allow-list by code signer / Apple Team ID `A98UV6DX7K`** in your EDR —
   durable across every future signed release, unlike a per-build hash.
 - **Report the false positive** to your vendor so their cloud verdict

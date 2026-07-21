@@ -37,6 +37,43 @@ automatic. `ubuntu-22.04` (not `-latest`) is deliberate: an AppImage/deb built
 against an older glibc stays installable on older distros; `-latest` would
 narrow that.
 
+## Build variants: full vs lite
+
+Two build variants, selected by the `browser-import` Cargo feature (default on,
+in `src-tauri/Cargo.toml`):
+
+| Variant | Feature | Bundle id | What it does |
+|---|---|---|---|
+| **Full** (default) | `browser-import` on | `com.mpecan.rusted-claude-meter` | Includes automated session import — reads the browser's claude.ai cookie store (Chrome/Safari/Firefox) via the `rookie` crate. |
+| **Lite** | `--no-default-features` | `com.mpecan.rusted-claude-meter-lite` | Compiles out browser import **and `rookie`** entirely — the binary never reads another app's cookie/credential store. Manual session-key paste only. |
+
+The lite build exists for endpoint-protection–restricted environments: reading
+browser cookie stores is behaviourally identical to an infostealer, so EDRs
+(e.g. Cortex XDR) flag the full build (see the README "Antivirus / EDR false
+positives"). The lite build removes that behaviour at compile time, so there's
+nothing for the heuristics to catch — and it's a genuinely smaller binary.
+
+Build it locally:
+
+```
+npm run tauri build -- --no-default-features --config src-tauri/tauri.lite.conf.json
+```
+
+`tauri.lite.conf.json` overrides only `productName` (→ "Rusted Claude Meter
+Lite", so its `.app`/`.dmg` filenames don't collide) and `identifier` (→ the
+`-lite` bundle id, so the two variants keep separate Keychain items and can
+coexist on one machine). Everything else — icon, version, entitlements — is
+inherited. The `store.rs` Keychain service string is `-lite`-aware via the same
+feature flag, so each variant stores its own session key.
+
+CI lints the lite config on every run (`Clippy (lite build …)` in the Lint job)
+so it can't rot.
+
+> **Release publishing of the lite variant is not yet wired into `release.yml`**
+> — the release currently builds/ships the full variant only. Publishing both
+> as release assets (sign both on the macOS runner, notarize+staple both on the
+> Linux runner, render a second Homebrew cask) is a follow-up.
+
 ## macOS signing & notarization
 
 Signing and notarization are **split across two runners** so the 10x-cost

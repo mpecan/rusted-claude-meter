@@ -22,7 +22,17 @@ use meter_core::SessionKey;
 use std::sync::Arc;
 use zeroize::Zeroize;
 
+// Keychain/Secret-Service item key. Must match the app's bundle identifier so
+// silent, no-re-prompt access works (the item's ACL trusts the designated
+// requirement anchored to Team ID + bundle ID). The `browser-import` feature
+// is the marker for which variant this is: the full build ships as
+// `com.mpecan.rusted-claude-meter`, the lite build (no browser import) as
+// `com.mpecan.rusted-claude-meter-lite` — so each stores its own key and the
+// two never collide on a machine that has both.
+#[cfg(feature = "browser-import")]
 const SERVICE: &str = "com.mpecan.rusted-claude-meter";
+#[cfg(not(feature = "browser-import"))]
+const SERVICE: &str = "com.mpecan.rusted-claude-meter-lite";
 const USERNAME: &str = "session-key";
 
 /// Persists the claude.ai session key outside the process.
