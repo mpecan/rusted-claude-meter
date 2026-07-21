@@ -1,30 +1,32 @@
 name: Release
 
-# Distinct build/sign/publish stage. Runs ONLY when a GitHub Release is
-# published — release-please.yml cuts that release from the merged release PR;
-# this never runs on a plain tag push. It builds the signed + notarized macOS
-# DMG and the Linux AppImage/.deb for the release's tag and uploads them onto
-# that same release (found by id, so nothing is created or re-drafted here).
+# Distinct build/sign/notarize/publish stage. Runs ONLY when a GitHub Release
+# is published (release-please.yml cuts it) or via manual dispatch by tag.
 #
-# macOS signing + notarization only happen when the Apple secrets are set
-# (Settings -> Secrets and variables -> Actions):
-#   APPLE_CERTIFICATE            base64-encoded .p12 signing certificate
-#   APPLE_CERTIFICATE_PASSWORD   password for the .p12 above
-#   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Name (TEAMID)"
-#   APPLE_ID                     Apple ID used for notarization
-#   APPLE_PASSWORD               app-specific password for that Apple ID
-#   APPLE_TEAM_ID                10-character Apple Developer team ID
-# Without them tauri-action still uploads a working, unsigned DMG (Gatekeeper
-# warns on first launch) — the build is never blocked on the secrets.
+# Split so the expensive 10x-cost macOS runner does the LEAST possible work:
+#   * build-macos   — build + code-sign the .app/.dmg, then STOP. No Apple
+#                     notarization round-trip here (that unbounded "notarytool
+#                     --wait" is what used to idle the macOS runner). Uploads
+#                     the signed DMG as a workflow artifact.
+#   * notarize      — on a FREE Linux runner, notarizes + staples that DMG with
+#                     rcodesign (apple-codesign), which talks to Apple's notary
+#                     API and staples without a Mac. The multi-minute (and
+#                     variable) notary wait happens here, on free minutes.
+#   * build-linux   — the Linux .deb/AppImage, straight to the release.
+#
+# Signing needs (macOS): APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+# APPLE_SIGNING_IDENTITY.
+# Notarization needs (Linux) an App Store Connect API key:
+# APPLE_API_ISSUER_ID, APPLE_API_KEY_ID, APPLE_API_KEY_P8 (base64 of the .p8).
+# Missing either set degrades gracefully: an unsigned / un-notarized DMG still
+# ships (Gatekeeper warns) rather than blocking the release.
 on:
   release:
     types: [published]
-  # Manual re-build of an existing release (e.g. after adding the Apple
-  # secrets, or a transient notarization failure). Point it at the tag.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to (re)build, e.g. v0.1.0"
+        description: "Existing release tag to (re)build, e.g. v0.1.1"
         required: true
         type: string
 
@@ -33,26 +35,17 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The manual input on dispatch, otherwise the published release's tag. Kept
-  # in env (not spliced into run: script text) so a tag name can't break out
-  # of shell quoting.
+  # Manual input on dispatch, otherwise the published release's tag. Kept in
+  # env (not spliced into run: text) so a tag name can't break shell quoting.
   RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
 
 jobs:
-  build:
-    name: Build (${{ matrix.platform }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-          # 22.04, not -latest: an AppImage/deb built here links against an
-          # older glibc, so it stays installable on older distros too.
-          - platform: ubuntu-22.04
-    runs-on: ${{ matrix.platform }}
-    # The one legitimately long job: a full Tauri bundle plus, on macOS, Apple
-    # notarization (whose notary service can take a while).
-    timeout-minutes: 45
+  build-linux:
+    name: Build Linux (.deb / AppImage)
+    runs-on: ubuntu-22.04
+    # 22.04, not -latest: an AppImage/deb built here links against an older
+    # glibc, so it stays installable on older distros too.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -60,7 +53,6 @@ jobs:
           persist-credentials: false
 
       - name: Install Tauri system dependencies (Linux)
-        if: runner.os == 'Linux'
         uses: ./.github/actions/tauri-linux-deps
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -77,40 +69,127 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # The release already exists (release-please published it); resolve its
-      # numeric id so tauri-action uploads onto it instead of creating a new
-      # one. Works for both the release event and manual dispatch.
       - name: Resolve release id
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ env.RELEASE_TAG }}
-        run: |
-          id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+        run: echo "id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)" >> "$GITHUB_OUTPUT"
 
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ steps.release.outputs.id }}
+
+  build-macos:
+    name: Build + sign macOS (.dmg)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Build + code-sign only. Only the signing secrets are passed, so
+      # tauri-action signs (hardened runtime, per tauri.conf.json) but does
+      # NOT notarize — no notarytool --wait blocking this runner. No release
+      # inputs, so nothing is uploaded here; the DMG leaves as an artifact.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          releaseId: ${{ steps.release.outputs.id }}
 
-      - name: Render Homebrew cask (macOS only)
-        if: runner.os == 'macOS'
+      - name: Upload signed DMG artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-dmg
+          path: target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 1
+
+  notarize:
+    name: Notarize + staple + publish macOS (Linux)
+    needs: build-macos
+    runs-on: ubuntu-latest
+    # The notary wait can be long and is variable — but it's on free minutes
+    # here, not the 10x macOS runner.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      # Land the DMG where render-cask.sh already looks for it.
+      - name: Download signed DMG
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macos-dmg
+          path: target/release/bundle/dmg
+
+      - name: Install rcodesign (apple-codesign)
+        run: |
+          url="https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.29.0/apple-codesign-0.29.0-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL -o /tmp/rcodesign.tar.gz "$url"
+          echo "dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002  /tmp/rcodesign.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/rcodesign.tar.gz -C /tmp
+          sudo install /tmp/apple-codesign-0.29.0-x86_64-unknown-linux-musl/rcodesign /usr/local/bin/rcodesign
+          rcodesign --version
+
+      # Notarize the DMG against Apple's notary API and staple the ticket to
+      # it, all from Linux. Staples the DMG in place, so its checksum below is
+      # the notarized artifact's.
+      - name: Notarize + staple
+        env:
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          dmg=$(find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)
+          if [ -z "$dmg" ]; then echo "no DMG found" >&2; exit 1; fi
+          if [ -z "${APPLE_API_KEY_P8:-}" ]; then
+            echo "::warning::App Store Connect API key not set — skipping notarization (unsigned-quality DMG will ship)"
+            exit 0
+          fi
+          printf '%s' "$APPLE_API_KEY_P8" | base64 -d > AuthKey.p8
+          trap 'rm -f AuthKey.p8 key.json' EXIT
+          rcodesign encode-app-store-connect-api-key -o key.json \
+            "$APPLE_API_ISSUER_ID" "$APPLE_API_KEY_ID" AuthKey.p8
+          rcodesign notary-submit --api-key-file key.json --staple "$dmg"
+
+      - name: Upload notarized DMG to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/render-cask.sh "$RELEASE_TAG"
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          dmg=$(find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)
+          gh release upload "$TAG" "$dmg" --repo "${{ github.repository }}" --clobber
 
-      - name: Upload Homebrew cask asset (macOS only)
-        if: runner.os == 'macOS'
+      - name: Render + upload Homebrew cask
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          bash scripts/render-cask.sh "$RELEASE_TAG"
           gh release upload "$RELEASE_TAG" rusted-claude-meter.rb \
             --repo "${{ github.repository }}" --clobber
