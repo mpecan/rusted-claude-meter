@@ -39,28 +39,46 @@ narrow that.
 
 ## macOS signing & notarization
 
-`tauri-action` signs and notarizes automatically when these repository
-secrets are set (Settings → Secrets and variables → Actions):
+Signing and notarization are **split across two runners** so the 10x-cost
+macOS runner never idles on Apple's (unbounded, often slow) notary wait:
 
-| Secret | What it is |
-|---|---|
-| `APPLE_CERTIFICATE` | base64 of a `Developer ID Application` `.p12` export |
-| `APPLE_CERTIFICATE_PASSWORD` | password used to export that `.p12` |
-| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)` |
-| `APPLE_ID` | Apple ID used for notarization |
-| `APPLE_PASSWORD` | an **app-specific** password for that Apple ID |
-| `APPLE_TEAM_ID` | 10-character Apple Developer Team ID |
+- **`build-macos`** code-signs the `.app`/`.dmg` with the Developer ID cert
+  (hardened runtime, per `tauri.conf.json`) and stops — no notary round-trip.
+- **`notarize`** (1x-cost Linux runner) notarizes + staples that DMG with
+  [`rcodesign`](https://github.com/indygreg/apple-platform-rs), which drives
+  Apple's notary API and staples without a Mac, then uploads the notarized DMG
+  and renders the Homebrew cask from it.
 
-Without them the workflow still produces a working, *unsigned* DMG —
-Gatekeeper shows a warning on first launch but the app runs. The build is
-never blocked on these secrets; only real signing/notarization is.
+Repository secrets (Settings → Secrets and variables → Actions):
 
-**Deferred / not verified in this change:** no Apple Developer account or
-signing certificate was available in this environment, so the actual
-signed+notarized DMG output, and Gatekeeper's acceptance of it, have not been
-exercised end to end. The workflow config follows the documented
-`tauri-action` contract for these env vars; the first real tagged release is
-the first point this can be verified for real.
+| Secret | Used by | What it is |
+|---|---|---|
+| `APPLE_CERTIFICATE` | sign | base64 of a `Developer ID Application` `.p12` export (cert + key) |
+| `APPLE_CERTIFICATE_PASSWORD` | sign | password used to export that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | sign | e.g. `Developer ID Application: Name (TEAMID)` |
+| `APPLE_API_ISSUER_ID` | notarize | App Store Connect API key **Issuer ID** (a UUID) |
+| `APPLE_API_KEY_ID` | notarize | App Store Connect API **Key ID** (e.g. `DEADBEEF42`) |
+| `APPLE_API_KEY_P8` | notarize | base64 of the downloaded `AuthKey_*.p8` |
+
+The API key is created in App Store Connect → Users and Access → Integrations
+→ App Store Connect API (role: Developer). `rcodesign` reconstructs its key
+file with `encode-app-store-connect-api-key <issuer-id> <key-id> AuthKey.p8`.
+
+Without the signing secrets the DMG still ships *unsigned* (Gatekeeper warns);
+without the notary secrets it ships signed-but-un-notarized. The build is
+never blocked on secrets — only real signing/notarization is.
+
+**Stapling scope:** the `.dmg` is stapled (so download + mount verifies
+offline). The `.app` *inside* is signed + notarized but not itself stapled —
+rebuilding the read-only DMG to staple the inner app would need macOS again —
+so an offline first-launch straight from the mounted image falls back to
+Gatekeeper's online notarization check. This is the deliberate trade for
+keeping the notary wait off the paid runner; for a normally-online install
+(incl. the Homebrew cask) it's transparent.
+
+The legacy `notarytool` path (Apple ID + app-specific password:
+`APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID`) is no longer used and those
+secrets can be removed.
 
 ## Keychain access & avoiding re-prompts
 
