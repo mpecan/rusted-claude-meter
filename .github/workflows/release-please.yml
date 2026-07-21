@@ -1,0 +1,39 @@
+name: Release Please
+
+# Owns versioning + changelog + cutting the release. On every push to main it
+# maintains a "release PR" that bumps the version across Cargo.toml,
+# src-tauri/tauri.conf.json and package.json and rolls up the CHANGELOG from
+# Conventional Commits. Merging that PR creates the GitHub Release + `v*` tag,
+# which is what triggers the distinct build/sign stage in release.yml.
+#
+# The release is created with a GitHub App token (not the default
+# GITHUB_TOKEN) on purpose: a release created by GITHUB_TOKEN does NOT emit a
+# `release` event, so release.yml would never fire. The App token makes the
+# `release: published` event fire normally.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Maintain release PR / cut release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.REPOSITORY_BUTLER_APP_ID }}
+          private-key: ${{ secrets.REPOSITORY_BUTLER_PEM }}
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json

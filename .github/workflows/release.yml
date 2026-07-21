@@ -1,80 +1,46 @@
 name: Release
 
-# Builds signed/notarized macOS and Linux artifacts and publishes them to a
-# GitHub Release whenever a `v*` tag is pushed — reproducible from the tag
-# alone, no manual artifact handling (issue #14).
+# Distinct build/sign/publish stage. Runs ONLY when a GitHub Release is
+# published — release-please.yml cuts that release from the merged release PR;
+# this never runs on a plain tag push. It builds the signed + notarized macOS
+# DMG and the Linux AppImage/.deb for the release's tag and uploads them onto
+# that same release (found by id, so nothing is created or re-drafted here).
 #
-# macOS DMG signing + notarization only happens when the Apple secrets below
-# are configured on the repo (Settings -> Secrets and variables -> Actions):
+# macOS signing + notarization only happen when the Apple secrets are set
+# (Settings -> Secrets and variables -> Actions):
 #   APPLE_CERTIFICATE            base64-encoded .p12 signing certificate
 #   APPLE_CERTIFICATE_PASSWORD   password for the .p12 above
 #   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID                     Apple ID used for notarization
-#   APPLE_PASSWORD                app-specific password for that Apple ID
-#   APPLE_TEAM_ID                 10-character Apple Developer team ID
-# Without them tauri-action still produces a working, unsigned DMG (Gatekeeper
-# will warn on first launch) — the release is never blocked on secrets being
-# present, only on the build itself succeeding.
+#   APPLE_PASSWORD               app-specific password for that Apple ID
+#   APPLE_TEAM_ID                10-character Apple Developer team ID
+# Without them tauri-action still uploads a working, unsigned DMG (Gatekeeper
+# warns on first launch) — the build is never blocked on the secrets.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+  # Manual re-build of an existing release (e.g. after adding the Apple
+  # secrets, or a transient notarization failure). Point it at the tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build, e.g. v0.1.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  # The manual input on dispatch, otherwise the published release's tag. Kept
+  # in env (not spliced into run: script text) so a tag name can't break out
+  # of shell quoting.
+  RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
 
 jobs:
-  # Renders the changelog for this tag from Conventional Commits (git-cliff,
-  # see cliff.toml) and opens the release as a draft so the build jobs below
-  # have somewhere to upload assets. Kept as a draft until `publish` below
-  # runs, so nobody sees a release with only half the platforms attached.
-  changelog:
-    name: Draft release + changelog
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      # Passed through env (not spliced into run: script text) so a tag name
-      # containing shell metacharacters can't break out of the quoting and
-      # run arbitrary shell (tag names are attacker-controllable by anyone
-      # who can push a v* tag).
-      TAG: ${{ github.ref_name }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          fetch-depth: 0
-          # This job never pushes with git — gh/git-cliff use GH_TOKEN/the
-          # env above explicitly — so don't leave the write-scoped
-          # GITHUB_TOKEN sitting in .git/config for the whole job.
-          persist-credentials: false
-
-      - name: Install git-cliff
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
-        with:
-          tool: git-cliff
-
-      # --latest (not --unreleased): by the time this runs, actions/checkout
-      # already sees the just-pushed tag pointing at HEAD, so "unreleased"
-      # (commits not yet covered by any tag) is always empty. --latest
-      # renders the range between the previous tag and this one instead.
-      - name: Render release notes from Conventional Commits
-        run: git-cliff --tag "$TAG" --latest --strip header -o release-notes.md
-
-      - name: Create draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --title "Rusted Claude Meter $TAG" \
-            --notes-file release-notes.md \
-            --draft
-
   build:
     name: Build (${{ matrix.platform }})
-    needs: changelog
     strategy:
       fail-fast: false
       matrix:
@@ -85,18 +51,12 @@ jobs:
           - platform: ubuntu-22.04
     runs-on: ${{ matrix.platform }}
     # The one legitimately long job: a full Tauri bundle plus, on macOS, Apple
-    # notarization (whose notary service can take a while). Generous ceiling so
-    # a normal build+notarize never trips it, but a truly stuck build still
-    # can't run for hours on a 10x-cost macOS runner.
+    # notarization (whose notary service can take a while).
     timeout-minutes: 45
-    env:
-      # See the identical comment in the changelog job: keep tag names out
-      # of run: script text and use gh's own token env var instead of git's
-      # persisted credentials.
-      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - name: Install Tauri system dependencies (Linux)
@@ -117,10 +77,18 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # Builds the bundle for the current OS (tauri.conf.json's
-      # bundle.targets restricts this to app+dmg on macOS, deb+appimage on
-      # Linux) and uploads it to the draft release created above — found by
-      # tag, not created fresh, so both matrix legs land on the same release.
+      # The release already exists (release-please published it); resolve its
+      # numeric id so tauri-action uploads onto it instead of creating a new
+      # one. Works for both the release event and manual dispatch.
+      - name: Resolve release id
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -131,36 +99,18 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ steps.release.outputs.id }}
 
       - name: Render Homebrew cask (macOS only)
         if: runner.os == 'macOS'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/render-cask.sh "$TAG"
+        run: bash scripts/render-cask.sh "$RELEASE_TAG"
 
       - name: Upload Homebrew cask asset (macOS only)
         if: runner.os == 'macOS'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$TAG" rusted-claude-meter.rb \
+          gh release upload "$RELEASE_TAG" rusted-claude-meter.rb \
             --repo "${{ github.repository }}" --clobber
-
-  # Un-drafts the release once every platform has uploaded its artifacts, so
-  # `Watch` / release-notification subscribers only see it once it's whole.
-  publish:
-    name: Publish release
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      TAG: ${{ github.ref_name }}
-    steps:
-      - env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release edit "$TAG" \
-            --repo "${{ github.repository }}" --draft=false
