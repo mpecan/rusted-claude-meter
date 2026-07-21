@@ -64,10 +64,40 @@ just check   # everything CI runs: fmt, clippy -D warnings, tests, file sizes,
 
 ## Packaging & releases
 
-Pushing a `v*` tag builds a signed + notarized macOS DMG, a Linux AppImage
-and `.deb`, and a Homebrew cask, then publishes them to a GitHub Release —
-see [`docs/packaging.md`](docs/packaging.md) for the release process, the
-Apple signing secrets it needs, and the Flatpak evaluation findings.
+Releases are driven by release-please: merging its release PR cuts a GitHub
+Release and `v*` tag, which builds a signed + notarized macOS DMG (signed on
+macOS, then notarized + stapled on Linux via `rcodesign`), a Linux AppImage
+and `.deb`, and a Homebrew cask, and uploads them to that Release — see
+[`docs/packaging.md`](docs/packaging.md) for the release process, the Apple
+signing/notarization secrets it needs, and the Flatpak evaluation findings.
+
+### Antivirus / EDR false positives
+
+Some endpoint-protection products — notably Palo Alto **Cortex XDR** (its
+"Local Analysis" module) — may flag the macOS build as malware. **This is a
+false positive.** The download is a Developer ID-signed, Apple-notarized build
+(Apple Team ID `A98UV6DX7K`) of this open-source code, and the app only ever
+talks to `claude.ai`.
+
+Local Analysis is an on-device static-ML classifier that errs toward flagging
+*unknown, low-prevalence* binaries before they ever run — a freshly-signed
+release with little install history is a textbook trigger, and a later cloud
+(WildFire) verdict overrides it. (Behavioural EDRs may separately flag the
+opt-in "import session from a browser" step, which reads your browser's
+`claude.ai` cookie — the same access pattern a credential stealer uses; see
+[External integrations](#external-integrations).)
+
+To resolve it:
+
+- **Allow-list by code signer / Apple Team ID `A98UV6DX7K`** in your EDR —
+  durable across every future signed release, unlike a per-build hash.
+- **Report the false positive** to your vendor so their cloud verdict
+  reclassifies the build as benign, which then overrides the local verdict for
+  everyone.
+
+Distributing through the Mac App Store would *not* fix this and isn't viable
+anyway: the App Store mandates the App Sandbox, which forbids reading another
+browser's cookie store — exactly the mechanism the session import depends on.
 
 ## Quality bar
 
