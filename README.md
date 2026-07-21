@@ -216,6 +216,8 @@ signing/notarization secrets it needs, and the Flatpak evaluation findings.
 
 Rusted Claude Meter is a port of — and was directly inspired by — **[ClaudeMeter](https://github.com/eddmann/ClaudeMeter)** by [Edd Mann](https://github.com/eddmann), the original SwiftUI menu-bar app for macOS. This project reimplements that idea in Rust + Tauri to bring it to Linux as well, and deliberately keeps its `~/.claudemeter/usage.json` [export schema-compatible](#external-integrations) so statusline integrations built for ClaudeMeter keep working. Huge thanks to Edd for the original app and the design it established. If you're on macOS and want the original Swift experience, go check it out.
 
+The **pace-based tracking** — the pace ratio, the flame/snowflake badge for running hot or cold, the expected-by-now marker, and the rate projections — follows the design [rshivane](https://github.com/rshivane) introduced in [ClaudeMeter #33](https://github.com/eddmann/ClaudeMeter/pull/33). This app's pacing (in `meter-core`) mirrors that behaviour; thanks to rshivane for the original design.
+
 ## License
 
 [MIT](LICENSE) © 2026 Matjaz Domen Pecan. All crates in the workspace inherit `license = "MIT"` from the root `Cargo.toml`.
