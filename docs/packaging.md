@@ -44,7 +44,7 @@ macOS runner never idles on Apple's (unbounded, often slow) notary wait:
 
 - **`build-macos`** code-signs the `.app`/`.dmg` with the Developer ID cert
   (hardened runtime, per `tauri.conf.json`) and stops — no notary round-trip.
-- **`notarize`** (free Linux runner) notarizes + staples that DMG with
+- **`notarize`** (1x-cost Linux runner) notarizes + staples that DMG with
   [`rcodesign`](https://github.com/indygreg/apple-platform-rs), which drives
   Apple's notary API and staples without a Mac, then uploads the notarized DMG
   and renders the Homebrew cask from it.

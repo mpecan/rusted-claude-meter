@@ -8,10 +8,11 @@ name: Release
 #                     notarization round-trip here (that unbounded "notarytool
 #                     --wait" is what used to idle the macOS runner). Uploads
 #                     the signed DMG as a workflow artifact.
-#   * notarize      — on a FREE Linux runner, notarizes + staples that DMG with
-#                     rcodesign (apple-codesign), which talks to Apple's notary
-#                     API and staples without a Mac. The multi-minute (and
-#                     variable) notary wait happens here, on free minutes.
+#   * notarize      — on a 1x-cost Linux runner, notarizes + staples that DMG
+#                     with rcodesign (apple-codesign), which talks to Apple's
+#                     notary API and staples without a Mac. The multi-minute
+#                     (and variable) notary wait happens here, at 1x instead of
+#                     the 10x it costs to idle a macOS runner.
 #   * build-linux   — the Linux .deb/AppImage, straight to the release.
 #
 # Signing needs (macOS): APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
@@ -139,8 +140,8 @@ jobs:
     name: Notarize + staple + publish macOS (Linux)
     needs: build-macos
     runs-on: ubuntu-latest
-    # The notary wait can be long and is variable — but it's on free minutes
-    # here, not the 10x macOS runner.
+    # The notary wait can be long and is variable — but it bills at 1x here,
+    # not the 10x it would cost idling on the macOS runner.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
