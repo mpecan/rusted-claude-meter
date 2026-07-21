@@ -82,6 +82,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_shown_scoped_models,
             commands::set_thresholds,
             commands::set_notify_on_reset,
+            notifier::send_test_notification,
             commands::set_show_reset_time,
             commands::set_popover_layout,
             commands::set_usage_mode,

@@ -86,6 +86,11 @@ export interface UsageBackend {
   setThresholds(warning: number, critical: number): Promise<AppSettings>;
   /** Toggle the extra "limit reset" notification. */
   setNotifyOnReset(enabled: boolean): Promise<AppSettings>;
+  /** Fire a one-off test notification right now, bypassing the scheduler and
+   * dedup tracker, so the user can confirm banners reach them. Resolves with
+   * whether the OS accepted the send (`false` = likely suppressed: Focus mode,
+   * denied authorization, or no notification daemon). */
+  sendTestNotification(): Promise<boolean>;
   /** Toggle whether cards show the exact reset wall-clock time (PR #26). */
   setShowResetTime(enabled: boolean): Promise<AppSettings>;
   /** Switch the popover layout (redesign 1a rows / 1c cards). */
@@ -208,6 +213,10 @@ class TauriBackend implements UsageBackend {
 
   setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
     return invoke<AppSettings>("set_notify_on_reset", { enabled });
+  }
+
+  sendTestNotification(): Promise<boolean> {
+    return invoke<boolean>("send_test_notification");
   }
 
   setShowResetTime(enabled: boolean): Promise<AppSettings> {
@@ -472,6 +481,12 @@ class DemoBackend implements UsageBackend {
   setNotifyOnReset(enabled: boolean): Promise<AppSettings> {
     this.settings = { ...this.settings, notify_on_reset: enabled };
     return Promise.resolve({ ...this.settings });
+  }
+
+  sendTestNotification(): Promise<boolean> {
+    // No OS notification centre outside a Tauri shell; report success so the
+    // Settings button's "sent" path is exercisable in a plain browser.
+    return Promise.resolve(true);
   }
 
   setShowResetTime(enabled: boolean): Promise<AppSettings> {

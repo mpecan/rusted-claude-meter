@@ -81,6 +81,9 @@ export function initSettingsView(backend: UsageBackend): void {
   const iconStyleContainer = requireElement<HTMLElement>("icon-style-picker");
   const monochromeToggle = requireElement<HTMLInputElement>("monochrome-toggle");
   const showResetTimeToggle = requireElement<HTMLInputElement>("show-reset-time-toggle");
+  const notifyOnResetToggle = requireElement<HTMLInputElement>("notify-on-reset-toggle");
+  const testNotificationButton = requireElement<HTMLButtonElement>("send-test-notification-button");
+  const testNotificationStatus = requireElement<HTMLElement>("test-notification-status");
   const usageModeToggle = requireElement<HTMLElement>("usage-mode-toggle");
   const popoverLayoutToggle = requireElement<HTMLElement>("popover-layout-toggle");
   const paceTrackingToggle = requireElement<HTMLInputElement>("pace-tracking-toggle");
@@ -143,6 +146,7 @@ export function initSettingsView(backend: UsageBackend): void {
     iconStylePicker.setSelected(settings.icon_style);
     monochromeToggle.checked = settings.monochrome;
     showResetTimeToggle.checked = settings.show_reset_time;
+    notifyOnResetToggle.checked = settings.notify_on_reset;
     debugLoggingToggle.checked = settings.debug_logging;
     setSegmentedValue(usageModeToggle, settings.usage_mode);
     setSegmentedValue(popoverLayoutToggle, settings.popover_layout);
@@ -330,6 +334,35 @@ export function initSettingsView(backend: UsageBackend): void {
     backend.setShowResetTime(showResetTimeToggle.checked).catch((error: unknown) => {
       console.error("failed to persist show-reset-time setting", error);
     });
+  });
+
+  notifyOnResetToggle.addEventListener("change", () => {
+    settings = { ...settings, notify_on_reset: notifyOnResetToggle.checked };
+    backend.setNotifyOnReset(notifyOnResetToggle.checked).catch((error: unknown) => {
+      console.error("failed to persist notify-on-reset setting", error);
+    });
+  });
+
+  testNotificationButton.addEventListener("click", () => {
+    testNotificationStatus.hidden = true;
+    // Guard against a double-fire while the send is in flight.
+    testNotificationButton.disabled = true;
+    backend
+      .sendTestNotification()
+      .then((delivered) => {
+        testNotificationStatus.textContent = delivered
+          ? "Sent — check your notifications. If nothing appeared, look at Focus/Do Not Disturb and this app's notification permission."
+          : "Couldn't deliver a notification — check this app's notification permission and that notifications aren't disabled.";
+        testNotificationStatus.hidden = false;
+      })
+      .catch((error: unknown) => {
+        console.error("failed to send test notification", error);
+        testNotificationStatus.textContent = describeError(error);
+        testNotificationStatus.hidden = false;
+      })
+      .finally(() => {
+        testNotificationButton.disabled = false;
+      });
   });
 
   debugLoggingToggle.addEventListener("change", () => {
