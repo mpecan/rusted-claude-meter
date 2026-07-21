@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.2](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.1...v0.1.2) (2026-07-21)
+
+
+### Features
+
+* **build:** add a "lite" variant that compiles out browser cookie import ([af3c57f](https://github.com/mpecan/rusted-claude-meter/commit/af3c57f28eaebf887e4324a084ab95d1f845db20))
+* **build:** lite variant that compiles out browser cookie import (EDR-safe) ([#41](https://github.com/mpecan/rusted-claude-meter/issues/41)) ([74aff1b](https://github.com/mpecan/rusted-claude-meter/commit/74aff1b3eaf74367a1d5cf10bb1a9881410a2d43))
+
+
+### Documentation
+
+* correct runner cost framing (Linux is 1x, not free) ([3940434](https://github.com/mpecan/rusted-claude-meter/commit/394043430e6112a1c5bec8fb0303d7d73b43057f))
+* EDR/antivirus false-positive guidance + release-flow fix ([#39](https://github.com/mpecan/rusted-claude-meter/issues/39)) ([6caf94d](https://github.com/mpecan/rusted-claude-meter/commit/6caf94d2ea1d6412c93d2d6877bbb700cb195700))
+* note EDR/antivirus false positives and update release trigger ([a2fbb81](https://github.com/mpecan/rusted-claude-meter/commit/a2fbb8157393f28733a237d167d5983e03f492d8))
+* publication-ready README (install, usage, screenshots, ClaudeMeter credit) ([#43](https://github.com/mpecan/rusted-claude-meter/issues/43)) ([173258a](https://github.com/mpecan/rusted-claude-meter/commit/173258aa324b3a77d8e377821de72a6ffaef7248))
+* publication-ready README with install, usage, and screenshots ([1ba961d](https://github.com/mpecan/rusted-claude-meter/commit/1ba961d10e5cf2c3c40797ba2842afeb7e3031b0))
+
 ## [0.1.1](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.0...v0.1.1) (2026-07-21)
 
 
