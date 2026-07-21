@@ -181,10 +181,14 @@ jobs:
             echo "::warning::App Store Connect API key not set — skipping notarization (unsigned-quality DMG will ship)"
             exit 0
           fi
+          # Strip any stray whitespace/newline a secret may have captured: a
+          # trailing newline in the issuer or key-id makes Apple reject the
+          # signed JWT with "Unauthenticated".
+          issuer=$(printf '%s' "$APPLE_API_ISSUER_ID" | tr -d '[:space:]')
+          keyid=$(printf '%s' "$APPLE_API_KEY_ID" | tr -d '[:space:]')
           printf '%s' "$APPLE_API_KEY_P8" | base64 -d > AuthKey.p8
           trap 'rm -f AuthKey.p8 key.json' EXIT
-          rcodesign encode-app-store-connect-api-key -o key.json \
-            "$APPLE_API_ISSUER_ID" "$APPLE_API_KEY_ID" AuthKey.p8
+          rcodesign encode-app-store-connect-api-key -o key.json "$issuer" "$keyid" AuthKey.p8
           rcodesign notary-submit --api-key-file key.json --staple "$dmg"
 
       - name: Upload notarized DMG to the release
