@@ -28,10 +28,11 @@ fi
 
 sha256=$(shasum -a 256 "$dmg_path" | cut -d' ' -f1)
 dmg_name=$(basename "$dmg_path")
-# GitHub release asset URLs percent-encode spaces as %20; that's the only
-# character Tauri's DMG filename ("Product Name_1.0.0_aarch64.dmg") contains.
-encoded_name="${dmg_name// /%20}"
-url="https://github.com/${repo}/releases/download/${tag}/${encoded_name}"
+# GitHub rewrites spaces in a release asset's filename to dots on upload, so the
+# asset served for Tauri's DMG ("Product Name_1.0.0_aarch64.dmg") is actually
+# "Product.Name_1.0.0_aarch64.dmg". Match that, or the cask URL 404s.
+asset_name="${dmg_name// /.}"
+url="https://github.com/${repo}/releases/download/${tag}/${asset_name}"
 
 sed \
     -e "s|__VERSION__|${version}|g" \
