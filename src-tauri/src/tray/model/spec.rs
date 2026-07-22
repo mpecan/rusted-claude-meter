@@ -139,19 +139,31 @@ fn pace_first_display_off_never_computes_a_signal_even_when_burning_hot() {
 
 #[test]
 fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
-    // The stock `snapshot()` fixture is on-pace on both headline windows
-    // (session ratio 41.5/55 ≈ 0.75, weekly ≈ 1.15 — neither hot nor cold),
-    // so the hybrid `PaceSignal` is `None` and no flame/snowflake badge or
-    // tooltip appears. But pace-first display still swaps the primary metric
-    // to the ratio: upstream's `paceSignal?.ratio ?? session.paceRatio ??
-    // weekly.paceRatio` falls back to the plain session ratio, in its band
-    // colour, so the icon shows a ratio even when nothing is off pace.
+    // Both headline windows pace on the sustainable side (ratio 0.9), so
+    // neither is hot (>1.0×) nor cold (<0.8×): the hybrid `PaceSignal` is
+    // `None` and no flame/snowflake badge or tooltip appears. But pace-first
+    // display still swaps the primary metric to the ratio: upstream's
+    // `paceSignal?.ratio ?? session.paceRatio ?? weekly.paceRatio` falls back
+    // to the plain session ratio, in its band colour.
+    let on_pace = state(
+        Phase::Polling,
+        Staleness::Fresh,
+        Some(UsageSnapshot {
+            // 45% used at 50% elapsed -> ratio 0.9.
+            five_hour: Some(window(45.0, 150 * 60, LimitWindow::FiveHour)),
+            // 45% used at 50% elapsed -> ratio 0.9 (neither hot nor cold).
+            seven_day: Some(window(45.0, 3 * 86_400 + 12 * 3600, LimitWindow::SevenDay)),
+            scoped: vec![],
+            spend: None,
+            fetched_at: now(),
+        }),
+    );
     let pace = PaceOptions {
         weekly_pace_days: 7,
         pace_first_display: true,
     };
     let icon = icon_state(
-        &healthy(),
+        &on_pace,
         now(),
         IconOptions {
             style: IconStyle::Battery,
@@ -166,14 +178,14 @@ fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
     assert_eq!(icon.pace_kind, None);
     let ratio = icon.pace_ratio.unwrap();
     assert!(
-        (ratio - 41.5 / 55.0).abs() < 1e-9,
+        (ratio - 45.0 / 50.0).abs() < 1e-9,
         "expected the session pace ratio, got {ratio}"
     );
-    assert_eq!(icon.pace_band, Some(meter_core::PaceBand::Underuse));
+    assert_eq!(icon.pace_band, Some(meter_core::PaceBand::Sustainable));
 
-    // The tooltip/pace line stays hybrid-signal-only (upstream `toolTip =
-    // paceSignal?.tooltip`), so an on-pace snapshot produces no pace line.
-    let menu = menu_model(&healthy(), now(), &all_shown(), pace, UsageMode::Auto);
+    // The tooltip/pace line stays hybrid-signal-only, so an on-pace snapshot
+    // produces no pace line.
+    let menu = menu_model(&on_pace, now(), &all_shown(), pace, UsageMode::Auto);
     assert_eq!(menu.pace_line, None);
 }
 
