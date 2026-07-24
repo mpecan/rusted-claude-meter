@@ -66,17 +66,20 @@ Download from the [latest release](https://github.com/mpecan/rusted-claude-meter
 
 Alternatively, run [`scripts/install.sh`](scripts/install.sh) to fetch the latest AppImage and register a desktop entry automatically — see [`docs/linux-install.md`](docs/linux-install.md) for the process it's based on.
 
-#### Troubleshooting: hybrid Intel/NVIDIA GPUs, Wayland
+#### Troubleshooting: AppImage exits immediately or shows a blank window
 
-On some hybrid-GPU laptops (Intel iGPU + NVIDIA dGPU) under Wayland, the AppImage exits immediately with:
+If the AppImage exits right away with:
 ```
 Could not create surfaceless EGL display: EGL_BAD_ALLOC. Aborting...
 ```
-Work around it by disabling WebKit's DMA-BUF renderer:
-```sh
-WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Rusted\ Claude\ Meter_*.AppImage
-```
-On some of these setups, windows (Settings, popover) may still render blank due to an upstream `webkit2gtk` crash — see [issue #50](https://github.com/mpecan/rusted-claude-meter/issues/50) for details and status; the tray menu itself is unaffected.
+or opens but shows a blank Settings/popover window, the cause is usually a
+stale `libjxl` on the host — the AppImage bundles its own webkit build that
+expects a newer `libjxl` than some distros ship. Update it (e.g.
+`sudo pacman -Syu` on Arch) and retry. `WEBKIT_DISABLE_DMABUF_RENDERER=1` is
+a fallback that gets the process running but does not fix blank windows on
+its own. See [issue #50](https://github.com/mpecan/rusted-claude-meter/issues/50)
+for the full diagnosis, or build from source (`docs/linux-install.md`) to
+sidestep the bundled-library mismatch entirely.
 
 ## Usage
 
