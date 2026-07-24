@@ -64,6 +64,20 @@ Download from the [latest release](https://github.com/mpecan/rusted-claude-meter
 
 > Linux builds are **amd64 only**. On **GNOME** you also need the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) for the tray icon to appear; **KDE Plasma** shows it out of the box. Because StatusNotifierItem gives no click events on Linux, the **tray menu is the primary surface** (there's no popover).
 
+Alternatively, run [`scripts/install.sh`](scripts/install.sh) to fetch the latest AppImage and register a desktop entry automatically — see [`docs/linux-install.md`](docs/linux-install.md) for the process it's based on.
+
+#### Troubleshooting: hybrid Intel/NVIDIA GPUs, Wayland
+
+On some hybrid-GPU laptops (Intel iGPU + NVIDIA dGPU) under Wayland, the AppImage exits immediately with:
+```
+Could not create surfaceless EGL display: EGL_BAD_ALLOC. Aborting...
+```
+Work around it by disabling WebKit's DMA-BUF renderer:
+```sh
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Rusted\ Claude\ Meter_*.AppImage
+```
+On some of these setups, windows (Settings, popover) may still render blank due to an upstream `webkit2gtk` crash — see [issue #50](https://github.com/mpecan/rusted-claude-meter/issues/50) for details and status; the tray menu itself is unaffected.
+
 ## Usage
 
 On first launch a **setup wizard** walks you through connecting your account, picking a tray-icon style, and setting the refresh interval. You can re-run it any time from **Settings → Setup → Run setup again**.
