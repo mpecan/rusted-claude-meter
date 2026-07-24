@@ -4,7 +4,7 @@
 # installs it under ~/Applications, and registers a desktop entry + icon so
 # it shows up in app launchers. On Arch (and derivatives), use the AUR
 # package instead — it builds against system libs and avoids the AppImage's
-# bundled-webkit/libjxl version-skew crash (see docs/linux-install.md).
+# bundled-webkit/libjxl version-skew crash (see issue #50).
 set -euo pipefail
 
 REPO="mpecan/rusted-claude-meter"
@@ -17,7 +17,7 @@ if command -v pacman >/dev/null 2>&1; then
   echo "Arch Linux (or a derivative) detected — use the AUR package instead of this script:" >&2
   echo "  yay -S rusted-claude-meter" >&2
   echo "It builds against your system's webkit2gtk/libjxl, avoiding the AppImage's" >&2
-  echo "bundled-library version-skew crash (see docs/linux-install.md and issue #50)." >&2
+  echo "bundled-library version-skew crash (see issue #50)." >&2
   exit 1
 fi
 

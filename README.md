@@ -70,7 +70,7 @@ Builds against your system's `webkit2gtk`/`libjxl` instead of bundling them, whi
 
 > Linux builds are **amd64 only**. On **GNOME** you also need the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) for the tray icon to appear; **KDE Plasma** shows it out of the box. Because StatusNotifierItem gives no click events on Linux, the **tray menu is the primary surface** (there's no popover).
 
-Alternatively, run [`scripts/install.sh`](scripts/install.sh) to fetch the latest AppImage and register a desktop entry automatically (Arch: use the AUR package above instead — the script refuses to run there) — see [`docs/linux-install.md`](docs/linux-install.md) for the process it's based on.
+Alternatively, run [`scripts/install.sh`](scripts/install.sh) to fetch the latest AppImage and register a desktop entry automatically (Arch: use the AUR package above instead — the script refuses to run there).
 
 #### Troubleshooting: AppImage exits immediately or shows a blank window
 
@@ -84,8 +84,8 @@ expects a newer `libjxl` than some distros ship. Update it (e.g.
 `sudo pacman -Syu` on Arch) and retry. `WEBKIT_DISABLE_DMABUF_RENDERER=1` is
 a fallback that gets the process running but does not fix blank windows on
 its own. See [issue #50](https://github.com/mpecan/rusted-claude-meter/issues/50)
-for the full diagnosis, or build from source (`docs/linux-install.md`) to
-sidestep the bundled-library mismatch entirely.
+for the full diagnosis, or use the AUR package (which builds against system
+libs) to sidestep the bundled-library mismatch entirely.
 
 ## Usage
 
