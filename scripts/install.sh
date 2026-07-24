@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Install Rusted Claude Meter on Linux (x86_64) from the latest GitHub release.
-# Downloads the AppImage, installs it under ~/Applications, and registers a
-# desktop entry + icon so it shows up in app launchers.
+# Fallback for distros with no native package: downloads the AppImage,
+# installs it under ~/Applications, and registers a desktop entry + icon so
+# it shows up in app launchers. On Arch (and derivatives), use the AUR
+# package instead — it builds against system libs and avoids the AppImage's
+# bundled-webkit/libjxl version-skew crash (see docs/linux-install.md).
 set -euo pipefail
 
 REPO="mpecan/rusted-claude-meter"
@@ -9,6 +12,14 @@ INSTALL_DIR="${HOME}/Applications"
 BIN_NAME="RustedClaudeMeter.AppImage"
 DESKTOP_DIR="${HOME}/.local/share/applications"
 ICON_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
+
+if command -v pacman >/dev/null 2>&1; then
+  echo "Arch Linux (or a derivative) detected — use the AUR package instead of this script:" >&2
+  echo "  yay -S rusted-claude-meter" >&2
+  echo "It builds against your system's webkit2gtk/libjxl, avoiding the AppImage's" >&2
+  echo "bundled-library version-skew crash (see docs/linux-install.md and issue #50)." >&2
+  exit 1
+fi
 
 if [[ "$(uname -m)" != "x86_64" ]]; then
   echo "error: only x86_64 Linux builds are published" >&2
