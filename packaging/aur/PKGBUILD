@@ -1,0 +1,49 @@
+# Maintainer: Matjaz Domen Pecan <mpecan>
+pkgname=rusted-claude-meter
+pkgver=0.1.3
+pkgrel=1
+pkgdesc="Cross-platform tray app showing your Claude plan usage"
+arch=('x86_64')
+url="https://github.com/mpecan/rusted-claude-meter"
+license=('MIT')
+# ring (a transitive TLS dep) compiles its own C/asm objects outside rustc's
+# LTO awareness; makepkg.conf's default LTO breaks symbol resolution against
+# those objects at link time. Must stay off for this package.
+options=('!lto')
+depends=(
+  'webkit2gtk-4.1>=2.52.4'
+  'libjxl>=0.12.0'
+  'libayatana-appindicator'
+  'librsvg'
+  'gtk3'
+  'openssl'
+)
+makedepends=(
+  'rust>=1.96.0'
+  'nodejs>=24'
+  'npm'
+  'xdotool'
+  'base-devel'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/mpecan/rusted-claude-meter/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+# webkit2gtk-4.1's bundled webkit expects a matching libjxl; a stale libjxl
+# on the host produces an EGL_BAD_ALLOC abort or a silent WebKitWebProcess
+# crash at runtime (mpecan/rusted-claude-meter#50) rather than a build-time
+# error, so pin depends() versions above to fail fast at install instead.
+
+build() {
+  cd "$pkgname-$pkgver"
+  npm ci
+  npm run build
+  npm run tauri build -- --bundles deb
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  local data
+  data=$(find target/release/bundle/deb -mindepth 1 -maxdepth 1 -type d)/data
+  cp -r "$data/usr" "$pkgdir/usr"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
