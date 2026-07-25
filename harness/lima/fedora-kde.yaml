@@ -1,0 +1,40 @@
+# Fedora + KDE Plasma. Runs the shipped AppImage (built in the Ubuntu VM), so
+# between the two instances the harness covers both desktops *and* both Linux
+# artifacts the project releases.
+#
+# KDE is the control against GNOME: Plasma renders StatusNotifierItem trays
+# natively, GNOME Shell hides them without the AppIndicator extension. If the
+# tray shows here and not there, that difference is the app's Linux reality —
+# not a bug in the build.
+#
+# No build toolchain: this VM only consumes artifacts. `__ARTIFACTS__` is
+# substituted by `vm.sh` before limactl sees this file.
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/fedora-43
+
+vmType: vz
+cpus: 4
+memory: "6GiB"
+disk: "30GiB"
+
+mounts:
+  - location: "__ARTIFACTS__"
+    mountPoint: "/artifacts"
+    writable: false
+
+portForwards:
+  # Distinct host port from the GNOME VM so both can run at once.
+  # Connect from macOS with: open vnc://localhost:5902
+  - guestPort: 5901
+    hostPort: 5902
+
+hostResolver:
+  enabled: true
+
+# Lima's default template installs containerd/nerdctl. Nothing here uses
+# containers, and it is a sizeable download on every fresh instance.
+containerd:
+  system: false
+  user: false

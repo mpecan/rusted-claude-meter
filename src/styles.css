@@ -572,6 +572,36 @@ body {
   color: var(--text-muted);
 }
 
+/* Shown only when RCM_API_BASE_URL redirected this build at a mock API (the
+   Linux demo harness in harness/). Loud on purpose: without it, demo data is
+   indistinguishable from real usage. */
+.demo-endpoint-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-warning);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+}
+
+.demo-endpoint-banner strong {
+  font-size: 0.82rem;
+  color: var(--color-warning);
+}
+
+.demo-endpoint-banner p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.demo-endpoint-banner code {
+  overflow-wrap: anywhere;
+  font-size: 0.76rem;
+  color: var(--text);
+}
+
 .model-toggles {
   display: flex;
   flex-direction: column;

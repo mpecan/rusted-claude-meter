@@ -115,6 +115,11 @@ export interface UsageBackend {
   /** Reveal the API-response log in the OS file manager (or its folder when
    * nothing has been logged yet). */
   revealDebugLog(): Promise<void>;
+  /** The non-claude.ai API base this build was started against (the
+   * `RCM_API_BASE_URL` override used by the Linux demo harness), or `null` when
+   * talking to the real claude.ai. Settings banners it, because otherwise demo
+   * data is indistinguishable from real usage. */
+  apiBaseOverride(): Promise<string | null>;
   /** Resize the popover to the given content height (macOS binds the NSPopover
    * to it; a no-op elsewhere). Width is fixed. */
   setPopoverHeight(height: number): Promise<void>;
@@ -253,6 +258,10 @@ class TauriBackend implements UsageBackend {
 
   revealDebugLog(): Promise<void> {
     return invoke<void>("reveal_debug_log");
+  }
+
+  apiBaseOverride(): Promise<string | null> {
+    return invoke<string | null>("api_base_override");
   }
 
   setPopoverHeight(height: number): Promise<void> {
@@ -532,6 +541,12 @@ class DemoBackend implements UsageBackend {
 
   revealDebugLog(): Promise<void> {
     return Promise.resolve();
+  }
+
+  apiBaseOverride(): Promise<string | null> {
+    // The browser demo has no Rust side to have been redirected; the banner
+    // stays hidden here.
+    return Promise.resolve(null);
   }
 
   setPopoverHeight(): Promise<void> {

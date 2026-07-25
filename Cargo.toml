@@ -6,6 +6,12 @@ members = [
     "crates/meter-render",
     "src-tauri",
 ]
+# The Linux desktop harness's mock API server (`harness/README.md`). Developer
+# tooling, not shipped code, so it is deliberately outside this workspace and
+# outside `just check`'s ratchets — those gates exist to hold the product to a
+# standard, and a mock server diluting the coverage/duplication denominators
+# would make them mean less. It carries its own `[workspace]` and lockfile.
+exclude = ["harness/demo-server"]
 
 [workspace.package]
 version = "0.1.2" # x-release-please-version

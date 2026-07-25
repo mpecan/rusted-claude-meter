@@ -96,6 +96,8 @@ export function initSettingsView(backend: UsageBackend): void {
   const debugLogLocation = requireElement<HTMLElement>("debug-log-location");
   const debugLogPathEl = requireElement<HTMLElement>("debug-log-path");
   const revealDebugLogButton = requireElement<HTMLButtonElement>("reveal-debug-log-button");
+  const demoEndpointBanner = requireElement<HTMLElement>("demo-endpoint-banner");
+  const demoEndpointUrl = requireElement<HTMLElement>("demo-endpoint-url");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
   const settingsSessionForm = requireElement<HTMLFormElement>("settings-session-form");
   const settingsSessionInput = requireElement<HTMLInputElement>("settings-session-input");
@@ -182,6 +184,24 @@ export function initSettingsView(backend: UsageBackend): void {
       })
       .catch((error: unknown) => {
         console.error("failed to read debug log path", error);
+      });
+  }
+
+  /** Banner the API endpoint when `RCM_API_BASE_URL` redirected this build at a
+   * mock server (the Linux demo harness). Fixed for the process, so this runs
+   * once on load. On failure the banner stays hidden — but so does the app's
+   * ability to be redirected, since the same command backs both. */
+  function loadDemoEndpointBanner(): void {
+    backend
+      .apiBaseOverride()
+      .then((base) => {
+        if (base) {
+          demoEndpointUrl.textContent = base;
+          demoEndpointBanner.hidden = false;
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("failed to read the API base override", error);
       });
   }
 
@@ -291,6 +311,7 @@ export function initSettingsView(backend: UsageBackend): void {
   loadBrowserList();
   refreshAutostartStatus();
   loadDebugLogPath();
+  loadDemoEndpointBanner();
 
   refreshIntervalSelect.addEventListener("change", () => {
     const interval = refreshIntervalSelect.value as RefreshInterval;

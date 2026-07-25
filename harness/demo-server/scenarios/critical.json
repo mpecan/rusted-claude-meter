@@ -1,0 +1,38 @@
+{
+  "_comment": "Past the default critical threshold (90%) on both headline windows. Expect a red tray icon and a critical-crossing notification when switched to from `warning`.",
+  "five_hour": { "utilization": 94.0, "resets_at": "{{now+1h}}" },
+  "seven_day": { "utilization": 92.0, "resets_at": "{{now+1d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "five_hour",
+      "percent": 94,
+      "resets_at": "{{now+1h}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "seven_day",
+      "percent": 92,
+      "resets_at": "{{now+1d}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 96,
+      "resets_at": "{{now+1d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-sonnet-5", "display_name": "Sonnet" }, "surface": null }
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 61,
+      "resets_at": "{{now+1d}}",
+      "is_active": true,
+      "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null }
+    }
+  ],
+  "spend": { "unsurfaced": true }
+}

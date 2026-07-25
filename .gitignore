@@ -25,3 +25,7 @@ dist-ssr
 
 # Rust
 /target
+
+# Linux harness: built .deb/AppImage, rendered Lima templates, screenshots
+/harness/artifacts
+/harness/demo-server/target

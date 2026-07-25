@@ -1,0 +1,24 @@
+[package]
+name = "demo-server"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Deliberately its own workspace, and listed in the root Cargo.toml's
+# `[workspace] exclude`. This is developer harness tooling, not shipped code:
+# keeping it out of the main workspace keeps it out of `just check`'s ratchets
+# (the coverage floor, the duplication ceiling, cargo-deny's dependency audit),
+# which exist to hold the *product* to a standard. Letting a mock server dilute
+# those numbers in either direction would make them mean less.
+[workspace]
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "json",
+    "tokio",
+] }
+jiff = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }

@@ -1,0 +1,36 @@
+{
+  "_comment": "A token/cost account: `spend` carries real money, so the usage view auto-detects Cost mode. The object is the exact shape claude.ai returns (see crates/meter-api/src/response.rs) — money as an {amount_minor, currency, exponent} triple with the cap nested under `cap.money`. EUR 6.40 of a EUR 2000 budget.",
+  "five_hour": { "utilization": 41.0, "resets_at": "{{now+3h}}" },
+  "seven_day": { "utilization": 55.0, "resets_at": "{{now+4d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "five_hour",
+      "percent": 41,
+      "resets_at": "{{now+3h}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "seven_day",
+      "percent": 55,
+      "resets_at": "{{now+4d}}",
+      "is_active": true,
+      "scope": null
+    }
+  ],
+  "spend": {
+    "used": { "amount_minor": 640, "currency": "EUR", "exponent": 2 },
+    "limit": { "amount_minor": 200000, "currency": "EUR", "exponent": 2 },
+    "percent": 0,
+    "severity": "normal",
+    "enabled": true,
+    "cap": {
+      "money": { "amount_minor": 200000, "currency": "EUR", "exponent": 2 },
+      "credits": null
+    },
+    "balance": null,
+    "disclaimer": "Usage credits cover you when you hit your plan limits."
+  }
+}

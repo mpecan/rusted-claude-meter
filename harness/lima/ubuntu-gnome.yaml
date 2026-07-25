@@ -1,0 +1,49 @@
+# Ubuntu 24.04 + GNOME Shell. Installs the shipped `.deb`, and doubles as the
+# build host (it is the one VM that needs the Tauri toolchain anyway, and
+# building on 24.04 matches what release.yml produces).
+#
+# This file describes the VM's *shape* only. Provisioning lives in
+# `harness/provision/*.sh` and is run by `harness/bin/vm.sh` over `limactl
+# shell`, not from a `provision:` block here — so a failed step can be read,
+# fixed and re-run on its own instead of only at instance creation.
+#
+# `__REPO__` and `__ARTIFACTS__` are substituted by `vm.sh` before this is
+# handed to limactl; Lima has no environment expansion for mount paths.
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: vz
+cpus: 4
+memory: "6GiB"
+# Roomy: a desktop install plus a cold Tauri build (its own target dir, since
+# the repo is mounted read-only) is the large consumer here.
+disk: "60GiB"
+
+mounts:
+  # The repo, read-only: the VM builds from it but must never write into the
+  # working tree on the Mac.
+  - location: "__REPO__"
+    mountPoint: "/repo"
+    writable: false
+  # Build output crosses back to the host here, so `vm.sh install kde` can
+  # hand the AppImage to the other VM without rebuilding it.
+  - location: "__ARTIFACTS__"
+    mountPoint: "/artifacts"
+    writable: true
+
+portForwards:
+  # TigerVNC. Connect from macOS with: open vnc://localhost:5901
+  - guestPort: 5901
+    hostPort: 5901
+
+# `host.lima.internal` resolves to the Mac, where the demo API server runs.
+hostResolver:
+  enabled: true
+
+# Lima's default template installs containerd/nerdctl. Nothing here uses
+# containers, and it is a sizeable download on every fresh instance.
+containerd:
+  system: false
+  user: false

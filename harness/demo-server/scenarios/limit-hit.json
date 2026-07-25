@@ -1,0 +1,31 @@
+{
+  "_comment": "Session window fully consumed with 45 minutes still to run. The exhausted-quota rendering, and the case where the pace projection has nothing left to project.",
+  "five_hour": { "utilization": 100.0, "resets_at": "{{now+45m}}" },
+  "seven_day": { "utilization": 88.0, "resets_at": "{{now+3d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "five_hour",
+      "percent": 100,
+      "resets_at": "{{now+45m}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "seven_day",
+      "percent": 88,
+      "resets_at": "{{now+3d}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 100,
+      "resets_at": "{{now+3d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-sonnet-5", "display_name": "Sonnet" }, "surface": null }
+    }
+  ],
+  "spend": { "unsurfaced": true }
+}

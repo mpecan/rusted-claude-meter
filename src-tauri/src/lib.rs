@@ -7,6 +7,7 @@
 //! every change as a `usage-state` event — the single source of truth the
 //! tray and UI subscribe to.
 
+mod api_base;
 mod autostart;
 mod browser_import;
 mod cache;
@@ -48,6 +49,9 @@ use tokio::sync::Notify;
 // real gain, so the length lint is allowed here.
 #[allow(clippy::too_many_lines)]
 pub fn run() -> tauri::Result<()> {
+    // Announce a redirected API endpoint before anything else: a build pointed
+    // at the demo harness is otherwise indistinguishable from a real one.
+    api_base::log_override();
     let session_store: Arc<dyn SessionStore> = Arc::new(KeyringSessionStore);
     let scheduler_store = Arc::clone(&session_store);
 
@@ -90,6 +94,7 @@ pub fn run() -> tauri::Result<()> {
             commands::debug::set_debug_logging,
             commands::debug::debug_log_path,
             commands::debug::reveal_debug_log,
+            commands::debug::api_base_override,
             commands::popover::set_popover_height,
             commands::pace::set_weekly_pace_days,
             commands::pace::set_pace_first_display,
@@ -256,7 +261,8 @@ fn spawn_scheduler(
 
     let emitter = app.handle().clone();
     tauri::async_runtime::spawn(run_loop(
-        LiveTransport::new(session_store).with_response_log(response_log),
+        LiveTransport::with_base_url(session_store, api_base::api_base_url())
+            .with_response_log(response_log),
         SystemClock::default(),
         handle,
         persist,
