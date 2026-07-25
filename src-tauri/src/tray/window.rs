@@ -50,8 +50,13 @@ pub fn toggle<R: Runtime>(app: &AppHandle<R>, x: i32, y: i32) {
         let _ = window.hide();
         return;
     }
+    // Positioned twice on purpose. Before `show` so the first frame is already
+    // in the right place, and again after, because a window manager applies its
+    // own placement policy when it maps a window it has not seen before —
+    // KWin centres it on screen otherwise, ignoring the pre-show position.
     position(&window, x, y);
     let _ = window.show();
+    position(&window, x, y);
     let _ = window.set_focus();
 }
 

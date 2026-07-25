@@ -104,13 +104,17 @@ fn encode_png(icon: &RenderedIcon, path: &Path) -> std::io::Result<()> {
     let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), icon.width, icon.height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(as_io_error)?;
-    writer.write_image_data(&icon.rgba).map_err(as_io_error)
+    let mut writer = encoder
+        .write_header()
+        .map_err(|error| as_io_error(&error))?;
+    writer
+        .write_image_data(&icon.rgba)
+        .map_err(|error| as_io_error(&error))
 }
 
 /// `png::EncodingError` is not an `io::Error`, and the caller only cares that
 /// the write failed.
-fn as_io_error(error: png::EncodingError) -> std::io::Error {
+fn as_io_error(error: &png::EncodingError) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }
 

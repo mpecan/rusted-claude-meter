@@ -163,6 +163,10 @@ later run has something to compare against:
   verified".
 - Settings shows the **Demo endpoint active** banner naming
   `http://host.lima.internal:8787`, and the app logs the same on stdout.
+- **Click-to-popover works on both desktops** (the parity work). GNOME:
+  double-click opens the frameless popover under the panel, single-click still
+  opens the menu. KDE: single-click opens it, anchored above the bottom panel.
+  Clicking away dismisses it. The icon keeps its 3:1 aspect on both.
 - **Disabling the AppIndicator extension removes the tray icon entirely** —
   nothing but the GNOME power button remains. Re-enabling brings it straight
   back. This is the behaviour behind "Linux tray reality" in the project's
