@@ -123,6 +123,11 @@ xdpyinfo >/dev/null 2>&1 || { echo "no X server on :1" >&2; exit 1; }
 # single-user throwaway VM.
 xhost +SI:localuser:"\$(id -un)" >/dev/null
 
+# No blanking, no DPMS. An idle-locked session captures as a lock screen or a
+# black frame, which looks exactly like "the app failed to render" in a
+# screenshot taken minutes after the desktop came up.
+xset s off -dpms >/dev/null 2>&1 || true
+
 # Before the session, never after: the desktop starts its own keyring daemon,
 # and whichever daemon grabs org.freedesktop.secrets first wins. Racing it with
 # a second one leaves the app talking to a daemon that has since lost the bus.

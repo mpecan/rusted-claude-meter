@@ -41,6 +41,17 @@ sudo dnf install -y -q \
     librsvg2 \
     fuse-libs
 
+echo "==> Disable the Plasma screen locker"
+# Plasma locks the session on idle, and a locked session screenshots as the
+# lock screen with no panel and no tray — indistinguishable from a broken app.
+mkdir -p "$HOME/.config"
+cat >"$HOME/.config/kscreenlockerrc" <<'EOF'
+[Daemon]
+Autolock=false
+LockOnResume=false
+Timeout=0
+EOF
+
 echo "==> Desktop session"
 export RCM_SESSION_CMD="startplasma-x11"
 export RCM_XDG_CURRENT_DESKTOP="KDE"
