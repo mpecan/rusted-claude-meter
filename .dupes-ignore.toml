@@ -9,3 +9,7 @@ reason = "AppState::active_scenario (harness/demo-server) vs LiveTransport::cach
 [[ignore]]
 fingerprint = "7e928d78f43f5d63"
 reason = "Scenarios::exists (harness/demo-server) vs SettingsState::get (src-tauri): both are one-line delegating getters that happen to share an AST shape. Same cross-workspace split as c63dc4ba36750590 -- the harness cannot import the app's code, and neither one-liner is worth a shared crate."
+
+[[ignore]]
+fingerprint = "7382530659c2251e"
+reason = "MeterTray::icon_name vs icon_theme_path: two separate methods the ksni::Tray trait requires, each a one-line read of its own field from the shared state. They look alike because they do the same trivial thing to different fields; there is no shared logic to extract, and merging them is not possible without changing the trait."

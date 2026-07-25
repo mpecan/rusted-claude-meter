@@ -17,9 +17,11 @@ base:
 vmType: vz
 cpus: 4
 memory: "6GiB"
-# Roomy: a desktop install plus a cold Tauri build (its own target dir, since
-# the repo is mounted read-only) is the large consumer here.
-disk: "60GiB"
+# A desktop install plus a Tauri target dir is about 20GiB in practice. Sized
+# with headroom but not lavishly: these images are sparse, so an oversized disk
+# quietly grows until it exhausts the *host*, and a full host takes the guest
+# filesystem down with it.
+disk: "40GiB"
 
 mounts:
   # The repo, read-only: the VM builds from it but must never write into the

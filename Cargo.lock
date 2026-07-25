@@ -2731,6 +2731,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ksni"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "814b44c24cd2cb236c3b8a41c7f08237b452a8e76ecaa81f1cec40b5b678215b"
+dependencies = [
+ "futures-util",
+ "pastey",
+ "serde",
+ "tokio",
+ "zbus 5.18.0",
+]
+
+[[package]]
 name = "kurbo"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2958,7 +2971,7 @@ dependencies = [
 
 [[package]]
 name = "meter-api"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "jiff",
  "meter-core",
@@ -2973,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "meter-core"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "jiff",
  "pretty_assertions",
@@ -2985,7 +2998,7 @@ dependencies = [
 
 [[package]]
 name = "meter-render"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "jiff",
  "meter-core",
@@ -3614,6 +3627,12 @@ dependencies = [
  "smallvec",
  "windows-link 0.2.1",
 ]
+
+[[package]]
+name = "pastey"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "patch-apply"
@@ -4411,16 +4430,18 @@ dependencies = [
 
 [[package]]
 name = "rusted-claude-meter"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "apple-native-keyring-store",
  "jiff",
  "keyring-core",
+ "ksni",
  "meter-api",
  "meter-core",
  "meter-render",
  "objc2-app-kit",
  "objc2-foundation",
+ "png 0.18.1",
  "pretty_assertions",
  "rookie",
  "serde",
@@ -5687,8 +5708,10 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2 0.6.5",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -7153,6 +7176,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",

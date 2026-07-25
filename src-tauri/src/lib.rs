@@ -22,6 +22,7 @@ mod scheduler;
 mod settings;
 mod settings_window;
 mod store;
+mod sync;
 mod tray;
 mod wizard;
 
@@ -177,6 +178,11 @@ pub fn run() -> tauri::Result<()> {
             // plugin is); on Linux the main window stays a regular window.
             #[cfg(target_os = "macos")]
             configure_popover_window(app);
+            // Linux has no NSPopover, so the main window is dressed to behave
+            // like one (frameless, on top, out of the taskbar) and dismissed
+            // when it loses focus — see `tray::window`.
+            #[cfg(target_os = "linux")]
+            configure_linux_popover(app);
             app.manage(SettingsState::new(settings_path, app_settings));
             app.manage(wizard::FirstRunState::new(!settings_existed));
             // Managed before the scheduler starts broadcasting (mirrors the
@@ -235,6 +241,22 @@ fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 /// created — the plugin resolves the tray by id "main" and panics otherwise.
 /// On Linux the window stays a regular decorated window and the tray menu is
 /// the primary surface.
+/// Dress the main window as a popover on Linux and make it transient: it
+/// hides as soon as focus moves elsewhere, the way an `NSPopover` does. The
+/// tray's `Activate` handler positions and shows it (`tray::window::toggle`).
+#[cfg(target_os = "linux")]
+fn configure_linux_popover(app: &tauri::App) {
+    tray::window::configure(app.handle());
+    if let Some(window) = app.get_webview_window("main") {
+        let handle = window.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                tray::window::hide_on_focus_loss(&handle, *focused);
+            }
+        });
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn configure_popover_window(app: &tauri::App) {
     if let Some(window) = app.get_webview_window("main") {

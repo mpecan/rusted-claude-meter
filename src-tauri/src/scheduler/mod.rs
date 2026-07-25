@@ -15,7 +15,7 @@ mod test_support;
 pub mod transport;
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use jiff::Timestamp;
@@ -29,6 +29,7 @@ use self::transport::UsageTransport;
 
 use crate::cache;
 use crate::export;
+use crate::sync::lock;
 
 /// Tauri event carrying a [`MeterState`] payload on every change.
 pub const USAGE_STATE_EVENT: &str = "usage-state";
@@ -118,10 +119,6 @@ impl SchedulerHandle {
     pub fn state_now(&self) -> MeterState {
         lock(&self.core).state(Timestamp::now())
     }
-}
-
-fn lock(core: &Mutex<SchedulerCore>) -> MutexGuard<'_, SchedulerCore> {
-    core.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Where a successful fetch is persisted, bundled into one value so

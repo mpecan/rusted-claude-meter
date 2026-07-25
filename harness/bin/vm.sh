@@ -181,11 +181,13 @@ cmd_launch() {
         fi
         ;;
     esac
-    # `pkill -x`, never `-f`: matching the full command line would match this
-    # very `bash -c` string (it contains the executable name) and kill the shell
-    # before it ever launches anything.
+    # Match the full command line anchored at the executable path. `pkill -x`
+    # looks right but silently matches nothing: the process name is truncated
+    # to 15 characters, so `rusted-claude-meter` never compares equal. The `^`
+    # anchor is what keeps `-f` from matching this very `bash -c` string.
     lima_shell "$INSTANCE" bash -c "
-        pkill -x rusted-claude-meter 2>/dev/null || true
+        pkill -f '^rusted-claude-meter\$' 2>/dev/null || true
+        pkill -f 'rusted-claude-meter\.AppImage\$' 2>/dev/null || true
         pkill -x AppRun 2>/dev/null || true
         sleep 1
         setsid /usr/local/bin/rcm-run-app $exe >/tmp/rcm-app.log 2>&1 &
