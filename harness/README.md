@@ -20,9 +20,13 @@ somebody ran it.
 | Demo API server | `demo-server/` | Stands in for claude.ai's usage endpoints. Runs on the Mac. |
 | `rcm-gnome` | Ubuntu 24.04 + GNOME | Installs the shipped **`.deb`**. Also builds both artifacts. |
 | `rcm-kde` | Fedora + KDE Plasma | Runs the shipped **AppImage**. |
+| `rcm-gnome-c` | Ubuntu 24.04 + GNOME, **container** | Same desktop and same `.deb` as `rcm-gnome`, in seconds instead of minutes. |
+| `rcm-kde-c` | Fedora 43 + KDE Plasma, **container** | Same, against Plasma and the unbundled binary. |
 
 Between them the two VMs cover both desktops *and* both Linux artifacts the
-project releases.
+project releases. The containers are a faster route to everything except the
+AppImage — see "Containers instead of VMs" below for what they do and do not
+replace.
 
 The app is pointed at the demo server by `RCM_API_BASE_URL`
 (`src-tauri/src/api_base.rs`). That override ships in release builds on
@@ -86,6 +90,122 @@ over.
 Teardown is `just vm-down gnome` (or `harness/bin/vm.sh delete gnome` to
 reclaim the disk).
 
+## Containers instead of VMs
+
+Both desktops also run in podman containers, which come up in a couple of
+seconds rather than the VMs' fifteen minutes and can be thrown away and
+recreated between checks. Same distributions as the VMs — Ubuntu 24.04 with
+GNOME Shell and the AppIndicator extension, Fedora 43 with Plasma 6 — and the
+same artifacts.
+
+```console
+$ brew install podman && podman machine init && podman machine start
+$ just demo-server                     # as before, on the Mac
+
+$ just container-up gnome              # image if needed, container, app, wizard
+$ just container-tray gnome            # the tray icon, magnified, to artifacts/
+$ just scenario critical               # same live scenario switching as the VMs
+$ just container-shot gnome after      # whole desktop to artifacts/after.png
+$ just container-down gnome
+```
+
+Swap `gnome` for `kde` throughout; the two are independent and can run at once.
+`just container-up` is four steps in one — run them separately (`just container
+up gnome`, then `install` / `launch` / `setup`) when one of them is what you are
+looking at.
+
+`just container setup <target>` drives the first-run wizard by clicking at
+fixed coordinates with a fabricated `sk-ant-sid01-…` key. The demo server
+accepts any key of the right shape, so validation, the Secret Service write and
+the first poll are all real. On KDE it first runs `just container wallet kde`,
+which is where the interesting difference is — see below.
+
+**They also produce the docs.** `just linux-screenshots` drives both desktops
+and rewrites `docs/screenshots/linux/`, which is what [`docs/linux.md`](../docs/linux.md)
+shows — so the user-facing Linux page is regenerated rather than hand-curated,
+and cannot quietly go stale. Menu crops are fixed coordinates (GNOME's menu is
+Shell-drawn, so there is no window to target); check the output before
+committing it.
+
+**What the containers cannot do.** No AppImage (it aborts without a GPU — see
+"What the first run established"), no VNC to watch them live, and nothing
+GPU-dependent. When a result matters, confirm it in the VM; the containers are
+for the fast loop, not for the record.
+
+**Asserting instead of eyeballing.** `status` reads the tray off the bus rather
+than off a screenshot, and the first section is the same query on both desktops
+because it *is* the StatusNotifierItem contract:
+
+```console
+$ just container status gnome
+StatusNotifierItems registered:
+  :1.21@/org/ayatana/NotificationItem/tray_icon_tray_app_main
+GNOME panel status area:
+  …
+  appindicator-:1.21@/org/ayatana/NotificationItem/tray_icon_tray_app_main
+extension ubuntu-appindicators@ubuntu.com:
+  ENABLED
+```
+
+`just container appindicator gnome off` then prints:
+
+```console
+StatusNotifierItems registered:
+  (no StatusNotifierWatcher on the bus — nothing can register one)
+```
+
+That is the sharpest form the "Linux tray reality" claim has ever taken here.
+It is not that GNOME hides the icon — with the extension off there is no
+watcher on the session bus at all, so no application can publish a tray icon in
+the first place. Run the identical command against `kde` and the watcher is
+always there, with no extension installed. Same app, same protocol, opposite
+out-of-the-box result, both observable in one line each.
+
+The GNOME session additionally runs `gnome-shell --unsafe-mode`, which exposes
+the Shell's D-Bus `Eval` endpoint:
+
+```console
+$ just container eval gnome 'Main.panel.statusArea.quickSettings.visible'
+true
+```
+
+JS sent through `eval` must not contain backslash escapes — gdbus's GVariant
+parser eats them, so `"\n"` arrives as a real line break and comes back as a
+syntax error. Write `String.fromCharCode(10)`. Plasma has no equivalent worth
+wrapping, so `eval` is GNOME-only and `status` is what KDE gets.
+
+**KWallet is driven, not dodged.** Plasma's Secret Service provider is KWallet,
+and a wallet cannot be created unattended without weakening it. `container.sh
+wallet kde` answers the dialogs the way a user would — blowfish, blank
+password, accept the strength warning — rather than substituting gnome-keyring,
+because KDE's real credential path is most of the point of having a KDE target.
+It is also how the VM's "KWallet prompts once" note stops being a manual step.
+
+Worth knowing: **the app reports the credential store as unavailable rather
+than waiting for the wallet dialog.** Saving a key before any wallet exists
+produces `the OS credential store is unavailable: Couldn't access platform
+storage: SS error: result not returned from SS API` while the KWallet wizard is
+still on screen behind the message. That is a correct-looking `StoreError`
+message, and it is arguably the right call, but it means a first-run KDE user
+who takes a moment over the wallet dialog sees an error rather than a wait.
+Not investigated further.
+
+**Things the images get wrong if you rebuild them carelessly.** All found the
+hard way and all commented in `container/`:
+
+- `gjs` is only a *Recommends* of `gnome-shell`, so `--no-install-recommends`
+  drops it — and `org.freedesktop.Notifications` is D-Bus-activated through
+  `gjs`. Without it every notification in the session fails with
+  `ServiceUnknown`, which reads as "the app does not notify".
+- WebKit needs **both** `WEBKIT_DISABLE_DMABUF_RENDERER=1` and
+  `WEBKIT_DISABLE_COMPOSITING_MODE=1`. With only the first, the app's window
+  opens with a correct title bar and never paints — a blank white rectangle
+  that looks like a frontend bug rather than a missing GPU.
+- `kwin-x11` is its own package since Plasma 6.3 split the X11 and Wayland
+  compositors. Without it `startplasma-x11` comes up with no window manager, so
+  windows have no decorations and nothing can be raised or focused — which
+  makes every `xdotool` click land somewhere unintended.
+
 ## Scenarios
 
 `demo-server/scenarios/*.json` are in claude.ai's response shape — the same
@@ -136,7 +256,7 @@ off inside the session and the tray disappears entirely:
 $ harness/bin/vm.sh shell gnome env DISPLAY=:1 gnome-extensions disable ubuntu-appindicators@ubuntu.com
 ```
 
-Confirm the setup wizard's GNOME hint fires (`meter_core::desktop_is_gnome`),
+Confirm the setup wizard's GNOME hint fires (`meter_core::LinuxDesktop`),
 then re-enable it. This is the behaviour behind "Linux tray reality" in the
 project's `CLAUDE.md`, and it has never before been observable in a test.
 
@@ -173,6 +293,29 @@ later run has something to compare against:
   `CLAUDE.md`, and as far as this repo goes it had never been observed running
   until now.
 
+The GNOME container reproduces every one of those results — same tray colours
+and badge on the same scenarios, same wizard outcome, same demo banner (naming
+`http://host.containers.internal:8787` instead), same disappearance when the
+AppIndicator extension is switched off, and the key survives an app restart
+through the Secret Service. It adds one observation the VM run did not record:
+
+- **The tray menu is live and correct** — `Updated under 1m ago`, `5-hour: 85%
+  — resets in 2h 59m`, `7-day: 75% — resets in 4d 23h`, then Open / Settings /
+  Refresh Now / Quit. That menu is the whole Linux surface, and this is the
+  first time its contents have been read off a running desktop.
+
+The KDE container reproduces the Plasma results below, and sharpens two of
+them:
+
+- **Plasma publishes `org.kde.StatusNotifierWatcher` with nothing installed**,
+  where GNOME has no watcher on the bus at all until the AppIndicator
+  extension is enabled. The same one-line query answers both.
+- **The square-cell rendering is visible rather than inferred.** Plasma pins a
+  tray icon's width to its height, so the 66x22 gauge draws at roughly a third
+  of panel height — legible as a colour, not as a number. `just container-tray
+  kde` next to `just container-tray gnome`, same app and same scenario, is the
+  clearest statement of that this repo has.
+
 On Fedora KDE (unbundled binary):
 
 - **Plasma renders the tray with no extension installed** — the direct control
@@ -180,7 +323,7 @@ On Fedora KDE (unbundled binary):
   out-of-the-box result.
 - The window, the Settings page and the demo banner all render correctly.
 
-Two things worth following up, both found while wiring this up:
+Three things worth following up:
 
 - **The AppImage cannot start in a GPU-less VM.** It aborts with
   `Could not create default EGL display: EGL_BAD_PARAMETER`, while the exact
@@ -190,6 +333,23 @@ Two things worth following up, both found while wiring this up:
   unbundled binary). Unknown whether this affects real users on GPU-less or
   remote-desktop setups; it has only been observed under llvmpipe. This is why
   `vm.sh launch kde binary` exists.
+- **The app's notifications reach GNOME and are then dropped.** Found in the
+  container, and the sharpest thing it has turned up so far. `dbus-monitor`
+  shows all four crossing notifications going out correctly on a
+  `fresh` → `critical` switch — `Warning: 5-hour usage`, `Warning: 7-day
+  usage`, `Critical: 5-hour usage`, `Critical: 7-day usage` — and being
+  forwarded to the Shell. No banner appears, and
+  `Main.messageTray.getSources()` stays empty, with nothing in the journal.
+  The control rules out the environment: `notify-send` in the same session,
+  even with `-a rusted-claude-meter`, banners and shows up in that same list.
+  So GNOME is dropping these specific notifications, not failing to receive
+  them. One difference stands out and has not been confirmed as the cause —
+  the app sends each notification from a *new* D-Bus connection which then
+  closes immediately (four notifications arrive as four senders), so by the
+  time GNOME resolves the sender it may be gone. **Not yet reproduced in the
+  GNOME VM**, so it is not established whether real users are affected or
+  whether something about the container makes the race certain. That is the
+  next thing to run.
 - **`UsageClient` sets no reqwest timeout** (`crates/meter-api/src/client.rs`).
   `just scenario failure hang` exists to probe what happens to the poll loop
   when claude.ai accepts a connection and never answers; that path has not been

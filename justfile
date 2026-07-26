@@ -131,3 +131,33 @@ vm-launch TARGET:
 # Build the Linux .deb and AppImage in the GNOME VM, into harness/artifacts/.
 linux-build:
     harness/bin/build-linux.sh
+
+# Containerised desktops (podman) — seconds to a desktop instead of the VM's
+# minutes, and disposable. Both desktops, but neither the AppImage nor anything
+# needing a GPU.
+
+# Fresh container, app installed, wizard done: `just container-up gnome|kde`.
+container-up TARGET:
+    harness/bin/container.sh up {{TARGET}}
+    harness/bin/container.sh install {{TARGET}}
+    harness/bin/container.sh launch {{TARGET}}
+    harness/bin/container.sh setup {{TARGET}}
+
+container-down TARGET:
+    harness/bin/container.sh down {{TARGET}}
+
+# Screenshot the container desktop to harness/artifacts/.
+container-shot TARGET *NAME:
+    harness/bin/container.sh shot {{TARGET}} {{NAME}}
+
+# Screenshot the tray icon magnified — colour and badge are unreadable at 1:1.
+container-tray TARGET *NAME:
+    harness/bin/container.sh tray {{TARGET}} {{NAME}}
+
+# Anything else: status, eval <js>, appindicator on|off, wallet, logs, shell.
+container *ARGS:
+    harness/bin/container.sh {{ARGS}}
+
+# Regenerate docs/screenshots/linux/ from the containers (both must be up).
+linux-screenshots *TARGET:
+    harness/bin/screenshots.sh {{TARGET}}

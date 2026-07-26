@@ -1,0 +1,79 @@
+# A KDE Plasma session in a container — the control case against GNOME.
+#
+# Same shape and same reasons as Containerfile (systemd as PID 1 for logind,
+# Xvfb for a display, a real user because the desktop refuses to run as root);
+# read that one first. What differs is everything Plasma-specific, and there is
+# more of it than the GNOME image needs.
+#
+# Fedora 43 to match the `rcm-kde` VM, so a result here and a result there are
+# about the same distribution's Plasma build.
+FROM docker.io/library/fedora:43
+
+ENV container=podman
+
+# --setopt=install_weak_deps=False keeps this to Plasma rather than the whole
+# Fedora KDE spin. kwin-x11 is its own package since Plasma 6.3 split the X11
+# and Wayland compositors; without it startplasma-x11 comes up with no window
+# manager, so windows have no decorations and nothing can be raised or focused.
+RUN dnf install -y -q --setopt=install_weak_deps=False \
+        systemd \
+        plasma-desktop \
+        plasma-workspace-x11 \
+        kwin-x11 \
+        kwalletmanager5 \
+        dbus-x11 \
+        libnotify
+
+# The display and the tooling that drives it. Modern Fedora has no
+# xorg-x11-utils / xorg-x11-server-utils umbrella packages — xdpyinfo and xhost
+# are separate. mesa-dri-drivers is what makes llvmpipe available; without it
+# kwin_x11 finds no GL at all and the session never starts.
+RUN dnf install -y -q --setopt=install_weak_deps=False \
+        xorg-x11-server-Xvfb \
+        mesa-dri-drivers \
+        xdpyinfo \
+        xhost \
+        xdotool \
+        util-linux \
+        ImageMagick
+
+# The app's runtime dependencies. Fedora's KDE group pulls in Qt, not GTK, and
+# neither the .deb's binary nor the AppImage bundles the webkit/GTK stack it
+# links against.
+RUN dnf install -y -q \
+        webkit2gtk4.1 \
+        gtk3 \
+        libappindicator-gtk3 \
+        librsvg2 \
+        fuse-libs \
+    && dnf clean all
+
+RUN find /etc/systemd/system /lib/systemd/system \
+        \( -path '*.wants/*' \) \
+        \( -name '*udev*' -o -name '*getty*' -o -name '*resolved*' \
+           -o -name '*networkd*' -o -name '*timesync*' \) \
+        -exec rm -f {} + 2>/dev/null || true
+
+RUN useradd --create-home --shell /bin/bash --uid 1001 rcm \
+    && mkdir -p /var/lib/systemd/linger && touch /var/lib/systemd/linger/rcm
+
+# Plasma locks the session on idle, and a locked session screenshots as the
+# lock screen with no panel and no tray — indistinguishable from a broken app.
+RUN mkdir -p /home/rcm/.config \
+    && printf '[Daemon]\nAutolock=false\nLockOnResume=false\nTimeout=0\n' \
+        >/home/rcm/.config/kscreenlockerrc \
+    && chown -R rcm:rcm /home/rcm/.config
+
+ENV RCM_DESKTOP=KDE
+
+COPY env.sh /usr/local/bin/rcm-env
+COPY session.sh /usr/local/bin/rcm-session
+COPY desktop-kde.sh /usr/local/bin/rcm-session-desktop
+COPY run-app.sh /usr/local/bin/rcm-run-app
+COPY rcm-desktop.service /etc/systemd/system/rcm-desktop.service
+RUN chmod +x /usr/local/bin/rcm-session /usr/local/bin/rcm-session-desktop \
+        /usr/local/bin/rcm-run-app \
+    && systemctl enable rcm-desktop.service
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
