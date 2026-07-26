@@ -37,7 +37,7 @@ static OVERRIDE: OnceLock<Option<String>> = OnceLock::new();
 
 /// Validate a candidate override value. Pure, so the accept/reject rules are
 /// unit-tested without touching the process environment — the same split as
-/// `crate::wizard::is_gnome_desktop` over `meter_core::desktop_is_gnome`.
+/// `crate::wizard::linux_desktop` over `meter_core::LinuxDesktop`.
 ///
 /// Accepts only `http://` or `https://` followed by a non-empty authority, so
 /// neither an empty variable (the common "unset it" idiom of `FOO=`) nor a

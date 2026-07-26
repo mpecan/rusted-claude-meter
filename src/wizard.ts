@@ -126,9 +126,9 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
       loadBrowsers();
     } else if (step === "done") {
       backend
-        .isGnomeDesktop()
-        .then((isGnome) => {
-          gnomeHint.hidden = !isGnome;
+        .linuxDesktop()
+        .then((desktop) => {
+          gnomeHint.hidden = desktop !== "gnome";
         })
         .catch((error: unknown) => {
           console.error("failed to detect desktop session", error);

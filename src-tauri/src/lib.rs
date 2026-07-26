@@ -106,7 +106,7 @@ pub fn run() -> tauri::Result<()> {
             wizard::wizard_should_run,
             wizard::wizard_mark_offered,
             wizard::wizard_complete,
-            wizard::is_gnome_desktop,
+            wizard::linux_desktop,
         ])
         .setup(move |app| {
             // Menu-bar-only on macOS: no Dock icon, no app switcher entry.
@@ -164,11 +164,7 @@ pub fn run() -> tauri::Result<()> {
                     style: app_settings.icon_style,
                     mono: app_settings.monochrome,
                     shown,
-                    weekly_pace_days: app_settings.weekly_pace_days,
-                    // Master switch folds into the effective pace-first flag
-                    // the tray sees (it only shows pace in pace-first mode).
-                    pace_first_display: app_settings.pace_tracking_enabled
-                        && app_settings.pace_first_display,
+                    pace: tray::pace_options(&app_settings),
                     usage_mode: app_settings.usage_mode,
                 },
             )?;
@@ -185,6 +181,11 @@ pub fn run() -> tauri::Result<()> {
             // very first observation establishes its startup baseline
             // instead of a broadcast racing ahead of it.
             app.manage(NotifierState::default());
+            // Linux only: the main window is an ordinary resizable window
+            // there, so content-fitting is a one-shot per show rather than
+            // continuous. macOS has an NSPopover, which is always content-sized.
+            #[cfg(target_os = "linux")]
+            app.manage(commands::popover::ContentFit::default());
             spawn_scheduler(
                 app,
                 scheduler_store,

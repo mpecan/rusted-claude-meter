@@ -25,15 +25,30 @@ mod popover;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-use jiff::Timestamp;
+use jiff::{Timestamp, tz::TimeZone};
 use meter_core::UsageMode;
 use meter_render::{IconCache, IconStyle, Scale};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::scheduler::MeterState;
 use crate::sync::lock;
-use model::{IconOptions, PaceOptions, TrayDiff};
+use model::{IconOptions, MenuOptions, TrayDiff};
 use native::NativeTray;
+
+pub use model::PaceOptions;
+
+/// The tray's view of the pace settings. The one place `AppSettings`'
+/// pace fields are mapped onto [`PaceOptions`], so startup ([`init`]) and every
+/// live change ([`set_display_options`]) cannot drift — in particular over which
+/// of the two flags gates the menu and which gates the icon.
+#[must_use]
+pub const fn pace_options(settings: &crate::settings::AppSettings) -> PaceOptions {
+    PaceOptions {
+        weekly_pace_days: settings.weekly_pace_days,
+        pace_tracking_enabled: settings.pace_tracking_enabled,
+        pace_first_display: settings.pace_first_display,
+    }
+}
 
 /// Everything [`init`] seeds from persisted settings at startup, bundled into
 /// one value (mirrors `scheduler::PersistPaths`) so the function stays
@@ -45,8 +60,7 @@ pub struct TraySeed {
     pub style: IconStyle,
     pub mono: bool,
     pub shown: HashSet<String>,
-    pub weekly_pace_days: u8,
-    pub pace_first_display: bool,
+    pub pace: PaceOptions,
     pub usage_mode: UsageMode,
 }
 
@@ -75,16 +89,18 @@ struct TrayResources<R: Runtime> {
     /// (Settings, issue #6). Empty means no scoped model renders — see
     /// `model::menu_model`.
     shown: HashSet<String>,
-    /// How many days of the week the weekly quota is paced over (issue #16),
-    /// 5–7. Feeds `UsageSnapshot::pace_signal`'s weekly basis.
-    weekly_pace_days: u8,
-    /// Whether the flame/snowflake badge and the pace line are shown (issue
-    /// #16). Off by default: quota-first mode never computes a pace signal.
-    pace_first_display: bool,
+    /// The pace settings (issue #16), stored whole rather than unpacked so
+    /// there is one place to change when one is added — see
+    /// [`model::PaceOptions`] for which flag gates the icon and which the menu.
+    pace: PaceOptions,
     /// How usage is presented — allowance (percentage) vs cost (spend), or
     /// `Auto` to follow the account. Read fresh on every [`apply_state`], so
-    /// [`set_usage_mode`] takes effect on the next render with no rebuild.
+    /// [`set_display_options`] takes effect on the next render with no rebuild.
     usage_mode: UsageMode,
+    /// The zone the menu renders projected limit-hit times in. Resolved once
+    /// at startup rather than per [`apply_state`]: reading the system zone
+    /// touches the filesystem, and this runs on every scheduler tick.
+    tz: TimeZone,
     /// The native tray resources.
     tray: NativeTray<R>,
 }
@@ -109,16 +125,21 @@ pub fn init<R: Runtime>(
         style,
         mono,
         shown,
-        weekly_pace_days,
-        pace_first_display,
+        pace,
         usage_mode,
     } = seed;
-    let pace = PaceOptions {
-        weekly_pace_days,
-        pace_first_display,
-    };
+    let tz = TimeZone::system();
     let now = Timestamp::now();
-    let menu_model = model::menu_model(initial, now, &shown, pace, usage_mode);
+    let menu_model = model::menu_model(
+        initial,
+        now,
+        MenuOptions {
+            shown: &shown,
+            pace,
+            usage_mode,
+            tz: &tz,
+        },
+    );
 
     // A render failure hands the backend `None` rather than aborting startup,
     // and stays uncommitted so the first broadcast retries the real gauge.
@@ -151,9 +172,9 @@ pub fn init<R: Runtime>(
         style,
         mono,
         shown,
-        weekly_pace_days,
-        pace_first_display,
+        pace,
         usage_mode,
+        tz,
         tray,
     })));
     Ok(())
@@ -163,8 +184,8 @@ pub fn init<R: Runtime>(
 /// been initialized yet — then re-render `state` under the new resources.
 ///
 /// The shared body behind every live Settings-driven switch (`set_style`,
-/// `set_mono`, `set_shown_scoped_models`, `set_pace_options`,
-/// `set_usage_mode`): each is a one-line closure over the field it owns, so
+/// `set_mono`, `set_shown_scoped_models`, `set_display_options`): each is a
+/// short closure over the fields it owns, so
 /// none of them repeat the `try_state` / `lock` / `apply_state` dance (which,
 /// duplicated per setter, would grow the `just dupes` ceiling).
 fn mutate_and_apply<R: Runtime>(
@@ -204,29 +225,22 @@ pub fn set_shown_scoped_models<R: Runtime>(
     mutate_and_apply(app, state, |resources| resources.shown = shown);
 }
 
-/// Change the weekly pace basis (5/6/7 days) and pace-first display mode
-/// together and re-render immediately — the live-switch path Settings
-/// drives (issue #16). Both are set in one call because they always change
-/// together from a single settings command's resolved snapshot. A no-op if
-/// the tray has not been initialized yet.
-pub fn set_pace_options<R: Runtime>(
+/// Push the pace options and the usage mode together and re-render once — the
+/// live-switch path every Settings command that changes what the tray renders
+/// drives. They travel together because each of those commands resolves one
+/// `AppSettings` snapshot and pushes all of it; setting them separately meant
+/// two full re-renders per save, the first of which was thrown away.
+/// A no-op if the tray has not been initialized yet.
+pub fn set_display_options<R: Runtime>(
     app: &AppHandle<R>,
-    weekly_pace_days: u8,
-    pace_first_display: bool,
+    pace: PaceOptions,
+    usage_mode: UsageMode,
     state: &MeterState,
 ) {
     mutate_and_apply(app, state, |resources| {
-        resources.weekly_pace_days = weekly_pace_days;
-        resources.pace_first_display = pace_first_display;
+        resources.pace = pace;
+        resources.usage_mode = usage_mode;
     });
-}
-
-/// Change how usage is presented — allowance (percentage) vs cost (spend), or
-/// `Auto` to follow the account — and re-render immediately, the live-switch
-/// path the Usage-mode setting drives. A no-op if the tray has not been
-/// initialized yet.
-pub fn set_usage_mode<R: Runtime>(app: &AppHandle<R>, usage_mode: UsageMode, state: &MeterState) {
-    mutate_and_apply(app, state, |resources| resources.usage_mode = usage_mode);
 }
 
 /// Live update path: fold one broadcast [`MeterState`] into the tray.
@@ -243,12 +257,18 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
     let now = Timestamp::now();
 
     let mut resources = lock(&updater.0);
-    let pace = PaceOptions {
-        weekly_pace_days: resources.weekly_pace_days,
-        pace_first_display: resources.pace_first_display,
-    };
+    let pace = resources.pace;
     let usage_mode = resources.usage_mode;
-    let menu = model::menu_model(state, now, &resources.shown, pace, usage_mode);
+    let menu = model::menu_model(
+        state,
+        now,
+        MenuOptions {
+            shown: &resources.shown,
+            pace,
+            usage_mode,
+            tz: &resources.tz,
+        },
+    );
     let icon = model::icon_state(
         state,
         now,
@@ -293,6 +313,12 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
     #[cfg(not(target_os = "macos"))]
     if let Some(window) = app.get_webview_window("main") {
+        // Let the frontend's next measurement size the window to its content —
+        // once. After that the user owns the size; see `commands::popover`.
+        #[cfg(target_os = "linux")]
+        if let Some(fit) = app.try_state::<crate::commands::popover::ContentFit>() {
+            fit.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let _ = window.show();
         let _ = window.set_focus();
     }

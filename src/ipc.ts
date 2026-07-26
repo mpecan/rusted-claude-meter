@@ -20,6 +20,7 @@ import type {
   IconPreview,
   IconStyle,
   ImportSummary,
+  LinuxDesktop,
   MeterState,
   PopoverLayout,
   RefreshInterval,
@@ -133,9 +134,10 @@ export interface UsageBackend {
   /** Mark the wizard complete by writing settings to disk even if nothing
    * changed, so "absence of settings" stops being true on the next launch. */
   wizardComplete(): Promise<void>;
-  /** Whether this Linux session is GNOME, which hides the tray unless the
-   * AppIndicator extension is installed. Always `false` off Linux. */
-  isGnomeDesktop(): Promise<boolean>;
+  /** Which desktop this session is, for the two tray constraints worth
+   * warning about: GNOME hides the tray without the AppIndicator extension,
+   * and Plasma renders tray icons into a square cell. `"other"` off Linux. */
+  linuxDesktop(): Promise<LinuxDesktop>;
   /** Whether launch-at-login is currently registered with the OS (issue
    * #12). Queried fresh every call — never cached — because the
    * registration can be flipped from outside the app (System Settings on
@@ -280,8 +282,8 @@ class TauriBackend implements UsageBackend {
     return invoke<void>("wizard_complete");
   }
 
-  isGnomeDesktop(): Promise<boolean> {
-    return invoke<boolean>("is_gnome_desktop");
+  linuxDesktop(): Promise<LinuxDesktop> {
+    return invoke<LinuxDesktop>("linux_desktop");
   }
 
   autostartStatus(): Promise<boolean> {
@@ -570,8 +572,8 @@ class DemoBackend implements UsageBackend {
     return Promise.resolve();
   }
 
-  isGnomeDesktop(): Promise<boolean> {
-    return Promise.resolve(false);
+  linuxDesktop(): Promise<LinuxDesktop> {
+    return Promise.resolve("other");
   }
 
   autostartStatus(): Promise<boolean> {

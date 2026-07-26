@@ -27,9 +27,6 @@ const TRAY_ID: &str = "main";
 /// rebuilding (which is what avoids flicker).
 pub(super) struct NativeTray<R: Runtime> {
     status_item: MenuItem<R>,
-    /// The off-pace pace line, present only while pace-first display is set
-    /// and a signal exists.
-    pace_item: Option<MenuItem<R>>,
     usage_items: Vec<MenuItem<R>>,
 }
 
@@ -39,7 +36,7 @@ impl<R: Runtime> NativeTray<R> {
         icon: Option<&RenderedIcon>,
         menu: &MenuModel,
     ) -> tauri::Result<Self> {
-        let (built, status_item, usage_items, pace_item) = build_menu(app, menu)?;
+        let (built, status_item, usage_items) = build_menu(app, menu)?;
 
         let mut tray = TrayIconBuilder::with_id(TRAY_ID)
             .menu(&built)
@@ -81,7 +78,6 @@ impl<R: Runtime> NativeTray<R> {
         tray.build(app)?;
         Ok(Self {
             status_item,
-            pace_item,
             usage_items,
         })
     }
@@ -101,33 +97,27 @@ pub(super) fn set_icon<R: Runtime>(app: &AppHandle<R>, icon: &RenderedIcon) -> b
 }
 
 impl<R: Runtime> NativeTray<R> {
-    /// Update menu text in place when the line count and pace-line presence
-    /// are both unchanged; rebuild the menu (never the tray icon) when usage
-    /// lines appeared/vanished, or when the pace line appeared/vanished — the
+    /// Update menu text in place when the line count is unchanged; rebuild the
+    /// menu (never the tray icon) when usage lines appeared or vanished — the
     /// fast path can only update a `MenuItem` already built into the menu,
-    /// never add or remove one.
+    /// never add or remove one. A window gaining or losing its pace detail line
+    /// changes that count, so it takes the rebuild path.
     pub(super) fn set_menu(&mut self, app: &AppHandle<R>, menu: &MenuModel) -> bool {
         let Some(tray) = app.tray_by_id(TRAY_ID) else {
             return false;
         };
-        let lines_match = self.usage_items.len() == menu.usage_lines.len();
-        let pace_presence_matches = self.pace_item.is_some() == menu.pace_line.is_some();
-        if lines_match && pace_presence_matches {
+        if self.usage_items.len() == menu.usage_lines.len() {
             let mut applied = self.status_item.set_text(&menu.status_line).is_ok();
             for (item, line) in self.usage_items.iter().zip(&menu.usage_lines) {
-                applied &= item.set_text(line).is_ok();
-            }
-            if let (Some(item), Some(line)) = (&self.pace_item, &menu.pace_line) {
                 applied &= item.set_text(line).is_ok();
             }
             return applied;
         }
         match build_menu(app, menu) {
-            Ok((rebuilt, status_item, usage_items, pace_item)) => {
+            Ok((rebuilt, status_item, usage_items)) => {
                 if tray.set_menu(Some(rebuilt)).is_ok() {
                     self.status_item = status_item;
                     self.usage_items = usage_items;
-                    self.pace_item = pace_item;
                     true
                 } else {
                     false
@@ -141,18 +131,13 @@ impl<R: Runtime> NativeTray<R> {
     }
 }
 
-type BuiltMenu<R> = (Menu<R>, MenuItem<R>, Vec<MenuItem<R>>, Option<MenuItem<R>>);
+type BuiltMenu<R> = (Menu<R>, MenuItem<R>, Vec<MenuItem<R>>);
 
-/// Build the full tray menu for a [`MenuModel`]: status line, the pace line
-/// when pace-first display has a signal, live usage lines (informational,
-/// disabled), then Open / Settings / Refresh Now / Quit.
+/// Build the full tray menu for a [`MenuModel`]: status line, then the live
+/// usage lines (informational, disabled), then Open / Settings / Refresh Now /
+/// Quit.
 fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result<BuiltMenu<R>> {
     let status_item = MenuItem::with_id(app, "status", &menu.status_line, false, None::<&str>)?;
-    let pace_item = menu
-        .pace_line
-        .as_ref()
-        .map(|line| MenuItem::with_id(app, "pace", line, false, None::<&str>))
-        .transpose()?;
     let usage_items = menu
         .usage_lines
         .iter()
@@ -169,9 +154,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result
     let actions_separator = PredefinedMenuItem::separator(app)?;
 
     let mut items: Vec<&dyn IsMenuItem<R>> = vec![&status_item];
-    if let Some(item) = &pace_item {
-        items.push(item);
-    }
     if !usage_items.is_empty() {
         items.push(&usage_separator);
         for item in &usage_items {
@@ -185,7 +167,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, menu: &MenuModel) -> tauri::Result
     items.push(&quit);
 
     let built = Menu::with_items(app, &items)?;
-    Ok((built, status_item, usage_items, pace_item))
+    Ok((built, status_item, usage_items))
 }
 
 /// Wrap rendered RGBA bytes in a tray image.

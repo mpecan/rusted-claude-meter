@@ -12,11 +12,8 @@
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use jiff::Timestamp;
-use meter_core::{
-    LimitWindow, Money, PaceSignal, Spend, UsageMode, UsageStatus, UsageWindow,
-    weekly_pacing_duration,
-};
+use jiff::{Timestamp, tz::TimeZone};
+use meter_core::{LimitWindow, Money, Spend, UsageMode, UsageStatus, UsageWindow};
 use meter_render::{IconState, IconStyle, Scale, round_percent};
 
 use crate::scheduler::{MeterState, Phase, Staleness};
@@ -26,14 +23,15 @@ use crate::scheduler::{MeterState, Phase, Staleness};
 pub struct MenuModel {
     /// One-line summary of the scheduler phase / data freshness.
     pub status_line: String,
-    /// One line per reported window: headline first, then scoped, API order.
+    /// Two lines per reported window — the usage line and, when pace tracking
+    /// is on and the window has a meaningful ratio, its indented pace/projection
+    /// detail line. Headline windows first, then scoped, API order.
+    ///
+    /// There is deliberately no separate headline pace line. `PaceSignal`'s
+    /// tooltip text said the same thing as the detail lines, in one much wider
+    /// string, and a `StatusNotifierItem` menu is the whole Linux surface — the
+    /// width cost was real and the content was redundant.
     pub usage_lines: Vec<String>,
-    /// The off-pace tooltip text ("Used 72% vs 40% expected by now - …"),
-    /// gated behind pace-first display (issue #16). `StatusNotifierItem`
-    /// gives Linux trays no tooltip, so this is the only place that text
-    /// surfaces there; it renders as an extra menu line on every platform
-    /// rather than special-casing one.
-    pub pace_line: Option<String>,
 }
 
 /// The base gauge to render, independent of pace-first display: the user's
@@ -48,29 +46,45 @@ pub struct IconOptions {
     pub scale: Scale,
 }
 
-/// The weekly pace basis and pace-first display toggle (issue #16), bundled
-/// together since they always come from the same settings snapshot and both
-/// gate `PaceSignal` computation — off (`pace_first_display: false`) means
-/// no signal is computed at all, matching upstream's quota-first mode.
+/// The pace settings the tray needs (issue #16), bundled together since they
+/// always come from the same settings snapshot.
+///
+/// The two flags are kept apart on purpose, and the tray is the reason. The
+/// master switch `pace_tracking_enabled` decides whether pace math means
+/// anything at all; `pace_first_display` decides only what the *icon* shows.
+/// The menu honours the master switch alone, so pace and projections are there
+/// for every user who has not turned tracking off — on Linux the menu is the
+/// whole surface, and gating it on an icon preference hid the feature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PaceOptions {
     pub weekly_pace_days: u8,
+    pub pace_tracking_enabled: bool,
     pub pace_first_display: bool,
 }
 
-/// Off-pace signal for the icon badge and the menu's pace line, computed
-/// only in pace-first display (issue #16) — matching upstream, quota-first
-/// mode never shows the flame/snowflake or the pace tooltip text. Headline
-/// windows only (`UsageSnapshot::pace_signal`'s own contract); scoped limits
-/// don't participate.
-fn pace_signal(state: &MeterState, now: Timestamp, pace: PaceOptions) -> Option<PaceSignal> {
-    if !pace.pace_first_display {
-        return None;
+impl PaceOptions {
+    /// Whether the *icon* switches to a pace ratio: both the master switch and
+    /// the display preference. The menu deliberately asks only about
+    /// `pace_tracking_enabled`.
+    const fn icon_is_pace_first(self) -> bool {
+        self.pace_tracking_enabled && self.pace_first_display
     }
-    state
-        .snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.pace_signal(now, pace.weekly_pace_days))
+}
+
+/// The menu's render context: the four things [`menu_model`] needs beyond the
+/// state and the clock, which always travel together because they all come
+/// from the same settings snapshot at the one call site. Mirrors
+/// [`IconOptions`] and `TraySeed`.
+#[derive(Debug, Clone, Copy)]
+pub struct MenuOptions<'a> {
+    /// The user's opt-in set of scoped-model display names (issue #6).
+    pub shown: &'a HashSet<String>,
+    pub pace: PaceOptions,
+    pub usage_mode: UsageMode,
+    /// The zone projected limit-hit times are rendered in. Passed in rather
+    /// than resolved here so this stays a pure function and the specs can pin a
+    /// fixed zone; the caller resolves the system zone once and reuses it.
+    pub tz: &'a TimeZone,
 }
 
 /// The icon to render for a state: the live gauge when a snapshot exists,
@@ -125,26 +139,19 @@ pub fn icon_state(
             .as_deref()
             .map_or(empty, |spend| cost_icon(empty, spend));
     }
-    if !pace.pace_first_display {
+    if !pace.icon_is_pace_first() {
         return base;
     }
     let signal = snapshot.pace_signal(now, pace.weekly_pace_days);
-    let weekly_pacing = weekly_pacing_duration(pace.weekly_pace_days);
-    let ratio = signal
-        .as_ref()
-        .map(|s| s.ratio)
-        .or_else(|| {
-            snapshot
-                .five_hour
-                .as_ref()
-                .and_then(|w| w.pace_ratio(now, None))
-        })
-        .or_else(|| {
-            snapshot
-                .seven_day
-                .as_ref()
-                .and_then(|w| w.pace_ratio(now, Some(weekly_pacing)))
-        });
+    let ratio = signal.as_ref().map(|s| s.ratio).or_else(|| {
+        // Upstream's fallback chain: the hybrid signal's ratio, else the
+        // session window's, else the weekly one's — in that order, each on its
+        // own pacing basis.
+        [snapshot.five_hour.as_ref(), snapshot.seven_day.as_ref()]
+            .into_iter()
+            .flatten()
+            .find_map(|w| w.pace_ratio(now, Some(w.window.pacing_duration(pace.weekly_pace_days))))
+    });
     ratio.map_or(base, |ratio| {
         base.with_pace(Some(ratio), signal.map(|s| s.kind))
     })
@@ -235,31 +242,30 @@ fn cost_usage_lines(spend: &Spend) -> Vec<String> {
 /// by default, so a freshly reported model stays out of the tray menu until
 /// switched on. `pace` (issue #16) gates the pace line the same way it gates
 /// the icon badge in [`icon_state`].
-pub fn menu_model(
-    state: &MeterState,
-    now: Timestamp,
-    shown: &HashSet<String>,
-    pace: PaceOptions,
-    usage_mode: UsageMode,
-) -> MenuModel {
+pub fn menu_model(state: &MeterState, now: Timestamp, opts: MenuOptions) -> MenuModel {
     let mut usage_lines = Vec::new();
-    let mut pace_line = None;
     if let Some(snapshot) = &state.snapshot {
-        if usage_mode.effective(snapshot) == UsageMode::Cost {
+        if opts.usage_mode.effective(snapshot) == UsageMode::Cost {
             // Cost/spend account: spend lines replace the percentage windows,
             // and there is no pace line (pacing is an allowance concept).
             if let Some(spend) = snapshot.spend.as_deref() {
                 usage_lines = cost_usage_lines(spend);
             }
         } else {
+            // Two lines per window at most, so the whole menu is one allocation.
+            usage_lines.reserve(2 * (2 + snapshot.scoped.len()));
+            let mut push = |label: &str, window: &UsageWindow| {
+                usage_lines.push(usage_line(label, window, now));
+                usage_lines.extend(detail_line(window, now, opts.pace, opts.tz));
+            };
             if let Some(window) = &snapshot.five_hour {
-                usage_lines.push(usage_line(window_label(window.window), window, now));
+                push(window_label(window.window), window);
             }
             if let Some(window) = &snapshot.seven_day {
-                usage_lines.push(usage_line(window_label(window.window), window, now));
+                push(window_label(window.window), window);
             }
             for limit in &snapshot.scoped {
-                if !limit.is_visible(shown) {
+                if !limit.is_visible(opts.shown) {
                     continue;
                 }
                 let label = format!(
@@ -267,15 +273,13 @@ pub fn menu_model(
                     limit.display_name,
                     window_label(limit.usage.window)
                 );
-                usage_lines.push(usage_line(&label, &limit.usage, now));
+                push(&label, &limit.usage);
             }
-            pace_line = pace_signal(state, now, pace).map(|signal| signal.tooltip());
         }
     }
     MenuModel {
         status_line: status_line(state, now),
         usage_lines,
-        pace_line,
     }
 }
 
@@ -308,6 +312,78 @@ fn usage_line(label: &str, window: &UsageWindow, now: Timestamp) -> String {
             short_duration(-remaining)
         )
     }
+}
+
+/// Indent for a window's detail line, so it reads as belonging to the line
+/// above rather than as another window.
+///
+/// Four spaces rather than a glyph because `DBusMenu` passes the label through
+/// verbatim on both GNOME and Plasma (verified in the container harness) and a
+/// leading punctuation mark would be read aloud by screen readers.
+const DETAIL_INDENT: &str = "    ";
+
+/// The pace and projection line that sits under a window's usage line:
+/// `"    2.1× pace · 40% expected · hits limit ~1:59 PM"`.
+///
+/// The first two parts are exactly the popover's own pace line
+/// (`render.ts::paceLine`), so the two surfaces read the same; the projection
+/// is the third.
+///
+/// `None` when the window has no meaningful pace ratio yet — under the 5%
+/// elapsed grace, or with no usage — which is what keeps the menu short early
+/// in a window instead of padding it with "0.0× pace". Also `None` when pace
+/// tracking is switched off entirely.
+///
+/// The projection prefers the limit-hit date (the actionable one: you are going
+/// to run out, and when) and falls back to the projected end percentage when
+/// the window is not on course to hit its limit at all.
+fn detail_line(
+    window: &UsageWindow,
+    now: Timestamp,
+    pace: PaceOptions,
+    tz: &TimeZone,
+) -> Option<String> {
+    if !pace.pace_tracking_enabled {
+        return None;
+    }
+    let pacing = Some(window.window.pacing_duration(pace.weekly_pace_days));
+    let ratio = window.pace_ratio(now, pacing)?;
+    let mut line = format!("{DETAIL_INDENT}{ratio:.1}× pace");
+    if let Some(expected) = window.expected_usage_percent(now, pacing) {
+        let _ = write!(line, " · {}% expected", round_percent(expected));
+    }
+    // Same three-case cascade the popover renders (`view-model.ts`'s
+    // `projectionFor`): a limit already reached, else a projected hit before
+    // reset, else where the window is on course to end. `projected_limit_date`
+    // deliberately returns `None` at 100%, so without the first arm a maxed
+    // window reads "on pace to end at ~100%" here while the popover says
+    // "Limit reached" — the two surfaces describing the same data differently.
+    if window.utilization >= 100.0 {
+        line.push_str(" · limit reached");
+    } else if let Some(hit_at) = window.projected_limit_date(now, pacing) {
+        let _ = write!(line, " · hits limit ~{}", hit_time(hit_at, now, tz));
+    } else if let Some(end) = window.projected_end_percent(now, pacing) {
+        let _ = write!(line, " · on pace to end at ~{}%", round_percent(end));
+    }
+    Some(line)
+}
+
+/// Wall-clock time for a projected limit-hit: time-only when it lands today
+/// ("1:59 PM"), month/day plus time otherwise ("Jul 27, 5:37 AM") so a
+/// multi-day weekly projection isn't shown as a bare clock time that reads like
+/// today. Mirrors the frontend `formatHitTime` (`src/format.ts`), except that
+/// the frontend follows the browser locale while this is fixed English — the
+/// menu is built in Rust and has no locale to consult.
+fn hit_time(hit_at: Timestamp, now: Timestamp, tz: &TimeZone) -> String {
+    let hit = hit_at.to_zoned(tz.clone());
+    let today = now.to_zoned(tz.clone());
+    let same_day = hit.date() == today.date();
+    let format = if same_day {
+        "%-I:%M %p"
+    } else {
+        "%b %-d, %-I:%M %p"
+    };
+    hit.strftime(format).to_string()
 }
 
 /// The one-line phase/freshness summary. Whenever a cached snapshot is

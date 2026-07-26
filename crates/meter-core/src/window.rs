@@ -20,6 +20,23 @@ impl LimitWindow {
         }
     }
 
+    /// The span this window's quota is expected to be consumed over — the
+    /// denominator every pacing calculation divides by.
+    ///
+    /// For a session window that is just the window length; for a weekly one it
+    /// is the user's `weekly_pace_days` setting, because a week's quota spread
+    /// over five working days paces differently from one spread over seven.
+    /// Naming the rule once keeps per-window callers (the tray menu's pace
+    /// lines) from re-deriving what [`crate::UsageSnapshot::pace_signal`]
+    /// already does internally.
+    #[must_use]
+    pub fn pacing_duration(self, weekly_days: u8) -> SignedDuration {
+        match self {
+            Self::FiveHour => self.duration(),
+            Self::SevenDay => crate::pacing::weekly_pacing_duration(weekly_days),
+        }
+    }
+
     /// The reset instant to assume when the API omits `resets_at` for a
     /// window of this length (`resets_at: null` — an idle window with nothing
     /// scheduled to reset): the fetch time plus the window length. The single
@@ -95,6 +112,30 @@ mod tests {
 
     fn now() -> Timestamp {
         "2026-07-17T12:00:00Z".parse().unwrap()
+    }
+
+    #[test]
+    fn pacing_duration_is_the_window_for_a_session_and_the_setting_for_a_week() {
+        // The session window paces over itself — the weekly pace-days setting
+        // must not leak into it.
+        assert_eq!(
+            LimitWindow::FiveHour.pacing_duration(5),
+            SignedDuration::from_hours(5)
+        );
+        assert_eq!(
+            LimitWindow::FiveHour.pacing_duration(7),
+            SignedDuration::from_hours(5)
+        );
+        // A week's quota spread over five working days paces faster than the
+        // same quota spread over seven.
+        assert_eq!(
+            LimitWindow::SevenDay.pacing_duration(5),
+            SignedDuration::from_hours(5 * 24)
+        );
+        assert_eq!(
+            LimitWindow::SevenDay.pacing_duration(7),
+            LimitWindow::SevenDay.duration()
+        );
     }
 
     #[test]

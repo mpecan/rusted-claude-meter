@@ -572,6 +572,22 @@ body {
   color: var(--text-muted);
 }
 
+/* An inline action inside a hint — reads as part of the sentence rather than
+   as a control, so the nudge stays advisory. */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  opacity: 0.8;
+}
+
 /* Shown only when RCM_API_BASE_URL redirected this build at a mock API (the
    Linux demo harness in harness/). Loud on purpose: without it, demo data is
    indistinguishable from real usage. */

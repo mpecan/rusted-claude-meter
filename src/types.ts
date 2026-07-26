@@ -144,6 +144,11 @@ export interface SelectOption<T extends string> {
   label: string;
 }
 
+/** Which desktop the session is, mirroring Rust's `meter_core::LinuxDesktop`.
+ * Only the two that constrain the tray are named; everything else — including
+ * macOS, where `XDG_CURRENT_DESKTOP` is unset — is `"other"`. */
+export type LinuxDesktop = "gnome" | "kde" | "other";
+
 /** One rendered icon-style preview from `icon_style_previews`: straight-alpha
  * RGBA (`width * height * 4` bytes) the picker paints into a `<canvas>`, so
  * the style buttons show the actual tray artwork. */
@@ -166,6 +171,12 @@ export const ICON_STYLE_OPTIONS: readonly SelectOption<IconStyle>[] = [
   { value: "dual_bar", label: "Dual Bar" },
   { value: "gauge", label: "Gauge" },
 ];
+
+/** The display name for a tray icon style, from the same option list the
+ * pickers render — so a label never has to be written out twice. */
+export function iconStyleLabel(style: IconStyle): string {
+  return ICON_STYLE_OPTIONS.find((option) => option.value === style)?.label ?? style;
+}
 
 /** The refresh interval choices, in display order. Single source of truth
  * for both `#refresh-interval-select` and `#wizard-refresh-interval-select`. */
