@@ -57,11 +57,12 @@ Both are identical otherwise. If you're unsure, start with **Full**; switch to *
 
 ### Linux (x86_64)
 
-**Arch Linux (and derivatives) — AUR (recommended):**
+**Arch Linux (and derivatives) — build the package (recommended):**
 ```sh
-yay -S rusted-claude-meter
+git clone https://github.com/mpecan/rusted-claude-meter
+cd rusted-claude-meter/packaging/aur && makepkg -si
 ```
-Builds against your system's `webkit2gtk`/`libjxl` instead of bundling them, which avoids the AppImage version-skew crash below entirely — see [`packaging/aur`](packaging/aur).
+It links your system's `webkit2gtk` instead of shipping its own, which avoids the AppImage's bundled-library skew entirely — see [`packaging/aur`](packaging/aur). Not on the AUR yet, so there's no `yay -S` for it.
 
 **Everyone else — download from the [latest release](https://github.com/mpecan/rusted-claude-meter/releases/latest):**
 
@@ -70,22 +71,9 @@ Builds against your system's `webkit2gtk`/`libjxl` instead of bundling them, whi
 
 > Linux builds are **amd64 only**. On **GNOME** you also need the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) for the tray icon to appear; **KDE Plasma** shows it out of the box but draws tray icons in a square cell, so the app offers you a squarer icon style there. Because StatusNotifierItem gives no click events on Linux, the **tray menu is the primary surface** (there's no popover). See **[Rusted Claude Meter on Linux](docs/linux.md)** for the full picture, with screenshots of both desktops.
 
-Alternatively, run [`scripts/install.sh`](scripts/install.sh) to fetch the latest AppImage and register a desktop entry automatically (Arch: use the AUR package above instead — the script refuses to run there).
+Alternatively, run [`scripts/install.sh`](scripts/install.sh) to fetch the latest AppImage and register a desktop entry and icons automatically (on Arch it points you at the package above instead; `--force` overrides).
 
-#### Troubleshooting: AppImage exits immediately or shows a blank window
-
-If the AppImage exits right away with:
-```
-Could not create surfaceless EGL display: EGL_BAD_ALLOC. Aborting...
-```
-or opens but shows a blank Settings/popover window, the cause is usually a
-stale `libjxl` on the host — the AppImage bundles its own webkit build that
-expects a newer `libjxl` than some distros ship. Update it (e.g.
-`sudo pacman -Syu` on Arch) and retry. `WEBKIT_DISABLE_DMABUF_RENDERER=1` is
-a fallback that gets the process running but does not fix blank windows on
-its own. See [issue #50](https://github.com/mpecan/rusted-claude-meter/issues/50)
-for the full diagnosis, or use the AUR package (which builds against system
-libs) to sidestep the bundled-library mismatch entirely.
+If the AppImage aborts on an EGL error or opens a blank window, see [**Troubleshooting the AppImage**](docs/linux.md#troubleshooting-the-appimage).
 
 ## Usage
 

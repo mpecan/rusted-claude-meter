@@ -89,15 +89,76 @@ The `.deb` declares `libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`,
 `librsvg2-2`, `libxdo3` and `libgtk-3-0`. The AppImage bundles the app's own
 libraries but still needs the WebKit/GTK stack present.
 
-Two things worth knowing that are not expressed as package dependencies:
+One thing worth knowing that is not expressed as a package dependency: **the
+pace badge is an emoji** (🔥 / ❄️). On a minimal install with no emoji font it
+renders as a tofu box. Installing one — `fonts-noto-color-emoji` on
+Debian/Ubuntu — fixes it.
 
-- **The pace badge is an emoji** (🔥 / ❄️). On a minimal install with no emoji
-  font it renders as a tofu box. Installing one — `fonts-noto-color-emoji` on
-  Debian/Ubuntu — fixes it.
-- **The AppImage needs a GPU.** It aborts with
-  `Could not create default EGL display: EGL_BAD_PARAMETER` on a GPU-less
-  machine, where the same build as an unbundled binary starts fine. If you are
-  on a headless or remote-desktop setup, prefer the `.deb`.
+On Arch there is a `PKGBUILD` in [`packaging/aur`](../packaging/aur), which
+links the system WebKit rather than shipping one. That is the recommended
+install there, for the reason the next section explains.
+
+## Troubleshooting the AppImage
+
+Every problem in this section is specific to the **AppImage**, and the
+underlying reason is the same one: it carries its own copy of WebKit, built
+on `ubuntu-22.04` (see [packaging.md](packaging.md) for why that build host),
+and then runs it against whatever GPU stack and system libraries the host
+happens to have. The `.deb`, the AUR package and a source build all use the
+system's WebKit and do not have this class of problem — so if you hit any of
+the below and don't want to debug it, switching install method is the
+reliable fix rather than a workaround.
+
+**It aborts at startup with an EGL error.** Two variants are known:
+
+```
+Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
+Could not create surfaceless EGL display: EGL_BAD_ALLOC. Aborting...
+```
+
+Both come from WebKitGTK's DMABUF renderer failing to get a usable EGL
+display. `EGL_BAD_PARAMETER` shows up on a GPU-less machine (headless, or
+some remote-desktop setups), `EGL_BAD_ALLOC` has been reported on a hybrid
+Intel/NVIDIA laptop under Wayland ([issue #50][i50]). In both cases:
+
+```sh
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Rusted\ Claude\ Meter_*.AppImage
+```
+
+gets the process running. On a headless or remote setup, prefer the `.deb`.
+
+**It starts, but a window opens blank.** With the DMABUF renderer disabled
+the tray icon appears, but opening the window can still leave it white, with
+`WebKitWebProcess` dying on `SIGABRT` — reproducibly, on the hardware in
+[issue #50][i50]. This one is **not root-caused.**
+
+What is known is the shape of it. The AppImage bundles 219 libraries,
+including `libwebkit2gtk-4.1.so.0` and `libjavascriptcoregtk-4.1.so.0`, but
+that bundled WebKit still resolves 58 sonames from the host — so it is an
+`ubuntu-22.04` WebKit running against host libraries that, on a rolling
+distro, can be years newer. That the crash does not reproduce with a source
+build against system WebKit on the same machine fits this, and points away
+from the GPU.
+
+Which of those 58 is at fault is **not** established. One theory is worth
+recording because it looks plausible and is wrong: a stale host `libjxl`.
+The bundled `libwebkit2gtk-4.1.so.0` does not link `libjxl` at all — there
+is no such `NEEDED` entry, Ubuntu 22.04's WebKitGTK having been built
+without JPEG-XL support — so no host `libjxl` version can affect it, and
+updating `libjxl` cannot fix this. Check for yourself with:
+
+```sh
+./Rusted\ Claude\ Meter_*.AppImage --appimage-extract 'usr/lib/libwebkit2gtk*' >/dev/null
+readelf -d squashfs-root/usr/lib/libwebkit2gtk-4.1.so.0 | grep NEEDED
+```
+
+If you can reproduce the crash, [#50][i50] is the place to add detail — a
+backtrace with symbols, or `WEBKIT_DEBUG` output, would narrow those 58 down.
+
+Until it is understood, the answer is the `.deb`, the AUR package, or a
+source build.
+
+[i50]: https://github.com/mpecan/rusted-claude-meter/issues/50
 
 ## Credentials
 
