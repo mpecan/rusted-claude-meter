@@ -329,10 +329,12 @@ const DETAIL_INDENT: &str = "    ";
 /// (`render.ts::paceLine`), so the two surfaces read the same; the projection
 /// is the third.
 ///
-/// `None` when the window has no meaningful pace ratio yet — under the 5%
-/// elapsed grace, or with no usage — which is what keeps the menu short early
-/// in a window instead of padding it with "0.0× pace". Also `None` when pace
-/// tracking is switched off entirely.
+/// `None` when the window has no meaningful pace ratio yet — too little
+/// elapsed *and* too little used (a front-loaded burst past
+/// `MIN_USAGE_FOR_PROJECTION` surfaces immediately, which is the point of the
+/// early-overuse rule) — which is what keeps the menu short early in a window
+/// instead of padding it with "0.0× pace". Also `None` when pace tracking is
+/// switched off entirely.
 ///
 /// The projection prefers the limit-hit date (the actionable one: you are going
 /// to run out, and when) and falls back to the projected end percentage when

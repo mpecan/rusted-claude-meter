@@ -21,9 +21,10 @@ that menu carries the full picture rather than being a list of actions:
   now, and where you are heading: a projected limit-hit time when you are on
   course to run out, or the percentage you will finish at when you are not
 
-The detail line is suppressed while a window is too young to have a meaningful
-rate (under 5% elapsed), so early in a session the menu stays short instead of
-padding itself with noise. Turning **Enable pace tracking** off in Settings
+The detail line is suppressed while a window is too young to say anything
+useful, so early in a session the menu stays short instead of padding itself
+with noise — but a front-loaded burst surfaces straight away rather than
+waiting the window out. Turning **Enable pace tracking** off in Settings
 removes those lines entirely.
 
 **There is no Linux popover, and that is deliberate.** An anchored pop-down

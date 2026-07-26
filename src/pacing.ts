@@ -7,9 +7,10 @@
 
 import type { LimitWindow, UsageWindow } from "./types";
 
-/** Burning usage more than 20% faster than a sustainable, even pace counts
- * as at-risk (mirrors `meter_core::pacing::RISK_THRESHOLD`). */
-export const RISK_THRESHOLD = 1.2;
+/** Any burn above the sustainable line (`1.0×` = on track to reach the limit
+ * exactly at reset) counts as at-risk/overuse (mirrors
+ * `meter_core::pacing::RISK_THRESHOLD`). */
+export const RISK_THRESHOLD = 1.0;
 
 /** Below this ratio the weekly quota is likely to go unused before reset
  * (mirrors `meter_core::pacing::UNDERUSE_THRESHOLD`). */
@@ -17,13 +18,13 @@ export const UNDERUSE_THRESHOLD = 0.8;
 
 /** Above this ratio overuse is shown as heavy — red rather than orange
  * (mirrors `meter_core::pacing::HEAVY_OVERUSE_THRESHOLD`). */
-export const HEAVY_OVERUSE_THRESHOLD = 2.5;
+export const HEAVY_OVERUSE_THRESHOLD = 1.2;
 
-/** Minimum utilization before a limit-hit is projected: below it an early
- * front-loaded burst is noise; at or above it a lockout warning fires
- * immediately, bypassing `MIN_ELAPSED_FRACTION` (mirrors
- * `meter_core::pacing::MIN_USAGE_FOR_PROJECTION`). */
-export const MIN_USAGE_FOR_PROJECTION = 5.0;
+/** Minimum utilization before pace projections surface: below it an early
+ * front-loaded burst is noise; at or above it the pace ratio, projected end
+ * and lockout warning all surface immediately, bypassing `MIN_ELAPSED_FRACTION`
+ * (mirrors `meter_core::pacing::MIN_USAGE_FOR_PROJECTION`). */
+export const MIN_USAGE_FOR_PROJECTION = 2.0;
 
 /** Ignore pacing until this fraction of the window has elapsed; ratios
  * against a nearly-empty denominator are noise, not signal. */
@@ -46,7 +47,7 @@ export function weeklyPacingDurationMs(days: number): number {
 export type PaceBand = "underuse" | "sustainable" | "overuse" | "heavy_overuse";
 
 /** Classify a pace ratio. Blue underuse (`<0.8×`), green sustainable
- * (`0.8–1.2×`), orange overuse (`1.2–2.5×`), red heavy overuse (`>2.5×`).
+ * (`0.8–1.0×`), orange overuse (`1.0–1.2×`), red heavy overuse (`>1.2×`).
  * Mirrors `meter_core::PaceBand::from_ratio`. */
 export function paceBand(ratio: number): PaceBand {
   if (ratio < UNDERUSE_THRESHOLD) {
@@ -104,7 +105,14 @@ export function expectedUsagePercent(
     return null;
   }
   const fraction = Math.min(elapsed / pacing, 1.0);
-  if (fraction < MIN_ELAPSED_FRACTION) {
+  // Keep the ratio's divisor positive (clock skew can make elapsed <= 0).
+  if (fraction <= 0) {
+    return null;
+  }
+  // A front-loaded burst is meaningful before the elapsed grace: once
+  // utilization clears MIN_USAGE_FOR_PROJECTION the ratio surfaces immediately,
+  // matching projectedLimitDate.
+  if (fraction < MIN_ELAPSED_FRACTION && window.utilization < MIN_USAGE_FOR_PROJECTION) {
     return null;
   }
   return fraction * 100;
@@ -134,7 +142,12 @@ export function projectedEndPercent(
 ): number | null {
   const windowMs = WINDOW_DURATION_MS[window.window];
   const elapsed = elapsedMs(window, now);
-  if (elapsed === null || elapsed < windowMs * MIN_ELAPSED_FRACTION) {
+  if (elapsed === null || elapsed <= 0) {
+    return null;
+  }
+  // As with projectedLimitDate, a burst clearing MIN_USAGE_FOR_PROJECTION
+  // projects immediately instead of waiting out the elapsed grace.
+  if (elapsed < windowMs * MIN_ELAPSED_FRACTION && window.utilization < MIN_USAGE_FOR_PROJECTION) {
     return null;
   }
   // Never project a horizon shorter than what has already elapsed.

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.3](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.2...v0.1.3) (2026-07-22)
+
+
+### Bug Fixes
+
+* **pace:** surface overuse early and grade it against the limit ([#48](https://github.com/mpecan/rusted-claude-meter/issues/48)) ([f90c034](https://github.com/mpecan/rusted-claude-meter/commit/f90c0349d1d2c55c14a1cd91b0c12f2ab4768e31))
+* **release:** render cask URLs with dots, not %20 ([#49](https://github.com/mpecan/rusted-claude-meter/issues/49)) ([25c9fbd](https://github.com/mpecan/rusted-claude-meter/commit/25c9fbd813b40a05bdced262a01fe164b2416834))
+
+
+### Documentation
+
+* credit rshivane for the pace-based tracking design ([#46](https://github.com/mpecan/rusted-claude-meter/issues/46)) ([38d4f6f](https://github.com/mpecan/rusted-claude-meter/commit/38d4f6f3b590b3cfc17a76ab68770e96874aa868))
+
 ## [0.1.2](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.1...v0.1.2) (2026-07-21)
 
 

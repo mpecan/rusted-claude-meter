@@ -264,9 +264,9 @@ mod tests {
     #[test]
     fn at_risk_when_any_window_is_pacing_hot() {
         let now: Timestamp = "2026-07-17T12:00:00Z".parse().unwrap();
-        // The helper's seven-day windows reset 24h out (~86% elapsed), so
-        // even 100% used stays under the 1.2 risk ratio: calm all round.
-        assert!(!snapshot(10.0, 20.0, 100.0).at_risk(now));
+        // The helper's seven-day windows reset 24h out (~86% elapsed). All
+        // three pace below an even burn (≤ ~0.6×), so nothing is at risk.
+        assert!(!snapshot(10.0, 20.0, 50.0).at_risk(now));
 
         // A single scoped window burning hot (90% used, 4 of 7 days left →
         // ratio 2.1) flips the snapshot even with calm headline windows.

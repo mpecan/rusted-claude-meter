@@ -331,6 +331,12 @@ body {
 .projection-hits {
   color: var(--color-warning);
 }
+/* Heavy overuse (>1.2×) escalates the hits-limit line from orange to red,
+   matching the pace ratio's band. The compound selector outweighs both
+   .meter-projection and the base .projection-hits regardless of source order. */
+.projection-hits.pace-heavy_overuse {
+  color: var(--color-critical);
+}
 .projection-underuse {
   color: var(--color-underuse);
 }

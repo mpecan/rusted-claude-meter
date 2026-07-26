@@ -113,15 +113,33 @@ fn underuse_projects_where_the_window_ends_instead() {
 }
 
 #[test]
-fn no_detail_line_before_the_elapsed_grace() {
-    // Five minutes into a five-hour window is under the 5% elapsed floor, so
-    // there is no meaningful ratio yet and the menu stays one line per window
-    // rather than padding it with noise.
+fn no_detail_line_while_there_is_nothing_to_say_yet() {
+    // Five minutes into a five-hour window *and* barely any usage: under both
+    // the elapsed grace and the usage floor, so there is no meaningful ratio
+    // and the menu stays one line per window rather than padding it with noise.
+    let lines = lines(
+        &one_window(window(1.0, 4 * 3600 + 55 * 60, LimitWindow::FiveHour)),
+        pace_default(),
+    );
+    assert_eq!(lines, vec!["5-hour: 1% — resets in 4h 55m".to_owned()]);
+}
+
+#[test]
+fn a_front_loaded_burst_gets_its_detail_line_before_the_elapsed_grace() {
+    // Same five minutes in, but 10% already spent — past the usage floor, so
+    // the ratio surfaces immediately instead of waiting out the grace (#48).
+    // The menu is the whole Linux surface, so this is where that warning lands.
     let lines = lines(
         &one_window(window(10.0, 4 * 3600 + 55 * 60, LimitWindow::FiveHour)),
         pace_default(),
     );
-    assert_eq!(lines, vec!["5-hour: 10% — resets in 4h 55m".to_owned()]);
+    assert_eq!(
+        lines,
+        vec![
+            "5-hour: 10% — resets in 4h 55m".to_owned(),
+            "    6.0× pace · 2% expected · hits limit ~12:45 PM".to_owned(),
+        ]
+    );
 }
 
 #[test]
@@ -303,16 +321,28 @@ fn pace_first_display_gates_the_icon_but_not_the_menu() {
 
 #[test]
 fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
-    // The stock `snapshot()` fixture is on-pace on both headline windows
-    // (session ratio 41.5/55 ≈ 0.75, weekly ≈ 1.15 — neither hot nor cold),
-    // so the hybrid `PaceSignal` is `None` and no flame/snowflake badge or
-    // tooltip appears. But pace-first display still swaps the primary metric
-    // to the ratio: upstream's `paceSignal?.ratio ?? session.paceRatio ??
-    // weekly.paceRatio` falls back to the plain session ratio, in its band
-    // colour, so the icon shows a ratio even when nothing is off pace.
+    // Both headline windows pace on the sustainable side (ratio 0.9), so
+    // neither is hot (>1.0×) nor cold (<0.8×): the hybrid `PaceSignal` is
+    // `None` and no flame/snowflake badge or tooltip appears. But pace-first
+    // display still swaps the primary metric to the ratio: upstream's
+    // `paceSignal?.ratio ?? session.paceRatio ?? weekly.paceRatio` falls back
+    // to the plain session ratio, in its band colour.
+    let on_pace = state(
+        Phase::Polling,
+        Staleness::Fresh,
+        Some(UsageSnapshot {
+            // 45% used at 50% elapsed -> ratio 0.9.
+            five_hour: Some(window(45.0, 150 * 60, LimitWindow::FiveHour)),
+            // 45% used at 50% elapsed -> ratio 0.9 (neither hot nor cold).
+            seven_day: Some(window(45.0, 3 * 86_400 + 12 * 3600, LimitWindow::SevenDay)),
+            scoped: vec![],
+            spend: None,
+            fetched_at: now(),
+        }),
+    );
     let pace = pace_first();
     let icon = icon_state(
-        &healthy(),
+        &on_pace,
         now(),
         IconOptions {
             style: IconStyle::Battery,
@@ -327,15 +357,25 @@ fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
     assert_eq!(icon.pace_kind, None);
     let ratio = icon.pace_ratio.unwrap();
     assert!(
-        (ratio - 41.5 / 55.0).abs() < 1e-9,
+        (ratio - 45.0 / 50.0).abs() < 1e-9,
         "expected the session pace ratio, got {ratio}"
     );
-    assert_eq!(icon.pace_band, Some(meter_core::PaceBand::Underuse));
+    assert_eq!(icon.pace_band, Some(meter_core::PaceBand::Sustainable));
 
     // The menu is unaffected either way — it has no headline pace line to
     // gate, only the per-window detail lines, which pace-first does not touch.
-    let menu = menu_with(&healthy(), now(), &all_shown(), pace, UsageMode::Auto);
-    assert_eq!(menu.usage_lines, lines(&healthy(), pace_default()));
+    let menu = menu_with(&on_pace, now(), &all_shown(), pace, UsageMode::Auto);
+    assert_eq!(
+        menu.usage_lines,
+        menu_with(
+            &on_pace,
+            now(),
+            &all_shown(),
+            pace_default(),
+            UsageMode::Auto
+        )
+        .usage_lines
+    );
 }
 
 #[test]
