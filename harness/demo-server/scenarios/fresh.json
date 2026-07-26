@@ -1,0 +1,38 @@
+{
+  "_comment": "Early in both windows, light usage. Green everywhere, pace sustainable. The default the server starts on. Underscore-prefixed keys are ignored by the app's decoder.",
+  "five_hour": { "utilization": 8.0, "resets_at": "{{now+4h}}" },
+  "seven_day": { "utilization": 11.0, "resets_at": "{{now+6d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "five_hour",
+      "percent": 8,
+      "resets_at": "{{now+4h}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "seven_day",
+      "percent": 11,
+      "resets_at": "{{now+6d}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 6,
+      "resets_at": "{{now+6d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-sonnet-5", "display_name": "Sonnet" }, "surface": null }
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 3,
+      "resets_at": "{{now+6d}}",
+      "is_active": true,
+      "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null }
+    }
+  ],
+  "spend": { "unsurfaced": true }
+}

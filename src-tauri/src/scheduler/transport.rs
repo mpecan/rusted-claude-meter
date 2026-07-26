@@ -9,7 +9,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use jiff::Timestamp;
-use meter_api::{ApiError, DEFAULT_BASE_URL, UsageClient, UsageResponse};
+use meter_api::{ApiError, UsageClient, UsageResponse};
 
 use crate::debug_log::ResponseLog;
 use crate::scheduler::core::FetchOutcome;
@@ -25,8 +25,9 @@ pub trait UsageTransport: Send + Sync {
 pub struct LiveTransport {
     store: Arc<dyn SessionStore>,
     /// `meter-api`'s base URL, injectable so tests can point a real
-    /// `UsageClient` at a local mock server instead of claude.ai — see
-    /// [`LiveTransport::with_base_url`].
+    /// `UsageClient` at a local mock server instead of claude.ai, and the
+    /// `RCM_API_BASE_URL` override points the shipped binary at the Linux demo
+    /// harness — see [`LiveTransport::with_base_url`] and `crate::api_base`.
     base_url: String,
     /// First organization's uuid, cached after discovery so steady-state
     /// polling costs one request, not two. Cleared on 401 so a replacement
@@ -40,13 +41,11 @@ pub struct LiveTransport {
 }
 
 impl LiveTransport {
-    pub fn new(store: Arc<dyn SessionStore>) -> Self {
-        Self::with_base_url(store, DEFAULT_BASE_URL)
-    }
-
-    /// As [`LiveTransport::new`], but pointed at `base_url` instead of
-    /// claude.ai — the seam integration tests use to drive a real
-    /// `UsageClient` against a local mock server with no network access.
+    /// Build a transport against `base_url`. Production passes
+    /// `crate::api_base::api_base_url()` — claude.ai unless the
+    /// `RCM_API_BASE_URL` override is set; integration tests and the Linux
+    /// demo harness pass a local mock server, so a real `UsageClient` runs
+    /// with no network access.
     pub fn with_base_url(store: Arc<dyn SessionStore>, base_url: impl Into<String>) -> Self {
         Self {
             store,
@@ -58,7 +57,7 @@ impl LiveTransport {
 
     /// Attach the shared debug response log (Settings' "Log API responses").
     /// Builder-style so production wiring reads
-    /// `LiveTransport::new(store).with_response_log(log)`.
+    /// `LiveTransport::with_base_url(store, base).with_response_log(log)`.
     #[must_use]
     pub fn with_response_log(mut self, response_log: Arc<ResponseLog>) -> Self {
         self.response_log = response_log;
@@ -165,6 +164,7 @@ mod tests {
     use super::*;
     use crate::scheduler::test_support::{USAGE_BODY, mount_org_discovery, store_with_key};
     use crate::store::FakeSessionStore;
+    use meter_api::DEFAULT_BASE_URL;
     use pretty_assertions::assert_eq;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -322,19 +322,24 @@ mod tests {
 
     #[tokio::test]
     async fn missing_session_key_is_reported_without_touching_the_network() {
-        let transport = LiveTransport::new(Arc::new(FakeSessionStore::new()));
+        let transport =
+            LiveTransport::with_base_url(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
         assert_eq!(transport.fetch().await, FetchOutcome::NoSession);
     }
 
     #[tokio::test]
     async fn unavailable_credential_store_is_transient() {
-        let transport = LiveTransport::new(Arc::new(FakeSessionStore::unavailable()));
+        let transport = LiveTransport::with_base_url(
+            Arc::new(FakeSessionStore::unavailable()),
+            DEFAULT_BASE_URL,
+        );
         assert_eq!(transport.fetch().await, FetchOutcome::Transient);
     }
 
     #[test]
     fn unauthorized_clears_the_cached_organization() {
-        let transport = LiveTransport::new(Arc::new(FakeSessionStore::new()));
+        let transport =
+            LiveTransport::with_base_url(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
         transport.set_cached_org(Some("org-1".to_owned()));
         transport.classify_and_reset(&ApiError::Unauthorized);
         assert_eq!(transport.cached_org(), None);
@@ -342,7 +347,8 @@ mod tests {
 
     #[test]
     fn transient_errors_keep_the_cached_organization() {
-        let transport = LiveTransport::new(Arc::new(FakeSessionStore::new()));
+        let transport =
+            LiveTransport::with_base_url(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
         transport.set_cached_org(Some("org-1".to_owned()));
         transport.classify_and_reset(&ApiError::Blocked);
         assert_eq!(transport.cached_org(), Some("org-1".to_owned()));

@@ -58,12 +58,54 @@ fn all_shown() -> HashSet<String> {
     ["Sonnet", "Fable"].into_iter().map(String::from).collect()
 }
 
-/// Quota-first (pre-issue-#16) defaults: no pace signal computed at all.
+/// Pace tracking switched off entirely: no pace signal, no pace line, and no
+/// per-window detail lines. The configuration most of the older specs assert
+/// against, because it is the one that renders bare usage lines.
 fn pace_off() -> PaceOptions {
     PaceOptions {
+        pace_tracking_enabled: false,
+        ..pace_default()
+    }
+}
+
+/// The product default: tracking on, pace-first display off. The menu shows
+/// pace; the icon still shows a percentage.
+fn pace_default() -> PaceOptions {
+    PaceOptions {
         weekly_pace_days: 7,
+        pace_tracking_enabled: true,
         pace_first_display: false,
     }
+}
+
+/// Tracking on *and* pace-first display on: the icon switches to a ratio too.
+fn pace_first() -> PaceOptions {
+    PaceOptions {
+        pace_first_display: true,
+        ..pace_default()
+    }
+}
+
+/// `menu_model` with the fixture zone. Every projected limit-hit time in the
+/// specs is asserted in UTC, so a developer's local zone cannot change what
+/// the assertions read.
+fn menu_with(
+    state: &MeterState,
+    now: Timestamp,
+    shown: &HashSet<String>,
+    pace: PaceOptions,
+    usage_mode: UsageMode,
+) -> MenuModel {
+    menu_model(
+        state,
+        now,
+        MenuOptions {
+            shown,
+            pace,
+            usage_mode,
+            tz: &TimeZone::UTC,
+        },
+    )
 }
 
 /// `icon_state` with quota-first pace options, for the many tests that
@@ -88,144 +130,7 @@ fn icon_of(
 /// predate issue #16 and don't exercise the pace line. Uses `Auto`, which
 /// resolves to the allowance view for the limits-bearing fixtures here.
 fn menu_of(state: &MeterState, now: Timestamp, shown: &HashSet<String>) -> MenuModel {
-    menu_model(state, now, shown, pace_off(), UsageMode::Auto)
-}
-
-/// A session window burning fast enough to produce a hot `PaceSignal`:
-/// 60% used at a quarter of the 5-hour window elapsed (expected 25%,
-/// ratio 60/25 = 2.4).
-fn hot_session_state() -> MeterState {
-    state(
-        Phase::Polling,
-        Staleness::Fresh,
-        Some(UsageSnapshot {
-            five_hour: Some(window(60.0, 225 * 60, LimitWindow::FiveHour)),
-            seven_day: None,
-            scoped: vec![],
-            spend: None,
-            fetched_at: now(),
-        }),
-    )
-}
-
-#[test]
-fn pace_first_display_off_never_computes_a_signal_even_when_burning_hot() {
-    // Gating (issue #16): quota-first mode must not overlay a pace badge
-    // or tooltip, no matter how off-pace the underlying window is.
-    let pace = pace_off();
-    let icon = icon_state(
-        &hot_session_state(),
-        now(),
-        IconOptions {
-            style: IconStyle::Battery,
-            mono: false,
-            scale: Scale::X2,
-        },
-        pace,
-        UsageMode::Auto,
-    );
-    assert_eq!(icon.pace_kind, None);
-    assert_eq!(icon.pace_ratio, None);
-
-    let menu = menu_model(
-        &hot_session_state(),
-        now(),
-        &HashSet::new(),
-        pace,
-        UsageMode::Auto,
-    );
-    assert_eq!(menu.pace_line, None);
-}
-
-#[test]
-fn pace_first_display_on_shows_the_ratio_even_when_no_window_is_off_pace() {
-    // Both headline windows pace on the sustainable side (ratio 0.9), so
-    // neither is hot (>1.0×) nor cold (<0.8×): the hybrid `PaceSignal` is
-    // `None` and no flame/snowflake badge or tooltip appears. But pace-first
-    // display still swaps the primary metric to the ratio: upstream's
-    // `paceSignal?.ratio ?? session.paceRatio ?? weekly.paceRatio` falls back
-    // to the plain session ratio, in its band colour.
-    let on_pace = state(
-        Phase::Polling,
-        Staleness::Fresh,
-        Some(UsageSnapshot {
-            // 45% used at 50% elapsed -> ratio 0.9.
-            five_hour: Some(window(45.0, 150 * 60, LimitWindow::FiveHour)),
-            // 45% used at 50% elapsed -> ratio 0.9 (neither hot nor cold).
-            seven_day: Some(window(45.0, 3 * 86_400 + 12 * 3600, LimitWindow::SevenDay)),
-            scoped: vec![],
-            spend: None,
-            fetched_at: now(),
-        }),
-    );
-    let pace = PaceOptions {
-        weekly_pace_days: 7,
-        pace_first_display: true,
-    };
-    let icon = icon_state(
-        &on_pace,
-        now(),
-        IconOptions {
-            style: IconStyle::Battery,
-            mono: false,
-            scale: Scale::X2,
-        },
-        pace,
-        UsageMode::Auto,
-    );
-    // No hybrid signal -> no badge, but the fallback session ratio drives
-    // the primary metric and its band colour.
-    assert_eq!(icon.pace_kind, None);
-    let ratio = icon.pace_ratio.unwrap();
-    assert!(
-        (ratio - 45.0 / 50.0).abs() < 1e-9,
-        "expected the session pace ratio, got {ratio}"
-    );
-    assert_eq!(icon.pace_band, Some(meter_core::PaceBand::Sustainable));
-
-    // The tooltip/pace line stays hybrid-signal-only, so an on-pace snapshot
-    // produces no pace line.
-    let menu = menu_model(&on_pace, now(), &all_shown(), pace, UsageMode::Auto);
-    assert_eq!(menu.pace_line, None);
-}
-
-#[test]
-fn pace_first_display_on_overlays_the_icon_badge_and_the_menu_pace_line() {
-    let pace = PaceOptions {
-        weekly_pace_days: 7,
-        pace_first_display: true,
-    };
-    let icon = icon_state(
-        &hot_session_state(),
-        now(),
-        IconOptions {
-            style: IconStyle::Battery,
-            mono: false,
-            scale: Scale::X2,
-        },
-        pace,
-        UsageMode::Auto,
-    );
-    assert_eq!(icon.pace_kind, Some(meter_core::PaceKind::Hot));
-    assert_eq!(icon.pace_ratio, Some(2.4));
-
-    let menu = menu_model(
-        &hot_session_state(),
-        now(),
-        &HashSet::new(),
-        pace,
-        UsageMode::Auto,
-    );
-    assert!(
-        menu.pace_line.is_some(),
-        "hot session must produce a pace line"
-    );
-    let pace_line = menu.pace_line.unwrap();
-    assert!(
-        pace_line.starts_with("Used 60% vs 25% expected by now"),
-        "unexpected pace line: {pace_line}"
-    );
-    assert!(pace_line.contains("5-hour window"), "{pace_line}");
+    menu_with(state, now, shown, pace_off(), UsageMode::Auto)
 }
 
 #[test]
@@ -538,3 +443,4 @@ fn icon_change_is_planned_even_when_the_menu_is_identical() {
 // The cost/spend (Enterprise) view-model tests live in a sibling submodule to
 // keep this file under the 700-line hard gate.
 mod cost;
+mod pace;

@@ -1,0 +1,31 @@
+{
+  "_comment": "Comfortably under budget. Weekly: 6d of 7d elapsed (86% expected) at 30% used -> ratio ~0.35, Underuse. Expect the snowflake badge. Underuse is weekly-only in the hybrid pace signal, so the session window here is kept unremarkable on purpose.",
+  "five_hour": { "utilization": 45.0, "resets_at": "{{now+2h}}" },
+  "seven_day": { "utilization": 30.0, "resets_at": "{{now+1d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "five_hour",
+      "percent": 45,
+      "resets_at": "{{now+2h}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "seven_day",
+      "percent": 30,
+      "resets_at": "{{now+1d}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 22,
+      "resets_at": "{{now+1d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-sonnet-5", "display_name": "Sonnet" }, "surface": null }
+    }
+  ],
+  "spend": { "unsurfaced": true }
+}

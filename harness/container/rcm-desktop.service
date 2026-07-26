@@ -1,0 +1,15 @@
+[Unit]
+Description=Headless GNOME Shell for the rusted-claude-meter harness
+After=systemd-logind.service dbus.service
+Wants=systemd-logind.service
+
+[Service]
+Type=simple
+User=rcm
+PAMName=login
+WorkingDirectory=/home/rcm
+ExecStart=/usr/local/bin/rcm-session
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

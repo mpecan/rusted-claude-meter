@@ -1,0 +1,31 @@
+{
+  "_comment": "Burning quota far faster than the window can sustain. Session: 2h of 5h elapsed (40% expected) at 85% used -> ratio ~2.1, Overuse. Weekly: 2d of 7d elapsed (29% expected) at 75% used -> ratio ~2.6, HeavyOveruse. Expect the flame badge and a 'Used 85% vs 40%' pace line. Quota percentages are deliberately below the warning threshold so a red icon here means the pace band drove it, not the quota.",
+  "five_hour": { "utilization": 85.0, "resets_at": "{{now+3h}}" },
+  "seven_day": { "utilization": 75.0, "resets_at": "{{now+5d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "five_hour",
+      "percent": 85,
+      "resets_at": "{{now+3h}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "seven_day",
+      "percent": 75,
+      "resets_at": "{{now+5d}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 68,
+      "resets_at": "{{now+5d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-sonnet-5", "display_name": "Sonnet" }, "surface": null }
+    }
+  ],
+  "spend": { "unsurfaced": true }
+}

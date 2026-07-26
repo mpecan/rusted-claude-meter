@@ -20,6 +20,7 @@ import type {
   IconPreview,
   IconStyle,
   ImportSummary,
+  LinuxDesktop,
   MeterState,
   PopoverLayout,
   RefreshInterval,
@@ -115,6 +116,11 @@ export interface UsageBackend {
   /** Reveal the API-response log in the OS file manager (or its folder when
    * nothing has been logged yet). */
   revealDebugLog(): Promise<void>;
+  /** The non-claude.ai API base this build was started against (the
+   * `RCM_API_BASE_URL` override used by the Linux demo harness), or `null` when
+   * talking to the real claude.ai. Settings banners it, because otherwise demo
+   * data is indistinguishable from real usage. */
+  apiBaseOverride(): Promise<string | null>;
   /** Resize the popover to the given content height (macOS binds the NSPopover
    * to it; a no-op elsewhere). Width is fixed. */
   setPopoverHeight(height: number): Promise<void>;
@@ -128,9 +134,10 @@ export interface UsageBackend {
   /** Mark the wizard complete by writing settings to disk even if nothing
    * changed, so "absence of settings" stops being true on the next launch. */
   wizardComplete(): Promise<void>;
-  /** Whether this Linux session is GNOME, which hides the tray unless the
-   * AppIndicator extension is installed. Always `false` off Linux. */
-  isGnomeDesktop(): Promise<boolean>;
+  /** Which desktop this session is, for the two tray constraints worth
+   * warning about: GNOME hides the tray without the AppIndicator extension,
+   * and Plasma renders tray icons into a square cell. `"other"` off Linux. */
+  linuxDesktop(): Promise<LinuxDesktop>;
   /** Whether launch-at-login is currently registered with the OS (issue
    * #12). Queried fresh every call — never cached — because the
    * registration can be flipped from outside the app (System Settings on
@@ -255,6 +262,10 @@ class TauriBackend implements UsageBackend {
     return invoke<void>("reveal_debug_log");
   }
 
+  apiBaseOverride(): Promise<string | null> {
+    return invoke<string | null>("api_base_override");
+  }
+
   setPopoverHeight(height: number): Promise<void> {
     return invoke<void>("set_popover_height", { height });
   }
@@ -271,8 +282,8 @@ class TauriBackend implements UsageBackend {
     return invoke<void>("wizard_complete");
   }
 
-  isGnomeDesktop(): Promise<boolean> {
-    return invoke<boolean>("is_gnome_desktop");
+  linuxDesktop(): Promise<LinuxDesktop> {
+    return invoke<LinuxDesktop>("linux_desktop");
   }
 
   autostartStatus(): Promise<boolean> {
@@ -534,6 +545,12 @@ class DemoBackend implements UsageBackend {
     return Promise.resolve();
   }
 
+  apiBaseOverride(): Promise<string | null> {
+    // The browser demo has no Rust side to have been redirected; the banner
+    // stays hidden here.
+    return Promise.resolve(null);
+  }
+
   setPopoverHeight(): Promise<void> {
     // No popover outside a Tauri shell; the demo renders in a plain browser.
     return Promise.resolve();
@@ -555,8 +572,8 @@ class DemoBackend implements UsageBackend {
     return Promise.resolve();
   }
 
-  isGnomeDesktop(): Promise<boolean> {
-    return Promise.resolve(false);
+  linuxDesktop(): Promise<LinuxDesktop> {
+    return Promise.resolve("other");
   }
 
   autostartStatus(): Promise<boolean> {

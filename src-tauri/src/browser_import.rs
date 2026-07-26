@@ -26,7 +26,7 @@
 
 use std::sync::Arc;
 
-use meter_api::{ApiError, DEFAULT_BASE_URL, UsageClient};
+use meter_api::{ApiError, UsageClient};
 use meter_core::{Browser, BrowserFamily, SessionKey};
 #[cfg(feature = "browser-import")]
 use meter_core::{CookieImportError, Os, session_key_from_cookies};
@@ -117,9 +117,13 @@ pub struct LiveSessionValidator {
 }
 
 impl LiveSessionValidator {
+    /// Validates against whatever base URL the app is configured for — see
+    /// [`crate::api_base`]. Under the demo harness that is the local demo
+    /// server, so the wizard's "paste a key" flow is exercised end to end
+    /// without a real claude.ai session.
     pub fn new() -> Self {
         Self {
-            base_url: DEFAULT_BASE_URL.to_owned(),
+            base_url: crate::api_base::api_base_url().to_owned(),
         }
     }
 

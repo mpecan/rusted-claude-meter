@@ -7,6 +7,7 @@
 //! every change as a `usage-state` event — the single source of truth the
 //! tray and UI subscribe to.
 
+mod api_base;
 mod autostart;
 mod browser_import;
 mod cache;
@@ -21,6 +22,7 @@ mod scheduler;
 mod settings;
 mod settings_window;
 mod store;
+mod sync;
 mod tray;
 mod wizard;
 
@@ -48,6 +50,9 @@ use tokio::sync::Notify;
 // real gain, so the length lint is allowed here.
 #[allow(clippy::too_many_lines)]
 pub fn run() -> tauri::Result<()> {
+    // Announce a redirected API endpoint before anything else: a build pointed
+    // at the demo harness is otherwise indistinguishable from a real one.
+    api_base::log_override();
     let session_store: Arc<dyn SessionStore> = Arc::new(KeyringSessionStore);
     let scheduler_store = Arc::clone(&session_store);
 
@@ -90,6 +95,7 @@ pub fn run() -> tauri::Result<()> {
             commands::debug::set_debug_logging,
             commands::debug::debug_log_path,
             commands::debug::reveal_debug_log,
+            commands::debug::api_base_override,
             commands::popover::set_popover_height,
             commands::pace::set_weekly_pace_days,
             commands::pace::set_pace_first_display,
@@ -100,7 +106,7 @@ pub fn run() -> tauri::Result<()> {
             wizard::wizard_should_run,
             wizard::wizard_mark_offered,
             wizard::wizard_complete,
-            wizard::is_gnome_desktop,
+            wizard::linux_desktop,
         ])
         .setup(move |app| {
             // Menu-bar-only on macOS: no Dock icon, no app switcher entry.
@@ -158,11 +164,7 @@ pub fn run() -> tauri::Result<()> {
                     style: app_settings.icon_style,
                     mono: app_settings.monochrome,
                     shown,
-                    weekly_pace_days: app_settings.weekly_pace_days,
-                    // Master switch folds into the effective pace-first flag
-                    // the tray sees (it only shows pace in pace-first mode).
-                    pace_first_display: app_settings.pace_tracking_enabled
-                        && app_settings.pace_first_display,
+                    pace: tray::pace_options(&app_settings),
                     usage_mode: app_settings.usage_mode,
                 },
             )?;
@@ -179,6 +181,11 @@ pub fn run() -> tauri::Result<()> {
             // very first observation establishes its startup baseline
             // instead of a broadcast racing ahead of it.
             app.manage(NotifierState::default());
+            // Linux only: the main window is an ordinary resizable window
+            // there, so content-fitting is a one-shot per show rather than
+            // continuous. macOS has an NSPopover, which is always content-sized.
+            #[cfg(target_os = "linux")]
+            app.manage(commands::popover::ContentFit::default());
             spawn_scheduler(
                 app,
                 scheduler_store,
@@ -256,7 +263,8 @@ fn spawn_scheduler(
 
     let emitter = app.handle().clone();
     tauri::async_runtime::spawn(run_loop(
-        LiveTransport::new(session_store).with_response_log(response_log),
+        LiveTransport::with_base_url(session_store, api_base::api_base_url())
+            .with_response_log(response_log),
         SystemClock::default(),
         handle,
         persist,

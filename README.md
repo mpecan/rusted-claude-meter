@@ -11,7 +11,7 @@ It polls your `claude.ai` usage with your browser session and renders a colour-c
 ## Features
 
 - **Menu-bar / tray gauge** <img src="docs/screenshots/tray-icon.png" alt="tray icon showing usage" height="18" align="center"> — your current usage, colour-coded green → amber → red against thresholds you set. Six icon styles (Battery, Circular, Minimal, Segments, Dual Bar, Gauge), with an optional monochrome mode.
-- **Usage popover** (macOS) / **tray menu** (Linux) — a live card per window: 5-hour session, 7-day week, and one per model-scoped limit, each with percent, reset time, and estimated spend.
+- **Usage popover** (macOS) / **tray menu** (Linux) — a live entry per window: 5-hour session, 7-day week, and one per model-scoped limit, each with percent, reset time, burn-rate pace and estimated spend.
 - **Burn-rate pacing** — compares how fast you're spending to a sustainable pace, projects where you'll land, and flags overuse (🔥) / underuse (❄️). Pace the weekly quota over a 5-, 6-, or 7-day working week.
 - **Model-scoped limits** — reads the API's `limits` array, so per-model caps (e.g. Fable, Sonnet) appear automatically; toggle each on/off.
 - **Threshold notifications** — warning/critical alerts and an optional "your window just reset" ping.
@@ -62,7 +62,7 @@ Download from the [latest release](https://github.com/mpecan/rusted-claude-meter
 - **AppImage** — `Rusted Claude Meter_<version>_amd64.AppImage`; `chmod +x` and run it.
 - **Debian/Ubuntu** — `Rusted Claude Meter_<version>_amd64.deb`; `sudo apt install ./<file>.deb`.
 
-> Linux builds are **amd64 only**. On **GNOME** you also need the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) for the tray icon to appear; **KDE Plasma** shows it out of the box. Because StatusNotifierItem gives no click events on Linux, the **tray menu is the primary surface** (there's no popover).
+> Linux builds are **amd64 only**. On **GNOME** you also need the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) for the tray icon to appear; **KDE Plasma** shows it out of the box but draws tray icons in a square cell, so the app offers you a squarer icon style there. Because StatusNotifierItem gives no click events on Linux, the **tray menu is the primary surface** (there's no popover). See **[Rusted Claude Meter on Linux](docs/linux.md)** for the full picture, with screenshots of both desktops.
 
 ## Usage
 
@@ -117,7 +117,7 @@ Feature-complete port, actively developed. The tray icon (six styles), the nativ
 Interaction model is platform-idiomatic:
 
 - **macOS** — left-click the menu-bar icon to toggle a native `NSPopover` (via [`tauri-plugin-nspopover`](https://github.com/freethinkel/tauri-nspopover-plugin)) that hosts the webview: it drops down anchored under the status item with the arrow, slide animation and click-outside dismissal you expect. Settings open in their own dedicated window (front-most despite the accessory activation policy). Right-click serves the tray menu. The popover offers two layouts — compact **rows** or roomier **status cards** — switchable in Settings; both colour green → amber → red and raise an escalating fire glyph keyed to your configured warning/critical thresholds.
-- **Linux** — StatusNotifierItem/AppIndicator delivers **no click events and no tooltip**, so the tray menu is the primary surface: a status line plus one live line per usage window (5-hour, 7-day, and each model-scoped limit) with percent and reset time, then Open / Refresh Now / Quit. Menu text updates in place — the tray icon is never recreated, so updates don't flicker. On GNOME the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) is required for the tray icon to appear at all; KDE Plasma shows it out of the box.
+- **Linux** — StatusNotifierItem/AppIndicator delivers **no click events and no tooltip**, so the tray menu is the primary surface, and it carries the full picture: a status line, then per usage window (5-hour, 7-day, and each model-scoped limit) a percent-and-reset line with an indented pace line under it — `2.1× pace · 40% expected · hits limit ~1:59 PM` — then Open / Settings… / Refresh Now / Quit. "Open" gives you the same view as the macOS popover in an ordinary resizable window. Menu text updates in place — the tray icon is never recreated, so updates don't flicker. On GNOME the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) is required for the tray icon to appear at all; KDE Plasma shows it out of the box.
 
 ## External integrations
 

@@ -14,6 +14,20 @@ use tauri::State;
 use crate::debug_log::ResponseLog;
 use crate::settings::{AppSettings, SettingsState};
 
+/// The non-claude.ai API base the app was started against, or `None` when it
+/// is talking to the real claude.ai.
+///
+/// Settings renders this as a prominent banner (see `src/settings-view.ts`).
+/// The override exists for the Linux desktop harness in `harness/`, and a
+/// redirected build is otherwise indistinguishable from a real one — every
+/// number on screen would be demo data presented as fact. Surfacing it is the
+/// safeguard against that, so this command is deliberately not behind the
+/// debug-logging toggle or any other opt-in.
+#[tauri::command]
+pub fn api_base_override() -> Option<String> {
+    crate::api_base::api_base_override().map(str::to_owned)
+}
+
 /// Turn raw-API-response logging on or off (Settings' "Log API responses").
 /// Flips the live [`ResponseLog`] sink so the change takes effect on the very
 /// next poll, then persists it so it survives a restart. Captured payloads are

@@ -73,6 +73,15 @@
           <h1>Settings</h1>
         </header>
 
+        <div id="demo-endpoint-banner" class="demo-endpoint-banner" role="status" hidden>
+          <strong>Demo endpoint active</strong>
+          <p>
+            This build is reading usage from
+            <code id="demo-endpoint-url"></code>, not claude.ai. Every number
+            shown is demo data.
+          </p>
+        </div>
+
         <div class="settings-section">
           <h3>Setup</h3>
           <p class="settings-hint">Re-run the first-run wizard: session, tray icon, refresh interval.</p>
@@ -203,6 +212,10 @@
         <div class="settings-section">
           <h3>Tray icon</h3>
           <div id="icon-style-picker"></div>
+          <p id="square-tray-hint" class="settings-hint" hidden>
+            <span id="square-tray-hint-text"></span>
+            <button id="square-tray-hint-action" class="link-button" type="button"></button>
+          </p>
           <label class="settings-checkbox">
             <input id="monochrome-toggle" type="checkbox" />
             Monochrome

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Rusted Claude Meter",
+        "width": 420,
+        "height": 560,
+        "minWidth": 360,
+        "minHeight": 320,
+        "visible": false,
+        "resizable": true,
+        "transparent": false
+      }
+    ]
+  }
+}

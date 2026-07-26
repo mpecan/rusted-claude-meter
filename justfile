@@ -90,3 +90,74 @@ install-hooks:
     chmod +x scripts/hooks/pre-commit
     ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
     @echo "Git hooks installed."
+
+# ---------------------------------------------------------------------------
+# Linux desktop harness (harness/README.md). Local developer tooling only —
+# nothing below runs in CI, and none of it is part of `just check`.
+# ---------------------------------------------------------------------------
+
+# Serve demo usage data on :8787 for the harness VMs. Runs in the foreground.
+demo-server:
+    cargo run --manifest-path harness/demo-server/Cargo.toml
+
+# Change what the demo server returns, live: `just scenario critical`,
+# `just scenario failure 401`, or no argument to show the current state.
+scenario *ARGS:
+    harness/bin/scenario.sh {{ARGS}}
+
+# Create/boot/provision a harness VM: `just vm-up gnome` or `just vm-up kde`.
+vm-up TARGET:
+    harness/bin/vm.sh up {{TARGET}}
+
+vm-down TARGET:
+    harness/bin/vm.sh down {{TARGET}}
+
+# Open the VM's desktop in macOS Screen Sharing.
+vm-vnc TARGET:
+    harness/bin/vm.sh vnc {{TARGET}}
+
+# Screenshot the VM's desktop to harness/artifacts/ — how the tray gets checked.
+vm-shot TARGET *NAME:
+    harness/bin/vm.sh shot {{TARGET}} {{NAME}}
+
+# Install the built .deb (gnome) or AppImage (kde) into the VM.
+vm-install TARGET:
+    harness/bin/vm.sh install {{TARGET}}
+
+# Start the app inside the VM's desktop session.
+vm-launch TARGET:
+    harness/bin/vm.sh launch {{TARGET}}
+
+# Build the Linux .deb and AppImage in the GNOME VM, into harness/artifacts/.
+linux-build:
+    harness/bin/build-linux.sh
+
+# Containerised desktops (podman) — seconds to a desktop instead of the VM's
+# minutes, and disposable. Both desktops, but neither the AppImage nor anything
+# needing a GPU.
+
+# Fresh container, app installed, wizard done: `just container-up gnome|kde`.
+container-up TARGET:
+    harness/bin/container.sh up {{TARGET}}
+    harness/bin/container.sh install {{TARGET}}
+    harness/bin/container.sh launch {{TARGET}}
+    harness/bin/container.sh setup {{TARGET}}
+
+container-down TARGET:
+    harness/bin/container.sh down {{TARGET}}
+
+# Screenshot the container desktop to harness/artifacts/.
+container-shot TARGET *NAME:
+    harness/bin/container.sh shot {{TARGET}} {{NAME}}
+
+# Screenshot the tray icon magnified — colour and badge are unreadable at 1:1.
+container-tray TARGET *NAME:
+    harness/bin/container.sh tray {{TARGET}} {{NAME}}
+
+# Anything else: status, eval <js>, appindicator on|off, wallet, logs, shell.
+container *ARGS:
+    harness/bin/container.sh {{ARGS}}
+
+# Regenerate docs/screenshots/linux/ from the containers (both must be up).
+linux-screenshots *TARGET:
+    harness/bin/screenshots.sh {{TARGET}}
