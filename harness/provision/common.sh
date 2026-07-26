@@ -43,6 +43,14 @@ set -euo pipefail
 : "${RCM_SESSION_EXTRA_ENV:=}"
 : "${RCM_KEYRING_SETUP:=}"
 
+# `systemctl --user` needs both of these, and an ssh session only inherits them
+# from pam_systemd — which is exactly what is unreliable on a freshly booted VM
+# (logind's D-Bus can still be hanging). Set them explicitly, once, so every
+# function here works regardless of how the shell was started.
+XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export XDG_RUNTIME_DIR
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
 write_session_env() {
     # A .desktop launcher inherits nothing from a login shell, so exporting
     # RCM_API_BASE_URL in .bashrc would not reach the app when it is started
@@ -98,7 +106,7 @@ exec Xvnc :1 \\
     -SecurityTypes None \\
     -localhost=0 \\
     -AlwaysShared \\
-    -desktop rusted-claude-meter
+    -desktop rcm-harness
 EOF
 
     # The desktop session. Backgrounded on purpose: gnome-session returns as
@@ -150,7 +158,16 @@ EOF
 
     # Lingering: the user manager (and its dbus.socket) must exist without an
     # interactive login, or `systemctl --user` has nothing to talk to.
-    sudo loginctl enable-linger "$USER"
+    #
+    # Tolerated on failure, and verified by the state on disk instead. On a
+    # freshly booted VM logind's D-Bus interface can hang long enough for this
+    # to time out *after* it has already taken effect — the flag lives in
+    # /var/lib/systemd/linger, so that is the honest thing to check.
+    sudo loginctl enable-linger "$USER" 2>/dev/null || true
+    if [ ! -e "/var/lib/systemd/linger/$USER" ]; then
+        echo "could not enable lingering for $USER; the desktop units need it" >&2
+        return 1
+    fi
 
     mkdir -p "$HOME/.config/systemd/user"
     cat >"$HOME/.config/systemd/user/rcm-xvnc.service" <<EOF
@@ -190,10 +207,6 @@ EOF
 }
 
 start_desktop() {
-    XDG_RUNTIME_DIR="/run/user/$(id -u)"
-    export XDG_RUNTIME_DIR
-    export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-
     # A stale session from a previous attempt keeps its own Xvnc and its
     # failure dialog on screen, which then shows up in every screenshot.
     systemctl --user stop rcm-session.service rcm-xvnc.service 2>/dev/null || true
