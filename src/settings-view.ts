@@ -15,11 +15,20 @@ import { createIconStylePicker } from "./icon-style-picker";
 import { describeError } from "./ipc";
 import type { UsageBackend } from "./ipc";
 import { renderModelToggles, renderSelectOptions } from "./settings-render";
-import { DEFAULT_SETTINGS, scopedModelNames, toggleModel } from "./settings-view-model";
+import {
+  DEFAULT_SETTINGS,
+  scopedModelNames,
+  squareTrayHint,
+  toggleModel,
+} from "./settings-view-model";
 import {
   REFRESH_INTERVAL_OPTIONS,
+  iconStyleLabel,
   type AppSettings,
   type Browser,
+  type IconPreview,
+  type IconStyle,
+  type LinuxDesktop,
   type PopoverLayout,
   type RefreshInterval,
   type UsageMode,
@@ -96,6 +105,8 @@ export function initSettingsView(backend: UsageBackend): void {
   const debugLogLocation = requireElement<HTMLElement>("debug-log-location");
   const debugLogPathEl = requireElement<HTMLElement>("debug-log-path");
   const revealDebugLogButton = requireElement<HTMLButtonElement>("reveal-debug-log-button");
+  const demoEndpointBanner = requireElement<HTMLElement>("demo-endpoint-banner");
+  const demoEndpointUrl = requireElement<HTMLElement>("demo-endpoint-url");
   const settingsSessionStatus = requireElement<HTMLElement>("settings-session-status");
   const settingsSessionForm = requireElement<HTMLFormElement>("settings-session-form");
   const settingsSessionInput = requireElement<HTMLInputElement>("settings-session-input");
@@ -115,17 +126,63 @@ export function initSettingsView(backend: UsageBackend): void {
     iconStyleContainer,
     settings.icon_style,
     (style) => {
-      settings = { ...settings, icon_style: style };
-      backend.setIconStyle(style).catch((error: unknown) => {
-        console.error("failed to persist icon style", error);
-      });
+      applyIconStyle(style);
     },
   );
+
+  // Plasma's square tray cell (see `squareTrayHint`): shown only while the
+  // chosen style would draw small there, so acting on it makes it disappear.
+  const squareTrayHintEl = requireElement<HTMLElement>("square-tray-hint");
+  const squareTrayHintText = requireElement<HTMLElement>("square-tray-hint-text");
+  const squareTrayHintAction = requireElement<HTMLButtonElement>("square-tray-hint-action");
+  let iconPreviews: IconPreview[] = [];
+  let desktop: LinuxDesktop = "other";
+
+  function applyIconStyle(style: IconStyle): void {
+    settings = { ...settings, icon_style: style };
+    iconStylePicker.setSelected(style);
+    renderSquareTrayHint();
+    backend.setIconStyle(style).catch((error: unknown) => {
+      console.error("failed to persist icon style", error);
+    });
+  }
+
+
+  function renderSquareTrayHint(): void {
+    const hint = squareTrayHint(desktop, settings.icon_style, iconPreviews);
+    squareTrayHintEl.hidden = hint === null;
+    if (!hint) {
+      return;
+    }
+    const [first] = hint.alternatives;
+    const names = hint.alternatives.map(iconStyleLabel).join(" or ");
+    squareTrayHintText.textContent =
+      `KDE Plasma draws tray icons in a square cell, so this style renders at about ` +
+      `${Math.round(hint.fill * 100)}% of panel height. ${names} fill it. `;
+    squareTrayHintAction.textContent = `Use ${iconStyleLabel(first)}`;
+    squareTrayHintAction.onclick = () => {
+      applyIconStyle(first);
+    };
+  }
+
   backend
     .iconStylePreviews()
-    .then((previews) => iconStylePicker.setPreviews(previews))
+    .then((previews) => {
+      iconPreviews = previews;
+      iconStylePicker.setPreviews(previews);
+      renderSquareTrayHint();
+    })
     .catch((error: unknown) => {
       console.error("failed to load icon style previews", error);
+    });
+  backend
+    .linuxDesktop()
+    .then((value) => {
+      desktop = value;
+      renderSquareTrayHint();
+    })
+    .catch((error: unknown) => {
+      console.error("failed to detect desktop session", error);
     });
 
   function renderToggles(): void {
@@ -144,6 +201,9 @@ export function initSettingsView(backend: UsageBackend): void {
     criticalInput.value = String(settings.critical_threshold);
     criticalValue.textContent = `${settings.critical_threshold}%`;
     iconStylePicker.setSelected(settings.icon_style);
+    // Re-rendered here too: `getSettings()` can land after the previews and
+    // the desktop probe, and it is what decides which style is current.
+    renderSquareTrayHint();
     monochromeToggle.checked = settings.monochrome;
     showResetTimeToggle.checked = settings.show_reset_time;
     notifyOnResetToggle.checked = settings.notify_on_reset;
@@ -182,6 +242,24 @@ export function initSettingsView(backend: UsageBackend): void {
       })
       .catch((error: unknown) => {
         console.error("failed to read debug log path", error);
+      });
+  }
+
+  /** Banner the API endpoint when `RCM_API_BASE_URL` redirected this build at a
+   * mock server (the Linux demo harness). Fixed for the process, so this runs
+   * once on load. On failure the banner stays hidden — but so does the app's
+   * ability to be redirected, since the same command backs both. */
+  function loadDemoEndpointBanner(): void {
+    backend
+      .apiBaseOverride()
+      .then((base) => {
+        if (base) {
+          demoEndpointUrl.textContent = base;
+          demoEndpointBanner.hidden = false;
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("failed to read the API base override", error);
       });
   }
 
@@ -291,6 +369,7 @@ export function initSettingsView(backend: UsageBackend): void {
   loadBrowserList();
   refreshAutostartStatus();
   loadDebugLogPath();
+  loadDemoEndpointBanner();
 
   refreshIntervalSelect.addEventListener("change", () => {
     const interval = refreshIntervalSelect.value as RefreshInterval;

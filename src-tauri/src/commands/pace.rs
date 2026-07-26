@@ -4,7 +4,7 @@
 //! the workspace's file-size gate — these two commands and their `store_*`
 //! helpers behave like the other settings commands there (`set_show_reset_time`
 //! et al.), except both of them push their new value into the live tray via
-//! `tray::set_pace_options` immediately: the tray's own pace ratio, badge and
+//! `tray::set_display_options` immediately: the tray's own pace ratio, badge and
 //! menu line read `weekly_pace_days`/`pace_first_display` directly out of its
 //! cached resources (see `tray::apply_state`), and nothing else re-reads
 //! `AppSettings` on a scheduler tick to pick up a change on its own.
@@ -45,8 +45,7 @@ fn store_pace_tracking_enabled(settings: &SettingsState, enabled: bool) -> AppSe
 /// command that changes what the tray renders: the three pace commands here
 /// and [`super::set_usage_mode`]. Pushing both the pace options and the usage
 /// mode on each call is harmless — the field a given command did not touch is
-/// pushed unchanged — and keeps one broadcast/push helper instead of a
-/// per-setting near-duplicate.
+/// pushed unchanged — and it is one re-render, not one per field.
 pub(super) fn broadcast_and_push(
     app: &tauri::AppHandle,
     scheduler: &SchedulerHandle,
@@ -54,16 +53,7 @@ pub(super) fn broadcast_and_push(
 ) {
     let _ = app.emit(SETTINGS_CHANGED_EVENT, updated);
     let state = scheduler.state_now();
-    tray::set_pace_options(
-        app,
-        updated.weekly_pace_days,
-        // The tray only shows pace in pace-first mode, so the master
-        // `pace_tracking_enabled` switch collapses into the effective
-        // pace-first flag it sees — no separate field to thread through.
-        updated.pace_tracking_enabled && updated.pace_first_display,
-        &state,
-    );
-    tray::set_usage_mode(app, updated.usage_mode, &state);
+    tray::set_display_options(app, tray::pace_options(updated), updated.usage_mode, &state);
 }
 
 /// Change how many days of the week the weekly quota is paced over (5/6/7,
@@ -103,8 +93,7 @@ pub fn set_pace_first_display(
 /// the popover drops projections/pace lines and the tray shows no pace ratio
 /// or badge, regardless of `pace_first_display`; the sub-settings keep their
 /// stored values. Applies to the live tray immediately via
-/// [`broadcast_and_push`], whose effective pace-first flag already folds
-/// in this switch.
+/// [`broadcast_and_push`].
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_pace_tracking_enabled(

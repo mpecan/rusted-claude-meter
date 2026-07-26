@@ -1,0 +1,80 @@
+# A GNOME Shell session in a container, for verifying the tray without a VM.
+#
+# The Lima VMs give a real desktop but take ~20 minutes to build and have
+# proven fragile. This image comes up in seconds and is disposable, which is
+# also the shape a per-GNOME-version test matrix needs.
+#
+# systemd runs as PID 1. That is not gold-plating: gnome-shell calls
+# `getLoginManager()` during startup and aborts outright without logind
+# ("free(): invalid pointer" from background.js), so a plain container cannot
+# host it. systemd gives us logind, a system bus, and a `systemd --user`
+# instance — the same shape the VM has, at a fraction of the build cost.
+#
+# Ubuntu 24.04 because that is what the shipped `.deb` is built against, so the
+# artifact under test is the one users install.
+FROM docker.io/library/ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV container=podman
+
+# Two packages here are not optional despite looking it.
+#
+# `fonts-noto-color-emoji`: this base image ships *no* emoji font at all, so the
+# app's flame/snowflake pace badge renders as tofu boxes and every GNOME
+# screenshot misrepresents the app. Fedora's KDE image has one already, which is
+# why the same build looked correct there and wrong here.
+#
+# `gjs` is not optional despite being only a *Recommends* of gnome-shell:
+# `org.freedesktop.Notifications` is D-Bus-activated from
+# /usr/share/dbus-1/services/org.gnome.Shell.Notifications.service, whose Exec
+# is `gjs -m …`. Without it that activation fails with "No such file or
+# directory", the name has no owner, and every notification in the session dies
+# with ServiceUnknown — which reads as "the app does not notify" rather than
+# "the image is missing a package".
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        systemd systemd-sysv dbus dbus-user-session \
+        gnome-shell \
+        gnome-shell-extension-appindicator \
+        gnome-session-bin \
+        gjs \
+        xvfb x11-xserver-utils x11-utils xdotool imagemagick \
+        libnotify-bin libsecret-tools curl ca-certificates \
+        fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+# The app's runtime dependencies, installed up front so a failed `.deb`
+# install is about our package rather than its dependency tree.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libwebkit2gtk-4.1-0 \
+        libayatana-appindicator3-1 \
+        librsvg2-2 \
+        libgtk-3-0t64 \
+        gnome-keyring \
+    && rm -rf /var/lib/apt/lists/*
+
+# Strip the units a container neither needs nor can run — they only produce
+# noise and failed-unit output that obscures a real failure.
+RUN find /etc/systemd/system /lib/systemd/system \
+        \( -path '*.wants/*' \) \
+        \( -name '*udev*' -o -name '*getty*' -o -name '*resolved*' \
+           -o -name '*networkd*' -o -name '*timesync*' \) \
+        -exec rm -f {} + 2>/dev/null || true
+
+# gnome-shell refuses to run as root, and the keyring wants a real user.
+RUN useradd --create-home --shell /bin/bash --uid 1001 rcm \
+    && loginctl enable-linger rcm 2>/dev/null || true \
+    && mkdir -p /var/lib/systemd/linger && touch /var/lib/systemd/linger/rcm
+
+ENV RCM_DESKTOP=GNOME
+
+COPY env.sh /usr/local/bin/rcm-env
+COPY session.sh /usr/local/bin/rcm-session
+COPY desktop-gnome.sh /usr/local/bin/rcm-session-desktop
+COPY run-app.sh /usr/local/bin/rcm-run-app
+COPY rcm-desktop.service /etc/systemd/system/rcm-desktop.service
+RUN chmod +x /usr/local/bin/rcm-session /usr/local/bin/rcm-session-desktop \
+        /usr/local/bin/rcm-run-app \
+    && systemctl enable rcm-desktop.service
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

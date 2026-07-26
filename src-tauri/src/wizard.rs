@@ -8,7 +8,8 @@
 //! rollback-on-rejection guarantee browser import gives an imported one)
 //! driven from a different screen. This module only adds what those don't
 //! already cover: detecting whether the wizard should run at all, the
-//! completion marker, and the GNOME `AppIndicator` hint.
+//! completion marker, and the Linux desktop hints (GNOME's `AppIndicator`
+//! requirement, Plasma's square tray cell).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -81,15 +82,23 @@ pub fn wizard_complete(settings: State<'_, SettingsState>) {
     settings.update(|_| {});
 }
 
-/// Whether this Linux session is GNOME, which hides every
-/// `StatusNotifierItem` tray (including this app's) unless the
-/// "`AppIndicator` and `KStatusNotifierItem` Support" extension is
-/// installed. `false` on every other platform. See
-/// `meter_core::desktop_is_gnome` for the pure classification and the
-/// crate's `CLAUDE.md` for the "Linux tray reality" background.
+/// Which desktop this session is, so the UI can warn about the two that
+/// constrain the tray: GNOME hides every `StatusNotifierItem` without the
+/// "`AppIndicator` and `KStatusNotifierItem` Support" extension, and Plasma
+/// renders tray icons into a square cell so a wide icon draws small.
+///
+/// `Other` on every other desktop and on macOS, where `XDG_CURRENT_DESKTOP` is
+/// unset. One command rather than a boolean per desktop: the reading of the
+/// environment is the same either way, and a second `is_…_desktop` would be a
+/// near-copy of the first. See `meter_core::LinuxDesktop` for the pure
+/// classification and the crate's `CLAUDE.md` for the "Linux surface"
+/// background.
 #[tauri::command]
-pub fn is_gnome_desktop() -> bool {
-    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|value| meter_core::desktop_is_gnome(&value))
+#[must_use]
+pub fn linux_desktop() -> meter_core::LinuxDesktop {
+    std::env::var("XDG_CURRENT_DESKTOP").map_or(meter_core::LinuxDesktop::Other, |value| {
+        meter_core::LinuxDesktop::classify(&value)
+    })
 }
 
 #[cfg(test)]
@@ -121,13 +130,15 @@ mod tests {
     }
 
     #[test]
-    fn gnome_env_value_is_classified_through_the_pure_helper() {
-        // is_gnome_desktop itself reads the real process environment, so it
-        // is not asserted on directly here (that would be an I/O-flavoured,
+    fn desktop_env_value_is_classified_through_the_pure_helper() {
+        // linux_desktop itself reads the real process environment, so it is
+        // not asserted on directly here (that would be an I/O-flavoured,
         // environment-dependent test); this just pins that the command
         // delegates to the pure, already-tested classifier rather than
         // reimplementing the matching logic.
-        assert!(meter_core::desktop_is_gnome("ubuntu:GNOME"));
-        assert!(!meter_core::desktop_is_gnome("KDE"));
+        use meter_core::LinuxDesktop;
+        assert_eq!(LinuxDesktop::classify("ubuntu:GNOME"), LinuxDesktop::Gnome);
+        assert_eq!(LinuxDesktop::classify("KDE"), LinuxDesktop::Kde);
+        assert_eq!(LinuxDesktop::classify("XFCE"), LinuxDesktop::Other);
     }
 }

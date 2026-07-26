@@ -1,0 +1,38 @@
+{
+  "_comment": "Both headline windows past the default warning threshold (75%) but below critical. Expect amber tray icon and a warning-crossing notification when switched to from `fresh`.",
+  "five_hour": { "utilization": 78.0, "resets_at": "{{now+2h}}" },
+  "seven_day": { "utilization": 76.5, "resets_at": "{{now+2d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "five_hour",
+      "percent": 78,
+      "resets_at": "{{now+2h}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "seven_day",
+      "percent": 76.5,
+      "resets_at": "{{now+2d}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 71,
+      "resets_at": "{{now+2d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-sonnet-5", "display_name": "Sonnet" }, "surface": null }
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 44,
+      "resets_at": "{{now+2d}}",
+      "is_active": true,
+      "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null }
+    }
+  ],
+  "spend": { "unsurfaced": true }
+}

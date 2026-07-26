@@ -1,3 +1,11 @@
 [[ignore]]
 fingerprint = "fce7153f738b6767"
 reason = "set_weekly_pace_days/set_pace_first_display (issue #16): two distinct #[tauri::command] entry points required by Tauri's command-per-function model; the actual duplicated logic (broadcast settings-changed + push weekly_pace_days/pace_first_display into the live tray so its pace ratio/badge/menu never go stale) is already factored into the shared broadcast_and_push_pace helper -- only the one-line store_* call differs between the two thin command wrappers"
+
+[[ignore]]
+fingerprint = "c63dc4ba36750590"
+reason = "AppState::active_scenario (harness/demo-server) vs LiveTransport::cached_org (src-tauri): the shared shape is the three-line 'lock a Mutex, tolerate poisoning, clone the value out' accessor. The two live in different crates in different workspaces -- the demo server is developer harness tooling excluded from this workspace (see Cargo.toml) and cannot depend on the app -- so there is no helper either could share. Factoring it would mean inventing a common crate to hold one accessor."
+
+[[ignore]]
+fingerprint = "7e928d78f43f5d63"
+reason = "Scenarios::exists (harness/demo-server) vs SettingsState::get (src-tauri): both are one-line delegating getters that happen to share an AST shape. Same cross-workspace split as c63dc4ba36750590 -- the harness cannot import the app's code, and neither one-liner is worth a shared crate."

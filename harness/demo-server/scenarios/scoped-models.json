@@ -1,0 +1,52 @@
+{
+  "_comment": "The model-scoped limits contract in full, mirroring crates/meter-api/tests/fixtures/usage_response.json. Exercises every branch of the scoped pass: Fable carries no model id while Sonnet does, the `seven_day` headline kind is excluded from the scoped list, an inactive surface-scoped entry is present, and a future `kind` with null percent/resets_at must be skipped rather than error.",
+  "five_hour": { "utilization": 34.0, "resets_at": "{{now+3h}}" },
+  "seven_day": { "utilization": 61.0, "resets_at": "{{now+4d}}" },
+  "seven_day_sonnet": null,
+  "seven_day_opus": null,
+  "limits": [
+    {
+      "kind": "weekly_scoped",
+      "percent": 50,
+      "resets_at": "{{now+4d}}",
+      "is_active": true,
+      "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null }
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 82.5,
+      "resets_at": "{{now+4d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-sonnet-5", "display_name": "Sonnet" }, "surface": null }
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 17,
+      "resets_at": "{{now+4d}}",
+      "is_active": true,
+      "scope": { "model": { "id": "claude-opus-5", "display_name": "Opus" }, "surface": null }
+    },
+    {
+      "kind": "seven_day",
+      "percent": 61,
+      "resets_at": "{{now+4d}}",
+      "is_active": true,
+      "scope": null
+    },
+    {
+      "kind": "weekly_scoped",
+      "percent": 12,
+      "resets_at": "{{now+4d}}",
+      "is_active": false,
+      "scope": { "model": null, "surface": "code" }
+    },
+    {
+      "kind": "some_future_kind",
+      "percent": null,
+      "resets_at": null,
+      "is_active": true,
+      "scope": { "model": { "id": null, "display_name": "Incomplete" } }
+    }
+  ],
+  "spend": { "unsurfaced": true }
+}

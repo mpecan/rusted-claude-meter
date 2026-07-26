@@ -90,7 +90,7 @@ fn format_money_is_currency_and_exponent_aware() {
 fn cost_menu_shows_spend_with_its_share_of_the_budget() {
     // Auto on a no-limits account resolves to the cost view: the spend to date
     // and its share of the spend limit, in the account's own currency.
-    let menu = menu_model(
+    let menu = menu_with(
         &cost_state(spend_with_cap()),
         now(),
         &all_shown(),
@@ -101,9 +101,9 @@ fn cost_menu_shows_spend_with_its_share_of_the_budget() {
         menu.usage_lines,
         vec!["Spend €500.00 this period · 25% of €2000.00".to_owned()]
     );
-    // Freshness still drives the status line; cost mode never emits a pace line.
+    // Freshness still drives the status line. The single spend line above is
+    // also the assertion that cost mode grows no pace/projection detail lines.
     assert_eq!(menu.status_line, "Updated under 1m ago");
-    assert_eq!(menu.pace_line, None);
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn cost_menu_without_a_budget_shows_bare_spend() {
         used: Some(money(4_200, "USD")),
         ..Spend::default()
     };
-    let menu = menu_model(
+    let menu = menu_with(
         &cost_state(spend),
         now(),
         &all_shown(),
@@ -135,7 +135,7 @@ fn cost_menu_falls_back_to_the_cap_when_there_is_no_limit() {
         cap: Some(money(200_000, "USD")),
         enabled: true,
     };
-    let menu = menu_model(
+    let menu = menu_with(
         &cost_state(spend),
         now(),
         &all_shown(),
@@ -152,7 +152,7 @@ fn cost_menu_falls_back_to_the_cap_when_there_is_no_limit() {
 fn cost_menu_is_empty_for_an_unsurfaced_spend_stub() {
     // The `{"unsurfaced": true}` stub decodes to an all-None spend: no usable
     // figure, so the menu simply shows no usage lines (never a bogus $0.00).
-    let menu = menu_model(
+    let menu = menu_with(
         &cost_state(Spend::default()),
         now(),
         &all_shown(),
@@ -187,7 +187,7 @@ fn cost_icon_without_a_budget_stays_an_empty_gauge() {
 fn pinning_allowance_on_a_cost_account_hides_spend() {
     // A cost account pinned to the allowance view shows the (absent) percentage
     // windows, not the spend lines — the user's override wins over detection.
-    let menu = menu_model(
+    let menu = menu_with(
         &cost_state(spend_with_cap()),
         now(),
         &all_shown(),
@@ -205,7 +205,7 @@ fn pinning_cost_on_an_allowance_account_without_spend_shows_no_lines() {
     // yields no spend lines (rather than the percentage windows) — the mode is
     // honoured, there is just nothing to show. Crucially the icon must NOT leak
     // the allowance percentage gauge either: it stays the empty safe gauge.
-    let menu = menu_model(&healthy(), now(), &all_shown(), pace_off(), UsageMode::Cost);
+    let menu = menu_with(&healthy(), now(), &all_shown(), pace_off(), UsageMode::Cost);
     assert!(menu.usage_lines.is_empty());
     let icon = cost_icon_of(&healthy(), UsageMode::Cost);
     assert_eq!(icon.percent, 0);
@@ -224,7 +224,7 @@ fn pinning_cost_on_an_allowance_account_with_uncapped_spend_gauges_nothing() {
         ..Spend::default()
     }));
     let st = state(Phase::Polling, Staleness::Fresh, Some(snap));
-    let menu = menu_model(&st, now(), &all_shown(), pace_off(), UsageMode::Cost);
+    let menu = menu_with(&st, now(), &all_shown(), pace_off(), UsageMode::Cost);
     assert_eq!(
         menu.usage_lines,
         vec!["Spend $42.00 this period".to_owned()]
@@ -238,7 +238,7 @@ fn pinning_cost_on_an_allowance_account_with_uncapped_spend_gauges_nothing() {
 fn allowance_account_under_auto_is_unaffected_by_cost_support() {
     // The stock limits-bearing fixture under Auto still renders the percentage
     // windows exactly as before — cost support must not disturb it.
-    let menu = menu_model(&healthy(), now(), &all_shown(), pace_off(), UsageMode::Auto);
+    let menu = menu_with(&healthy(), now(), &all_shown(), pace_off(), UsageMode::Auto);
     assert_eq!(
         menu.usage_lines,
         vec![

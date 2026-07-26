@@ -20,7 +20,7 @@ pub use browser::{
     Browser, BrowserCookie, BrowserFamily, CLAUDE_HOST, CookieImportError,
     FULL_DISK_ACCESS_SETTINGS_URL, Os, SESSION_COOKIE_NAME, session_key_from_cookies,
 };
-pub use desktop::desktop_is_gnome;
+pub use desktop::LinuxDesktop;
 pub use mode::UsageMode;
 pub use pace_signal::{PaceKind, PaceSignal};
 pub use pacing::{
