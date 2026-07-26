@@ -29,3 +29,6 @@ dist-ssr
 # Linux harness: built .deb/AppImage, rendered Lima templates, screenshots
 /harness/artifacts
 /harness/demo-server/target
+
+# Playwright MCP scratch output
+/.playwright-mcp

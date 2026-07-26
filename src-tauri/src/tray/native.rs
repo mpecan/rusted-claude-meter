@@ -1,12 +1,15 @@
-//! Tauri's own tray (`TrayIconBuilder`), used on macOS.
+//! The native tray: Tauri's `TrayIconBuilder`, on every platform.
 //!
-//! Moved here verbatim when the tray grew a second backend; the menu-building,
-//! the in-place `set_text` fast path and the rebuild-on-line-count-change rule
-//! are unchanged from when they lived in `tray/mod.rs`.
+//! Split out of `tray/mod.rs` to keep that file under the size gate and to
+//! separate *what* to show (there) from *how* to push it at the desktop (here).
+//! The menu-building, the in-place `set_text` fast path and the
+//! rebuild-on-line-count-change rule are unchanged from when they lived there.
 //!
-//! On macOS left-click is reserved for the `NSPopover` (see [`super::super::popover`])
-//! and the menu answers right-click. Linux does not use this backend — see
-//! `tray/backend/mod.rs`.
+//! On macOS left-click is reserved for the `NSPopover` (see [`super::popover`])
+//! and the menu answers right-click. On Linux `StatusNotifierItem` delivers no
+//! click events through libappindicator, so the menu is the whole surface: it
+//! carries the live usage lines, and "Open Rusted Claude Meter" opens the main
+//! window. That is deliberate — see the module docs on `tray`.
 
 use meter_render::RenderedIcon;
 use tauri::image::Image;
@@ -14,16 +17,15 @@ use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
-use super::TrayBackend;
+use super::model::MenuModel;
+use super::show_main_window;
 use crate::scheduler::SchedulerHandle;
-use crate::tray::model::MenuModel;
-use crate::tray::show_main_window;
 
 const TRAY_ID: &str = "main";
 
 /// Live handles into the built menu, so text can be updated in place without
 /// rebuilding (which is what avoids flicker).
-pub(in crate::tray) struct TauriTray<R: Runtime> {
+pub(super) struct NativeTray<R: Runtime> {
     status_item: MenuItem<R>,
     /// The off-pace pace line, present only while pace-first display is set
     /// and a signal exists.
@@ -31,8 +33,8 @@ pub(in crate::tray) struct TauriTray<R: Runtime> {
     usage_items: Vec<MenuItem<R>>,
 }
 
-impl<R: Runtime> TrayBackend<R> for TauriTray<R> {
-    fn build(
+impl<R: Runtime> NativeTray<R> {
+    pub(super) fn build(
         app: &AppHandle<R>,
         icon: Option<&RenderedIcon>,
         menu: &MenuModel,
@@ -58,7 +60,7 @@ impl<R: Runtime> TrayBackend<R> for TauriTray<R> {
 
         #[cfg(target_os = "macos")]
         {
-            tray = tray.on_tray_icon_event(crate::tray::popover::handle_tray_event);
+            tray = tray.on_tray_icon_event(super::popover::handle_tray_event);
         }
 
         match icon {
@@ -83,24 +85,28 @@ impl<R: Runtime> TrayBackend<R> for TauriTray<R> {
             usage_items,
         })
     }
+}
 
-    fn set_icon(&mut self, app: &AppHandle<R>, icon: &RenderedIcon) -> bool {
-        let Some(tray) = app.tray_by_id(TRAY_ID) else {
-            return false;
-        };
-        if tray.set_icon(Some(tray_image(icon))).is_err() {
-            return false;
-        }
-        let _ = tray.set_icon_as_template(icon.is_template);
-        true
+/// Replace the tray icon. A free function because it needs no stored state —
+/// the tray is looked up by id, exactly as `set_menu` does.
+pub(super) fn set_icon<R: Runtime>(app: &AppHandle<R>, icon: &RenderedIcon) -> bool {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return false;
+    };
+    if tray.set_icon(Some(tray_image(icon))).is_err() {
+        return false;
     }
+    let _ = tray.set_icon_as_template(icon.is_template);
+    true
+}
 
+impl<R: Runtime> NativeTray<R> {
     /// Update menu text in place when the line count and pace-line presence
     /// are both unchanged; rebuild the menu (never the tray icon) when usage
     /// lines appeared/vanished, or when the pace line appeared/vanished — the
     /// fast path can only update a `MenuItem` already built into the menu,
     /// never add or remove one.
-    fn set_menu(&mut self, app: &AppHandle<R>, menu: &MenuModel) -> bool {
+    pub(super) fn set_menu(&mut self, app: &AppHandle<R>, menu: &MenuModel) -> bool {
         let Some(tray) = app.tray_by_id(TRAY_ID) else {
             return false;
         };

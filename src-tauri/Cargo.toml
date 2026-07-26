@@ -68,20 +68,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
-# The Linux tray, owned directly rather than through Tauri's `tray-icon`.
-# `tray-icon` uses libappindicator there, whose StatusNotifierItem deliberately
-# omits `Activate` — so a left-click has no method for the panel to call and no
-# click can ever reach the app. Speaking SNI ourselves is what makes the
-# click-to-popover parity with macOS possible at all. Uses `zbus` 5, matching
-# the version the keyring store above already pulls in.
-ksni = { version = "0.3", default-features = false, features = ["tokio"] }
-# The tray icon is served as a PNG on disk rather than an ARGB pixmap: GNOME's
-# AppIndicator extension forces `IconPixmap` into a square box
-# (`_setImageContent(content, scaledSize, scaledSize)`), which squashes a gauge
-# that is three times wider than it is tall. Pointing at a file via
-# `IconThemePath` is how libappindicator got the aspect right, so we do the
-# same. Already in the tree via tauri's own image stack.
-png = "0.18"
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

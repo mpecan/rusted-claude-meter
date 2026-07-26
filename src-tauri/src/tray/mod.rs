@@ -2,30 +2,28 @@
 //!
 //! Interaction model differs by platform. On macOS the menu serves
 //! right-click while left-click toggles a native `NSPopover` hosting the
-//! webview. On Linux the same menu is reachable by right-click, and
-//! left-click reaches the popover through `StatusNotifierItem`'s `Activate`
-//! — see `backend/mod.rs` for which backend serves which platform.
+//! webview. On Linux `StatusNotifierItem` delivers no click events at all
+//! through libappindicator, so the menu is the entire surface: it carries a
+//! live line per usage window, and "Open Rusted Claude Meter" opens the main
+//! window. There is no Linux popover — a client cannot position its own
+//! toplevel on Wayland, so an anchored pop-down is not something an
+//! application can implement there.
 //!
 //! All display strings and the debounce logic live in the pure [`model`]
 //! module; this file owns the shared state and decides *what* to show, while
-//! [`backend`] owns the native handles and does the pushing. [`apply_state`]
+//! [`native`] owns the Tauri handles and does the pushing. [`apply_state`]
 //! is the live path: the scheduler calls it with every broadcast state, and
 //! the [`model::TrayDiff`] gate turns repeats into no-ops. The tray icon
 //! itself is never recreated — that is what avoids flicker.
 
-mod backend;
 mod model;
+mod native;
 
 #[cfg(target_os = "macos")]
 mod popover;
 
-/// The Linux popover window — the stand-in for macOS's `NSPopover`. Reached
-/// from `commands::popover` as well as this module's backend.
-#[cfg(target_os = "linux")]
-pub mod window;
-
 use std::collections::HashSet;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 
 use jiff::Timestamp;
 use meter_core::UsageMode;
@@ -33,8 +31,9 @@ use meter_render::{IconCache, IconStyle, Scale};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::scheduler::MeterState;
-use backend::{PlatformTray, TrayBackend};
+use crate::sync::lock;
 use model::{IconOptions, PaceOptions, TrayDiff};
+use native::NativeTray;
 
 /// Everything [`init`] seeds from persisted settings at startup, bundled into
 /// one value (mirrors `scheduler::PersistPaths`) so the function stays
@@ -86,16 +85,12 @@ struct TrayResources<R: Runtime> {
     /// `Auto` to follow the account. Read fresh on every [`apply_state`], so
     /// [`set_usage_mode`] takes effect on the next render with no rebuild.
     usage_mode: UsageMode,
-    /// The native tray, whichever platform's it is.
-    tray: PlatformTray<R>,
+    /// The native tray resources.
+    tray: NativeTray<R>,
 }
 
 /// Managed Tauri state wrapping the tray's mutable resources.
 pub struct TrayUpdater<R: Runtime>(Mutex<TrayResources<R>>);
-
-fn lock<R: Runtime>(updater: &TrayUpdater<R>) -> MutexGuard<'_, TrayResources<R>> {
-    updater.0.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Build the tray icon and its menu, and manage the [`TrayUpdater`] so
 /// [`apply_state`] can drive live updates. Must run before the scheduler
@@ -143,7 +138,7 @@ pub fn init<R: Runtime>(
         }
     };
 
-    let tray = PlatformTray::build(app, rendered.as_deref(), &menu_model)?;
+    let tray = NativeTray::build(app, rendered.as_deref(), &menu_model)?;
     if rendered.is_some() {
         diff.commit_icon(icon);
     }
@@ -178,7 +173,7 @@ fn mutate_and_apply<R: Runtime>(
     mutate: impl FnOnce(&mut TrayResources<R>),
 ) {
     if let Some(updater) = app.try_state::<TrayUpdater<R>>() {
-        let mut resources = lock(&updater);
+        let mut resources = lock(&updater.0);
         mutate(&mut resources);
     }
     apply_state(app, state);
@@ -247,7 +242,7 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
 
     let now = Timestamp::now();
 
-    let mut resources = lock(&updater);
+    let mut resources = lock(&updater.0);
     let pace = PaceOptions {
         weekly_pace_days: resources.weekly_pace_days,
         pace_first_display: resources.pace_first_display,
@@ -267,14 +262,11 @@ pub fn apply_state<R: Runtime>(app: &AppHandle<R>, state: &MeterState) {
     );
     let plan = resources.diff.plan(icon, &menu);
     if let Some(icon) = plan.icon {
-        // Disjoint field borrows: the cache render and the backend push touch
-        // different fields of the same guard.
-        let TrayResources { cache, tray, .. } = &mut *resources;
-        match cache.get_or_render(icon) {
+        match resources.cache.get_or_render(icon) {
             // Only a successful set is recorded, so a failure here is retried
             // on the next state instead of being debounced away.
             Ok(rendered) => {
-                if tray.set_icon(app, &rendered) {
+                if native::set_icon(app, &rendered) {
                     resources.diff.commit_icon(icon);
                 }
             }

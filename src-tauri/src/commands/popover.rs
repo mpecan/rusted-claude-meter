@@ -9,39 +9,34 @@
 ///
 /// macOS: the window is hosted in an `NSPopover` whose `contentSize` the
 /// nspopover plugin pins once at startup — this updates it live, and `NSPopover`
-/// animates the change. Linux: the same clamped height is applied to the
-/// frameless window standing in for the popover, so it hugs its content there
-/// too. Anywhere else the value is accepted and ignored, so the frontend can
-/// call it blindly.
+/// animates the change. Everywhere else the value is accepted and ignored — the
+/// main window is an ordinary window there, sized by the user and the window
+/// manager, so the frontend can call this blindly without a platform check.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn set_popover_height(app: tauri::AppHandle, height: f64) {
     #[cfg(target_os = "macos")]
     resize_popover(&app, height);
-    #[cfg(target_os = "linux")]
-    if let Some(height) = clamped_height(height) {
-        crate::tray::window::resize(&app, POPOVER_WIDTH, height);
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(target_os = "macos"))]
     let _ = (&app, height);
 }
 
 /// Fixed popover width; matches the window frame the macOS plugin seeds from,
 /// and the width the Linux stand-in keeps.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 const POPOVER_WIDTH: f64 = 420.0;
 /// Floor: roughly the header plus one usage row, so a near-empty view never
 /// collapses.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 const MIN_POPOVER_HEIGHT: f64 = 170.0;
 /// Ceiling so the popover can't outgrow a typical screen; taller content
 /// scrolls inside `#popover-view` via its `overflow-y: auto`.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 const MAX_POPOVER_HEIGHT: f64 = 900.0;
 
 /// Clamp a measured height into the range both platforms use, rejecting the
 /// non-finite values a mid-layout measurement can produce.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn clamped_height(height: f64) -> Option<f64> {
     height
         .is_finite()

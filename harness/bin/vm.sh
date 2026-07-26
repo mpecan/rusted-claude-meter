@@ -181,12 +181,15 @@ cmd_launch() {
         fi
         ;;
     esac
-    # Match the full command line anchored at the executable path. `pkill -x`
-    # looks right but silently matches nothing: the process name is truncated
-    # to 15 characters, so `rusted-claude-meter` never compares equal. The `^`
-    # anchor is what keeps `-f` from matching this very `bash -c` string.
+    # Match the full command line. `pkill -x` looks right but silently matches
+    # nothing: the process name is truncated to 15 characters, so
+    # `rusted-claude-meter` never compares equal. Anchoring only at the start
+    # misses the `launch kde binary` form, whose argv[0] is an absolute path —
+    # that is how instances were silently accumulating. Anchor at the *end*
+    # instead, which covers both, and the `$` keeps `-f` from matching this
+    # very `bash -c` string.
     lima_shell "$INSTANCE" bash -c "
-        pkill -f '^rusted-claude-meter\$' 2>/dev/null || true
+        pkill -f 'rusted-claude-meter\$' 2>/dev/null || true
         pkill -f 'rusted-claude-meter\.AppImage\$' 2>/dev/null || true
         pkill -x AppRun 2>/dev/null || true
         sleep 1
