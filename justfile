@@ -161,3 +161,26 @@ container *ARGS:
 # Regenerate docs/screenshots/linux/ from the containers (both must be up).
 linux-screenshots *TARGET:
     harness/bin/screenshots.sh {{TARGET}}
+
+# Arch Linux **x86_64**, for packaging checks. The only non-aarch64 target:
+# genuine Arch userspace under Rosetta, so `arch=('x86_64')` and the released
+# amd64 AppImage are both real here. Headless on purpose.
+
+# Create/boot/provision the Arch VM (first run is slow: bootstrap + keyring).
+arch-up:
+    harness/bin/arch.sh up
+
+arch-down:
+    harness/bin/arch.sh down
+
+# Build packaging/aur/PKGBUILD the way an AUR user would, into harness/artifacts/.
+arch-makepkg:
+    harness/bin/arch.sh makepkg
+
+# Exercise scripts/install.sh on a real pacman host: refusal, then --force.
+arch-install-sh:
+    harness/bin/arch.sh install-sh
+
+# Anything else: shell, status, delete.
+arch *ARGS:
+    harness/bin/arch.sh {{ARGS}}

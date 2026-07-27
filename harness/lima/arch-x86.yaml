@@ -1,0 +1,77 @@
+# Arch Linux **x86_64**, for packaging checks that the other targets cannot do.
+#
+# Everything else in this harness is aarch64: the Macs this is developed on are
+# Apple Silicon, the podman machine has no x86_64 emulation at all (an amd64
+# container dies with "Exec format error"), and `tonistiigi/binfmt`'s QEMU
+# handler installs but then segfaults under libkrun. So an x86_64 check needed
+# a different mechanism, and this is it.
+#
+# The guest kernel here is still aarch64. What makes it useful is Rosetta:
+# `vmOpts.vz.rosetta` registers a binfmt_misc handler for x86_64 ELF, so an
+# x86_64 *userspace* runs on top of that aarch64 kernel at translation speed
+# rather than emulation speed. Provisioning unpacks Arch's official x86_64
+# bootstrap tarball into /opt/arch-x86 and we chroot into it — genuine Arch,
+# genuine x86_64 binaries, real pacman and real makepkg.
+#
+# Why that matters and Arch Linux ARM would not: `packaging/aur/PKGBUILD`
+# declares `arch=('x86_64')`, and Arch Linux ARM is a separate distribution
+# with its own repositories. A package that builds there is not evidence about
+# the package we would publish.
+#
+# Deliberately headless — no Plasma, no Xvnc, no port forwards. This target
+# answers "does the package build and does install.sh behave on a pacman
+# host", and the aarch64 KDE targets already cover everything with a window in
+# it. Adding a desktop here would mean an x86_64 Plasma on llvmpipe under
+# translation, which is slow enough to be its own problem.
+#
+# This file describes the VM's *shape* only. Provisioning lives in
+# `harness/provision/*.sh` and is run by `harness/bin/arch.sh` over `limactl
+# shell`, for the same reason the other templates do it that way: a failed step
+# can be read, fixed and re-run on its own.
+#
+# `__REPO__` and `__ARTIFACTS__` are substituted before this is handed to
+# limactl; Lima has no environment expansion for mount paths.
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: vz
+cpus: 4
+memory: "6GiB"
+# A Tauri target dir plus an Arch bootstrap and its package cache. The same
+# sparse-image warning as the other templates applies: oversizing this quietly
+# grows until it exhausts the host.
+disk: "40GiB"
+
+vmOpts:
+  vz:
+    rosetta:
+      # The whole point of this instance.
+      enabled: true
+      # Register the handler in /proc/sys/fs/binfmt_misc. Registered with the
+      # "F" (fix-binary) flag, which is what lets it still work inside the
+      # chroot — the interpreter is opened at registration time rather than
+      # resolved against the chroot's own filesystem.
+      binfmt: true
+
+mounts:
+  # The repo, read-only: the VM builds from it but must never write into the
+  # working tree on the Mac.
+  - location: "__REPO__"
+    mountPoint: "/repo"
+    writable: false
+  # Built packages cross back to the host here.
+  - location: "__ARTIFACTS__"
+    mountPoint: "/artifacts"
+    writable: true
+
+# `host.lima.internal` resolves to the Mac, where the demo API server runs.
+hostResolver:
+  enabled: true
+
+# Lima's default template installs containerd/nerdctl. Nothing here uses
+# containers, and it is a sizeable download on every fresh instance.
+containerd:
+  system: false
+  user: false

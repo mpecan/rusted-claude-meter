@@ -22,11 +22,17 @@ somebody ran it.
 | `rcm-kde` | Fedora + KDE Plasma | Runs the shipped **AppImage**. |
 | `rcm-gnome-c` | Ubuntu 24.04 + GNOME, **container** | Same desktop and same `.deb` as `rcm-gnome`, in seconds instead of minutes. |
 | `rcm-kde-c` | Fedora 43 + KDE Plasma, **container** | Same, against Plasma and the unbundled binary. |
+| `rcm-arch` | Arch **x86_64** under Rosetta, headless | Packaging only: builds `packaging/aur/PKGBUILD`, and runs `scripts/install.sh` on a real pacman host. |
 
 Between them the two VMs cover both desktops *and* both Linux artifacts the
 project releases. The containers are a faster route to everything except the
 AppImage — see "Containers instead of VMs" below for what they do and do not
 replace.
+
+`rcm-arch` is the odd one out and worth reading "Arch x86_64" below before
+using: everything else here is **aarch64**, because this is developed on Apple
+Silicon, and that is fine right up until the question is about a package that
+declares `arch=('x86_64')`.
 
 The app is pointed at the demo server by `RCM_API_BASE_URL`
 (`src-tauri/src/api_base.rs`). That override ships in release builds on
@@ -211,6 +217,62 @@ hard way and all commented in `container/`:
   compositors. Without it `startplasma-x11` comes up with no window manager, so
   windows have no decorations and nothing can be raised or focused — which
   makes every `xdotool` click land somewhere unintended.
+
+## Arch x86_64
+
+```console
+$ just arch-up           # first run: bootstrap + keyring, several minutes
+$ just arch-makepkg      # build packaging/aur/PKGBUILD as an AUR user would
+$ just arch-install-sh   # scripts/install.sh against a real pacman host
+$ just arch shell        # poke around inside the Arch rootfs
+```
+
+Headless on purpose. It answers two questions the aarch64 desktop targets
+cannot — does the AUR package build, and does `install.sh` behave where
+`command -v pacman` is genuinely true — and nothing else. Anything with a
+window belongs on GNOME/KDE.
+
+**Why a Rosetta VM and not a container.** There is no x86_64 anything on an
+Apple Silicon host by default: an amd64 container dies with `Exec format
+error`, and `tonistiigi/binfmt`'s QEMU handler installs but then segfaults
+under podman's libkrun machine (exit 139). Lima's `vmOpts.vz.rosetta` gives a
+binfmt handler backed by Rosetta instead, so an x86_64 *userspace* runs on the
+aarch64 guest kernel at translation speed. Provisioning unpacks Arch's official
+x86_64 bootstrap tarball and everything runs in there.
+
+Arch Linux ARM would have been the easy alternative and is the wrong one:
+`packaging/aur/PKGBUILD` declares `arch=('x86_64')`, and ALARM is a separate
+distribution with separate repositories, so a package building there says
+nothing about the package we would publish.
+
+**Three failure modes, none of which name their own cause.** All are handled in
+`harness/provision/arch-x86.sh`; they are listed here because each will look
+like something else entirely if it resurfaces.
+
+- `rosetta error: Unable to open /proc/self/exe: 2` — Rosetta reads
+  `/proc/self/exe` on every exec, so a chroot without `/proc` fails on *every*
+  x86_64 binary. Reads as a corrupt binary.
+- `could not determine cachedir mount point`, then **`not enough free disk
+  space` on a disk that is 8% full** — the rootfs has to be bind-mounted onto
+  itself so that `/` appears in the chroot's mount table. Without it pacman
+  cannot resolve the cachedir and gives up on the space check. (`arch-chroot`
+  warns `not a mountpoint` first, which is the actual clue.)
+- `restricting filesystem access failed because Landlock is not supported by
+  the kernel!` — pacman 7 sandboxes downloads with Landlock, which the Lima
+  guest kernel lacks. `DisableSandbox` in `pacman.conf`. Arch containers under
+  podman hit the same wall.
+
+**AppImages need a second binfmt handler.** Lima registers Rosetta with a mask
+whose bytes 8–15 must be zero — that is the unused ELF `e_ident` padding. A
+type-2 AppImage stamps its own magic there (`AI\x02`, `41 49 02`), so the
+handler never matches and the kernel reports `cannot execute binary file: Exec
+format error` on a file `file(1)` happily calls a valid x86-64 ELF. Provisioning
+registers the same interpreter a second time with those eight bytes masked out.
+With that in place the *released amd64 AppImage* runs here, which is what makes
+`arch-install-sh` able to check the icon extraction end to end.
+
+Both the bind mount and the binfmt registration are lost on reboot, so
+`arch.sh` re-asserts them before every command.
 
 ## Scenarios
 
