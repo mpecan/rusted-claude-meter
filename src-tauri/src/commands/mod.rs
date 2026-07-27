@@ -15,6 +15,8 @@
 //!   [`run_store_op`]'s blocking pool, so a slow or stuck credential daemon
 //!   can never freeze tray or window redraws.
 
+pub mod browser;
+pub mod consent;
 pub mod debug;
 pub mod pace;
 pub mod popover;
@@ -27,11 +29,11 @@ use meter_render::{IconState, IconStyle, Scale, render_icon};
 use serde::Serialize;
 use tauri::{Emitter, State};
 
-use crate::browser_import::{
-    LiveSessionValidator, SessionValidator, StoreAndValidateError, store_and_validate,
-};
-use crate::scheduler::{MeterState, RefreshInterval, SchedulerHandle};
+use crate::browser_import::{LiveSessionValidator, SessionValidator};
+use crate::consent::ConsentGate;
+use crate::scheduler::{FetchOutcome, MeterState, RefreshInterval, SchedulerHandle};
 use crate::settings::{AppSettings, PopoverLayout, SettingsState};
+use crate::signin::{SessionSink, StoreAndValidateError, store_and_validate};
 use crate::store::{SessionStore, StoreError, run_store_op};
 use crate::tray;
 
@@ -61,6 +63,9 @@ pub enum SessionCommandError {
     Rejected(String),
     /// The credential-store backend failed.
     Store(String),
+    /// Terms-of-Service consent is withheld, so validating the key against claude.ai —
+    /// which is a request to claude.ai — was refused (`crate::consent`).
+    NotAcknowledged(String),
 }
 
 impl From<SessionKeyError> for SessionCommandError {
@@ -100,25 +105,24 @@ pub struct SessionSubmission {
 /// [`store_and_validate`], so a pasted key gets the exact same
 /// rollback-on-rejection guarantee an imported one does (issues #10/#11): a
 /// key claude.ai rejects never clobbers a previously working one.
-async fn submit_session_key_impl(
-    store: &Arc<dyn SessionStore>,
-    validator: &impl SessionValidator,
+async fn submit_session_key_impl<V: SessionValidator>(
+    sink: &SessionSink<'_, V>,
     input: &str,
 ) -> Result<SessionSubmission, SessionCommandError> {
     let key = SessionKey::parse(input)?;
-    let validated =
-        store_and_validate(store, validator, &key)
-            .await
-            .map_err(|error| {
-                match error {
+    let validated = store_and_validate(sink, &key)
+        .await
+        .map_err(|error| match error {
             StoreAndValidateError::Store(message) => SessionCommandError::Store(message),
+            StoreAndValidateError::NotAcknowledged => {
+                SessionCommandError::NotAcknowledged(consent::WITHHELD_MESSAGE.to_owned())
+            }
             StoreAndValidateError::Rejected => SessionCommandError::Rejected(
                 "claude.ai rejected that session key — it may be expired. Sign in to claude.ai \
-                 again, copy a fresh key, and try again."
+             again, copy a fresh key, and try again."
                     .to_owned(),
             ),
-        }
-            })?;
+        })?;
     Ok(SessionSubmission { validated })
 }
 
@@ -143,14 +147,20 @@ fn session_status_impl(store: &dyn SessionStore) -> Result<SessionStatus, StoreE
 pub async fn set_session_key(
     state: State<'_, SessionStoreState>,
     scheduler: State<'_, SchedulerHandle>,
+    consent: State<'_, Arc<ConsentGate>>,
     input: String,
 ) -> Result<SessionSubmission, SessionCommandError> {
     // Owned handles, so nothing borrowed from the `State` guards is held
     // across the await (mirrors `import_browser_session`).
     let store = Arc::clone(&state.0);
     let scheduler = (*scheduler).clone();
+    let consent = Arc::clone(&consent);
 
-    let submission = submit_session_key_impl(&store, &LiveSessionValidator::new(), &input).await?;
+    // The Terms-of-Service gate is enforced inside `store_and_validate`, which
+    // this goes through — not re-checked here (see `crate::consent`).
+    let validator = LiveSessionValidator::new();
+    let sink = SessionSink::new(&store, &validator, &consent);
+    let submission = submit_session_key_impl(&sink, &input).await?;
     scheduler.resume_polling();
     Ok(submission)
 }
@@ -176,7 +186,7 @@ pub async fn clear_session_key(
     scheduler: State<'_, SchedulerHandle>,
 ) -> Result<(), SessionCommandError> {
     run_store_op(&state.0, |store| store.clear()).await?;
-    scheduler.mark_no_session();
+    scheduler.update(|core| core.record(FetchOutcome::NoSession));
     Ok(())
 }
 
@@ -205,7 +215,7 @@ pub fn set_refresh_interval(
     settings: State<'_, SettingsState>,
     interval: RefreshInterval,
 ) {
-    scheduler.set_interval(interval);
+    scheduler.update(|core| core.set_interval(interval));
     settings.update(|s| s.refresh_interval = interval);
 }
 
@@ -521,12 +531,17 @@ mod tests {
         }
     }
 
+    /// These tests are about the paste flow, not about consent — the gate is
+    /// enforced (and tested) in `signin::store_and_validate`, which this goes
+    /// through.
+    static OPEN_GATE: ConsentGate = ConsentGate::new(true);
+
     async fn submit(
         store: &Arc<dyn SessionStore>,
         validator: &FakeValidator,
         input: &str,
     ) -> Result<SessionSubmission, SessionCommandError> {
-        submit_session_key_impl(store, validator, input).await
+        submit_session_key_impl(&SessionSink::new(store, validator, &OPEN_GATE), input).await
     }
 
     #[tokio::test]

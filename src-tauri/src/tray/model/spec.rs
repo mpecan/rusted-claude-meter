@@ -268,6 +268,10 @@ fn status_line_reflects_every_phase() {
             Phase::SessionExpired,
             "Session expired — choose Open to update it",
         ),
+        (
+            Phase::AwaitingConsent,
+            "Paused — review the risk in Settings",
+        ),
     ];
     for (phase, expected) in cases {
         let model = menu_of(&state(phase, Staleness::Missing, None), now(), &all_shown());
@@ -286,6 +290,10 @@ fn status_line_reflects_every_phase() {
         (
             Phase::SessionExpired,
             "Session expired — showing data from 2d 1h ago",
+        ),
+        (
+            Phase::AwaitingConsent,
+            "Paused — showing data from 2d 1h ago",
         ),
     ];
     for (phase, expected) in aged_cases {

@@ -31,6 +31,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pace_tracking_enabled: true,
   usage_mode: "auto",
   debug_logging: false,
+  // Withheld until `getSettings()` says otherwise, so the pre-resolve render
+  // can never show the consent box already ticked.
+  tos_acknowledged: false,
 };
 
 /** Deduped, snapshot-order list of every scoped model's display name in the

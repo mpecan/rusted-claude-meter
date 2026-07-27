@@ -65,7 +65,12 @@ export type UsageMode = "auto" | "allowance" | "cost";
 export type Staleness = "missing" | "fresh" | "stale";
 
 /** Mirrors `scheduler::core::Phase`. */
-export type Phase = "polling" | "degraded" | "awaiting_session" | "session_expired";
+export type Phase =
+  | "polling"
+  | "degraded"
+  | "awaiting_session"
+  | "session_expired"
+  | "awaiting_consent";
 
 /** Mirrors `scheduler::core::MeterState`: the single source of truth pushed
  * over the `usage-state` event and returned by the `usage_state` command. */
@@ -79,7 +84,7 @@ export interface MeterState {
  * "message" }` serde representation. `Rejected` means the key parsed but
  * claude.ai refused it — the previously stored key (if any) was restored. */
 export interface SessionCommandError {
-  kind: "Validation" | "Rejected" | "Store";
+  kind: "Validation" | "Rejected" | "Store" | "NotAcknowledged";
   message: string;
 }
 
@@ -128,7 +133,14 @@ export interface ImportSummary {
  * "message" }` serde representation. Shares `describeError`'s handling with
  * `SessionCommandError` since both are `{ kind, message }`. */
 export interface BrowserImportError {
-  kind: "Unsupported" | "CookieStore" | "NoSession" | "Invalid" | "Rejected" | "Store";
+  kind:
+    | "Unsupported"
+    | "CookieStore"
+    | "NoSession"
+    | "Invalid"
+    | "Rejected"
+    | "Store"
+    | "NotAcknowledged";
   message: string;
 }
 
@@ -234,6 +246,13 @@ export interface AppSettings {
    * to verify it against account types not yet observed). Off by default; the
    * log holds only usage data, never the session key. */
   debug_logging: boolean;
+  /** Whether the user has read the Terms-of-Service warning and accepted the
+   * risk of polling claude.ai's internal usage endpoint with their session
+   * cookie. **Defaults to `false`, and gates every claude.ai request** — the
+   * scheduler parks in `awaiting_consent` and the session/import commands
+   * refuse while it is off. Mirrors `settings::AppSettings::tos_acknowledged`;
+   * see `docs/terms-of-service.md`. */
+  tos_acknowledged: boolean;
 }
 
 /** Mirrors `meter_shell::settings::PopoverLayout` — the two popover layouts

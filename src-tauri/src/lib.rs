@@ -12,6 +12,7 @@ mod autostart;
 mod browser_import;
 mod cache;
 mod commands;
+mod consent;
 #[cfg(feature = "browser-import")]
 mod cookie_reader;
 mod debug_log;
@@ -21,6 +22,7 @@ mod notifier;
 mod scheduler;
 mod settings;
 mod settings_window;
+mod signin;
 mod store;
 mod sync;
 mod tray;
@@ -76,8 +78,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_session_key,
             commands::session_status,
             commands::clear_session_key,
-            browser_import::list_browser_sessions,
-            browser_import::import_browser_session,
+            commands::browser::list_browser_sessions,
+            commands::browser::import_browser_session,
             commands::usage_state,
             commands::refresh_usage,
             commands::get_settings,
@@ -92,6 +94,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_show_reset_time,
             commands::set_popover_layout,
             commands::set_usage_mode,
+            commands::consent::set_tos_acknowledged,
             commands::debug::set_debug_logging,
             commands::debug::debug_log_path,
             commands::debug::reveal_debug_log,
@@ -150,10 +153,23 @@ pub fn run() -> tauri::Result<()> {
                 app_settings.debug_logging,
             ));
             app.manage(Arc::clone(&response_log));
-            let core = SchedulerCore::new(
+            // The ToS consent gate (`crate::consent`), seeded from the
+            // persisted answer — `false` for a fresh install *and* for one
+            // upgrading from a build that predates the setting. Shared between
+            // the command that flips it and the transport that checks it.
+            let consent = Arc::new(consent::ConsentGate::new(app_settings.tos_acknowledged));
+            app.manage(Arc::clone(&consent));
+            let mut core = SchedulerCore::new(
                 app_settings.refresh_interval,
                 cache_path.as_deref().and_then(cache::load),
             );
+            // Start parked when consent is withheld, so the tray's very first
+            // render already says "waiting for you to accept" instead of
+            // showing a hopeful "polling" that the first tick immediately
+            // contradicts.
+            if !consent.get() {
+                core.record(scheduler::FetchOutcome::NotAcknowledged);
+            }
             let shown: HashSet<String> = app_settings.shown_scoped_models.iter().cloned().collect();
             // Tray before scheduler: the tray must be managed before the
             // first state broadcast or early updates would be dropped.
@@ -175,7 +191,11 @@ pub fn run() -> tauri::Result<()> {
             #[cfg(target_os = "macos")]
             configure_popover_window(app);
             app.manage(SettingsState::new(settings_path, app_settings));
-            app.manage(wizard::FirstRunState::new(!settings_existed));
+            // Seeded `true` on a first run (no settings.json yet). Constructed
+            // inline rather than through a `new` — see `FirstRunState`.
+            app.manage(wizard::FirstRunState(sync::AtomicFlag::new(
+                !settings_existed,
+            )));
             // Managed before the scheduler starts broadcasting (mirrors the
             // tray init-before-scheduler ordering above), so the tracker's
             // very first observation establishes its startup baseline
@@ -194,7 +214,10 @@ pub fn run() -> tauri::Result<()> {
                     cache: cache_path,
                     export: export_path,
                 },
-                response_log,
+                scheduler::SharedHandles {
+                    response_log,
+                    consent,
+                },
             );
             Ok(())
         })
@@ -255,7 +278,7 @@ fn spawn_scheduler(
     session_store: Arc<dyn SessionStore>,
     core: SchedulerCore,
     persist: PersistPaths,
-    response_log: Arc<debug_log::ResponseLog>,
+    handles: scheduler::SharedHandles,
 ) {
     let core = Arc::new(Mutex::new(core));
     let handle = SchedulerHandle::new(core, Arc::new(Notify::new()));
@@ -263,8 +286,7 @@ fn spawn_scheduler(
 
     let emitter = app.handle().clone();
     tauri::async_runtime::spawn(run_loop(
-        LiveTransport::with_base_url(session_store, api_base::api_base_url())
-            .with_response_log(response_log),
+        LiveTransport::with_base_url(session_store, api_base::api_base_url()).with_handles(handles),
         SystemClock::default(),
         handle,
         persist,

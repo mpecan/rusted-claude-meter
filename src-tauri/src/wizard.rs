@@ -11,7 +11,7 @@
 //! completion marker, and the Linux desktop hints (GNOME's `AppIndicator`
 //! requirement, Plasma's square tray cell).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::sync::AtomicFlag;
 
 use tauri::State;
 
@@ -22,7 +22,7 @@ use crate::settings::SettingsState;
 /// existed *before* this launch loaded (or defaulted) it — the per-issue
 /// "detect first run via absence of settings" signal.
 ///
-/// It is a consume-once flag (`AtomicBool`) rather than a plain `bool` because
+/// It is a consume-once flag ([`AtomicFlag`]) rather than a plain `bool` because
 /// the Settings window is destroyed on close and rebuilt on the next open, so
 /// its frontend (`settings-view.ts`) runs `wizard.maybeAutoOpen()` on *every*
 /// open, not once per process. Without a way to record "already offered", a
@@ -31,24 +31,18 @@ use crate::settings::SettingsState;
 /// the moment the wizard is auto-opened, so only the very first Settings open
 /// of a first-run session shows it. Re-opening the wizard later from Settings
 /// ("Run setup again") does not touch this; it is purely a frontend action.
-pub struct FirstRunState(pub AtomicBool);
+pub struct FirstRunState(pub AtomicFlag);
 
 impl FirstRunState {
-    /// Seed the flag: `true` on a first run (no `settings.json` yet), `false`
-    /// otherwise.
-    pub const fn new(first_run: bool) -> Self {
-        Self(AtomicBool::new(first_run))
-    }
-
     /// Whether the wizard should still be auto-opened. A pure read — clearing
     /// is [`Self::mark_offered`]'s job.
     fn should_run(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        self.0.get()
     }
 
     /// Record that the wizard has now been offered this process.
     fn mark_offered(&self) {
-        self.0.store(false, Ordering::Relaxed);
+        self.0.set(false);
     }
 }
 
@@ -103,12 +97,12 @@ pub fn linux_desktop() -> meter_core::LinuxDesktop {
 
 #[cfg(test)]
 mod tests {
-    use super::FirstRunState;
+    use super::{AtomicFlag, FirstRunState};
 
     #[test]
     fn first_run_flag_is_consumed_once_so_window_rebuilds_do_not_re_offer() {
         // Fresh install: no settings.json -> the wizard should be offered.
-        let state = FirstRunState::new(true);
+        let state = FirstRunState(AtomicFlag::new(true));
         assert!(
             state.should_run(),
             "first observation must offer the wizard"
@@ -125,7 +119,7 @@ mod tests {
 
     #[test]
     fn non_first_run_never_offers_the_wizard() {
-        let state = FirstRunState::new(false);
+        let state = FirstRunState(AtomicFlag::new(false));
         assert!(!state.should_run());
     }
 

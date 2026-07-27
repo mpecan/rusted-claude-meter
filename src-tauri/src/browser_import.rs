@@ -24,20 +24,16 @@
 //! `sessionKey` is kept in memory longer than the moment it takes to pick it
 //! out.
 
-use std::sync::Arc;
-
 use meter_api::{ApiError, UsageClient};
 use meter_core::{Browser, BrowserFamily, SessionKey};
 #[cfg(feature = "browser-import")]
 use meter_core::{CookieImportError, Os, session_key_from_cookies};
 use serde::Serialize;
-use tauri::State;
 
-use crate::commands::SessionStoreState;
 #[cfg(feature = "browser-import")]
-use crate::cookie_reader::{BrowserCookieReader, CookieStoreError, RookieCookieReader};
-use crate::scheduler::SchedulerHandle;
-use crate::store::{SessionStore, run_store_op};
+use crate::cookie_reader::{BrowserCookieReader, CookieStoreError};
+#[cfg(feature = "browser-import")]
+use crate::signin::{SessionSink, StoreAndValidateError, store_and_validate};
 
 /// A browser offered to the user as an import source, with the permission
 /// story it implies on this platform.
@@ -89,6 +85,9 @@ pub enum BrowserImportError {
     Rejected(String),
     /// The credential store refused to persist the key.
     Store(String),
+    /// Terms-of-Service consent is withheld, so nothing was read or contacted at all
+    /// (`crate::consent`).
+    NotAcknowledged(String),
 }
 
 /// Confirms a session key with claude.ai. The seam the import flow is generic
@@ -158,7 +157,7 @@ impl SessionValidator for LiveSessionValidator {
 /// The importable browsers for `os`, with per-browser permission copy. Pure,
 /// so it is exercised without a Tauri runtime.
 #[cfg(feature = "browser-import")]
-fn detected_browsers(os: Os) -> Vec<DetectedBrowser> {
+pub fn detected_browsers(os: Os) -> Vec<DetectedBrowser> {
     Browser::ALL
         .into_iter()
         .filter(|browser| browser.available_on(os))
@@ -174,7 +173,7 @@ fn detected_browsers(os: Os) -> Vec<DetectedBrowser> {
 
 /// The OS this binary is running on, in the domain crate's terms.
 #[cfg(feature = "browser-import")]
-const fn current_os() -> Os {
+pub const fn current_os() -> Os {
     #[cfg(target_os = "macos")]
     {
         Os::MacOs
@@ -189,70 +188,14 @@ const fn current_os() -> Os {
     }
 }
 
-/// Outcome of [`store_and_validate`] when the key could not be kept.
-///
-/// Deliberately generic over *why* the caller wanted the key stored (a
-/// browser import here, a pasted key in the setup wizard — issue #11) so
-/// both paths share one rollback implementation instead of duplicating it.
-pub enum StoreAndValidateError {
-    /// The credential store refused to persist the key.
-    Store(String),
-    /// claude.ai rejected the key (401): it is expired or otherwise invalid.
-    /// The previously stored key (if any) has already been restored by the
-    /// time this is returned.
-    Rejected,
-}
-
-/// Persist `key`, then confirm it with claude.ai. A rejection (401) is
-/// rolled back: the key that was stored before this call is restored (or the
-/// store cleared if there was none), so a failed validation never destroys a
-/// working session and an invalid key never lingers. A network hiccup keeps
-/// the key — it might still be good, and the scheduler validates it on its
-/// next poll — and resolves to `Ok(false)` ("stored, not yet confirmed").
-///
-/// Every store touch goes through [`run_store_op`]'s blocking pool: the
-/// credential store is a synchronous OS round trip that must not occupy an
-/// async worker thread.
-pub async fn store_and_validate(
-    store: &Arc<dyn SessionStore>,
-    validator: &impl SessionValidator,
-    key: &SessionKey,
-) -> Result<bool, StoreAndValidateError> {
-    // Hold on to whatever key was stored before, so a rejection can put it
-    // back instead of destroying a working session. Best-effort: if the
-    // store can't be read, there is nothing to restore.
-    let previous = run_store_op(store, |s| s.load()).await.unwrap_or_default();
-
-    let to_save = key.clone();
-    run_store_op(store, move |s| s.save(&to_save))
-        .await
-        .map_err(|error| StoreAndValidateError::Store(error.to_string()))?;
-
-    match validator.validate(key).await {
-        Ok(()) => Ok(true),
-        Err(ValidationError::Unauthorized) => {
-            // Best-effort: don't leave a rejected key behind.
-            let _ = run_store_op(store, move |s| {
-                previous
-                    .as_ref()
-                    .map_or_else(|| s.clear(), |previous_key| s.save(previous_key))
-            })
-            .await;
-            Err(StoreAndValidateError::Rejected)
-        }
-        Err(ValidationError::Transient) => Ok(false),
-    }
-}
-
 /// The whole import flow, isolated from Tauri so every branch is unit-tested:
 /// availability → read → extract → persist → validate. A key rejected by
 /// claude.ai is rolled back (see [`store_and_validate`]), so a failed import
 /// never destroys a working session and nothing invalid lingers.
 #[cfg(feature = "browser-import")]
-async fn import_impl(
+pub async fn import_impl<V: SessionValidator>(
     reader: impl BrowserCookieReader + 'static,
-    validator: &impl SessionValidator,
-    store: &Arc<dyn SessionStore>,
+    sink: &SessionSink<'_, V>,
     os: Os,
     browser: Browser,
 ) -> Result<ImportSummary, BrowserImportError> {
@@ -288,78 +231,22 @@ async fn import_impl(
     drop(cookies);
 
     let display_name = browser.display_name().to_owned();
-    let validated =
-        store_and_validate(store, validator, &key)
-            .await
-            .map_err(|error| match error {
-                StoreAndValidateError::Store(message) => BrowserImportError::Store(message),
-                StoreAndValidateError::Rejected => BrowserImportError::Rejected(format!(
-                    "claude.ai rejected the session imported from {display_name} — it may have \
+    let validated = store_and_validate(sink, &key)
+        .await
+        .map_err(|error| match error {
+            StoreAndValidateError::Store(message) => BrowserImportError::Store(message),
+            StoreAndValidateError::NotAcknowledged => BrowserImportError::NotAcknowledged(
+                crate::commands::consent::WITHHELD_MESSAGE.to_owned(),
+            ),
+            StoreAndValidateError::Rejected => BrowserImportError::Rejected(format!(
+                "claude.ai rejected the session imported from {display_name} — it may have \
                  expired. Sign in again there and retry."
-                )),
-            })?;
+            )),
+        })?;
     Ok(ImportSummary {
         browser: display_name,
         validated,
     })
-}
-
-/// List the browsers the user can import a session from on this platform,
-/// with the permission story each implies. Empty in the "lite" build, where
-/// automated import is compiled out and only manual session-key paste remains.
-#[tauri::command]
-#[cfg_attr(not(feature = "browser-import"), allow(clippy::missing_const_for_fn))]
-pub fn list_browser_sessions() -> Vec<DetectedBrowser> {
-    #[cfg(feature = "browser-import")]
-    {
-        detected_browsers(current_os())
-    }
-    #[cfg(not(feature = "browser-import"))]
-    {
-        Vec::new()
-    }
-}
-
-/// Import the claude.ai session from `browser`: read it, persist it, validate
-/// it, and wake the polling loop so the new key takes effect immediately.
-/// Reports "unavailable" in the "lite" build (no cookie-store access).
-#[tauri::command]
-#[cfg_attr(not(feature = "browser-import"), allow(clippy::unused_async))]
-pub async fn import_browser_session(
-    state: State<'_, SessionStoreState>,
-    scheduler: State<'_, SchedulerHandle>,
-    browser: Browser,
-) -> Result<ImportSummary, BrowserImportError> {
-    #[cfg(feature = "browser-import")]
-    {
-        // Extract owned handles before the first `await`: the `State` guards
-        // are not `Send`, so holding them across the await would make the
-        // command's future non-`Send`, which Tauri requires.
-        let store = Arc::clone(&state.0);
-        let scheduler = (*scheduler).clone();
-
-        let summary = import_impl(
-            RookieCookieReader,
-            &LiveSessionValidator::new(),
-            &store,
-            current_os(),
-            browser,
-        )
-        .await?;
-
-        scheduler.resume_polling();
-        Ok(summary)
-    }
-    #[cfg(not(feature = "browser-import"))]
-    {
-        // Browser import is compiled out in this build; manual session-key
-        // paste is the way in.
-        let _ = (state, scheduler, browser);
-        Err(BrowserImportError::Unsupported(
-            "Browser import isn't available in this build — paste your session key instead."
-                .to_owned(),
-        ))
-    }
 }
 
 // Two separate cfg attributes (not `all(test, …)`) so clippy still recognizes
@@ -369,9 +256,13 @@ pub async fn import_browser_session(
 mod tests {
     #![allow(clippy::unwrap_used)]
 
+    use std::sync::Arc;
+
     use super::*;
+    use crate::consent::ConsentGate;
     use crate::cookie_reader::CookieStoreError;
     use crate::store::FakeSessionStore;
+    use crate::store::SessionStore;
     use meter_core::BrowserCookie;
     use pretty_assertions::assert_eq;
 
@@ -419,13 +310,29 @@ mod tests {
         FakeValidator(Ok(()))
     }
 
+    /// A gate that is open, for the tests that are about the import flow
+    /// rather than about consent. `const fn` construction lets it be a
+    /// `static`, so a `&'static` reference fits any `SessionSink` lifetime.
+    static OPEN_GATE: ConsentGate = ConsentGate::new(true);
+    static CLOSED_GATE: ConsentGate = ConsentGate::new(false);
+
+    fn sink<'a>(
+        store: &'a Arc<dyn SessionStore>,
+        validator: &'a FakeValidator,
+    ) -> SessionSink<'a, FakeValidator> {
+        SessionSink {
+            store,
+            validator,
+            consent: &OPEN_GATE,
+        }
+    }
+
     #[tokio::test]
     async fn successful_import_stores_and_reports_validated() {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let summary = import_impl(
             FakeReader::with_session(),
-            &ok_validator(),
-            &store,
+            &sink(&store, &ok_validator()),
             Os::MacOs,
             Browser::Chrome,
         )
@@ -447,8 +354,7 @@ mod tests {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
             FakeReader::with_session(),
-            &ok_validator(),
-            &store,
+            &sink(&store, &ok_validator()),
             Os::Linux,
             Browser::Safari,
         )
@@ -464,8 +370,7 @@ mod tests {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
             FakeReader::locked(),
-            &ok_validator(),
-            &store,
+            &sink(&store, &ok_validator()),
             Os::MacOs,
             Browser::Brave,
         )
@@ -481,8 +386,7 @@ mod tests {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
             FakeReader::empty(),
-            &ok_validator(),
-            &store,
+            &sink(&store, &ok_validator()),
             Os::MacOs,
             Browser::Firefox,
         )
@@ -501,12 +405,43 @@ mod tests {
             "sk-ant-sid01-bad value",
         )]));
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
-        let error = import_impl(reader, &ok_validator(), &store, Os::MacOs, Browser::Chrome)
-            .await
-            .unwrap_err();
+        let error = import_impl(
+            reader,
+            &sink(&store, &ok_validator()),
+            Os::MacOs,
+            Browser::Chrome,
+        )
+        .await
+        .unwrap_err();
 
         assert!(matches!(error, BrowserImportError::Invalid(_)));
         assert!(!format!("{error:?}").contains("bad value"));
+        assert_eq!(store.load().unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn withheld_consent_refuses_before_reading_the_cookie_store() {
+        // The gate is enforced inside `store_and_validate`, which every
+        // sign-in path goes through — so it holds for import without the
+        // command layer restating it. `FakeReader::with_session` would have
+        // yielded a perfectly good key; nothing is stored, because nothing
+        // should have been read.
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
+        let validator = ok_validator();
+        let error = import_impl(
+            FakeReader::with_session(),
+            &SessionSink {
+                store: &store,
+                validator: &validator,
+                consent: &CLOSED_GATE,
+            },
+            Os::MacOs,
+            Browser::Chrome,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, BrowserImportError::NotAcknowledged(_)));
         assert_eq!(store.load().unwrap(), None);
     }
 
@@ -515,8 +450,7 @@ mod tests {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let error = import_impl(
             FakeReader::with_session(),
-            &FakeValidator(Err(ValidationError::Unauthorized)),
-            &store,
+            &sink(&store, &FakeValidator(Err(ValidationError::Unauthorized))),
             Os::MacOs,
             Browser::Chrome,
         )
@@ -534,8 +468,7 @@ mod tests {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::with_key(previous.clone()));
         let error = import_impl(
             FakeReader::with_session(),
-            &FakeValidator(Err(ValidationError::Unauthorized)),
-            &store,
+            &sink(&store, &FakeValidator(Err(ValidationError::Unauthorized))),
             Os::MacOs,
             Browser::Chrome,
         )
@@ -553,8 +486,7 @@ mod tests {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
         let summary = import_impl(
             FakeReader::with_session(),
-            &FakeValidator(Err(ValidationError::Transient)),
-            &store,
+            &sink(&store, &FakeValidator(Err(ValidationError::Transient))),
             Os::MacOs,
             Browser::Chrome,
         )
@@ -571,8 +503,7 @@ mod tests {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::unavailable());
         let error = import_impl(
             FakeReader::with_session(),
-            &ok_validator(),
-            &store,
+            &sink(&store, &ok_validator()),
             Os::MacOs,
             Browser::Chrome,
         )

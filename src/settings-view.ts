@@ -16,6 +16,14 @@ import { describeError } from "./ipc";
 import type { UsageBackend } from "./ipc";
 import { renderModelToggles, renderSelectOptions } from "./settings-render";
 import {
+  DOCS_URL,
+  TOS_BODY,
+  TOS_CONSENT_LABEL,
+  TOS_HEADLINE,
+  TOS_MITIGATION,
+  tosStateHint,
+} from "./tos-notice";
+import {
   DEFAULT_SETTINGS,
   scopedModelNames,
   squareTrayHint,
@@ -132,6 +140,14 @@ export function initSettingsView(backend: UsageBackend): void {
 
   // Plasma's square tray cell (see `squareTrayHint`): shown only while the
   // chosen style would draw small there, so acting on it makes it disappear.
+  const tosHeadline = requireElement<HTMLElement>("settings-tos-headline");
+  const tosBody = requireElement<HTMLElement>("settings-tos-body");
+  const tosMitigation = requireElement<HTMLElement>("settings-tos-mitigation");
+  const tosDocsLink = requireElement<HTMLButtonElement>("settings-tos-docs-link");
+  const tosConsent = requireElement<HTMLInputElement>("settings-tos-consent");
+  const tosConsentLabel = requireElement<HTMLElement>("settings-tos-consent-label");
+  const tosState = requireElement<HTMLElement>("settings-tos-state");
+
   const squareTrayHintEl = requireElement<HTMLElement>("square-tray-hint");
   const squareTrayHintText = requireElement<HTMLElement>("square-tray-hint-text");
   const squareTrayHintAction = requireElement<HTMLButtonElement>("square-tray-hint-action");
@@ -214,6 +230,8 @@ export function initSettingsView(backend: UsageBackend): void {
     paceConfig.hidden = !settings.pace_tracking_enabled;
     setSegmentedValue(displayModeToggle, settings.pace_first_display ? "pace" : "consumption");
     setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
+    tosConsent.checked = settings.tos_acknowledged;
+    tosState.textContent = tosStateHint(settings.tos_acknowledged);
   }
 
   function refreshSessionStatus(): void {
@@ -334,6 +352,10 @@ export function initSettingsView(backend: UsageBackend): void {
       settings = { ...settings, refresh_interval: interval };
       applySettingsToForm();
     },
+    onTosAcknowledgedChange(acknowledged) {
+      settings = { ...settings, tos_acknowledged: acknowledged };
+      applySettingsToForm();
+    },
     onClose() {
       // The wizard may have changed the session (imported or pasted) or the
       // browser list's permission state; refresh both so the Settings page
@@ -442,6 +464,26 @@ export function initSettingsView(backend: UsageBackend): void {
       .finally(() => {
         testNotificationButton.disabled = false;
       });
+  });
+
+  // Static copy from `tos-notice.ts`, the single source shared with the
+  // wizard so the two surfaces state the same risk in the same words.
+  tosHeadline.textContent = TOS_HEADLINE;
+  tosBody.textContent = TOS_BODY.join(" ");
+  tosMitigation.textContent = TOS_MITIGATION;
+  tosConsentLabel.textContent = TOS_CONSENT_LABEL;
+  tosDocsLink.addEventListener("click", () => handleOpenSettingsPane(DOCS_URL));
+
+  // The one toggle that starts and stops all claude.ai traffic. The optimistic
+  // local update keeps the hint honest immediately; the command is what
+  // actually moves the gate and parks or resumes the scheduler.
+  tosConsent.addEventListener("change", () => {
+    const acknowledged = tosConsent.checked;
+    settings = { ...settings, tos_acknowledged: acknowledged };
+    tosState.textContent = tosStateHint(acknowledged);
+    backend.setTosAcknowledged(acknowledged).catch((error: unknown) => {
+      console.error("failed to persist ToS acknowledgement", error);
+    });
   });
 
   debugLoggingToggle.addEventListener("change", () => {

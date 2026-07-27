@@ -21,10 +21,9 @@ use std::time::{Duration, Instant};
 use jiff::Timestamp;
 use tokio::sync::Notify;
 
-pub use self::core::{MeterState, Phase, RefreshInterval, SchedulerCore, Staleness};
-pub use self::transport::LiveTransport;
+pub use self::core::{FetchOutcome, MeterState, Phase, RefreshInterval, SchedulerCore, Staleness};
+pub use self::transport::{LiveTransport, SharedHandles};
 
-use self::core::FetchOutcome;
 use self::transport::UsageTransport;
 
 use crate::cache;
@@ -93,26 +92,24 @@ impl SchedulerHandle {
         self.notify.notify_one();
     }
 
+    /// Apply `mutate` to the core, then wake the loop so the resulting state is
+    /// broadcast now rather than on the next scheduled tick.
+    ///
+    /// The one mutating entry point, rather than a named method per operation:
+    /// every such method was the same two lines with a different inner call
+    /// (`record`, `set_interval`, …), which is what the duplication ratchet
+    /// exists to catch. Callers name the intent at the call site instead —
+    /// `update(|core| core.record(FetchOutcome::NotAcknowledged))`.
+    pub fn update(&self, mutate: impl FnOnce(&mut SchedulerCore)) {
+        mutate(&mut lock(&self.core));
+        self.notify.notify_one();
+    }
+
     /// The user stored a new session key: clear any parked
-    /// (expired/awaiting-session) or backoff phase, then wake the loop for a
-    /// TTL-guarded attempt with the new key.
+    /// (expired/awaiting-session/awaiting-consent) or backoff phase, then wake
+    /// the loop for a TTL-guarded attempt with the new key.
     pub fn resume_polling(&self) {
-        lock(&self.core).resume();
-        self.notify.notify_one();
-    }
-
-    /// The session key is gone: record it directly — no fetch is needed to
-    /// learn it — and wake the loop so the awaiting-session state is
-    /// broadcast immediately instead of on the next scheduled tick.
-    pub fn mark_no_session(&self) {
-        lock(&self.core).record(FetchOutcome::NoSession);
-        self.notify.notify_one();
-    }
-
-    /// Change the polling cadence and reschedule immediately.
-    pub fn set_interval(&self, interval: RefreshInterval) {
-        lock(&self.core).set_interval(interval);
-        self.notify.notify_one();
+        self.update(SchedulerCore::resume);
     }
 
     /// Current state snapshot, for pull-style consumers (initial UI render).
@@ -517,7 +514,7 @@ mod tests {
         // The snapshot is fresh, so the wakeup fetches nothing — but the
         // cleared session must still be broadcast immediately, not on the
         // next scheduled tick.
-        handle.mark_no_session();
+        handle.update(|core| core.record(FetchOutcome::NoSession));
         wait_until(|| phases.lock().unwrap().last() == Some(&Phase::AwaitingSession)).await;
         assert_eq!(count.load(Ordering::SeqCst), 1);
 
@@ -634,7 +631,7 @@ mod tests {
         let handle = SchedulerHandle::new(Arc::clone(&core), Arc::new(Notify::new()));
         assert_eq!(handle.state_now().phase, Phase::Polling);
 
-        handle.set_interval(RefreshInterval::TenMinutes);
+        handle.update(|core| core.set_interval(RefreshInterval::TenMinutes));
         assert_eq!(lock(&core).next_delay(0.0), Some(Duration::from_mins(10)));
     }
 

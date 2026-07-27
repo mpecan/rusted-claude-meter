@@ -4,6 +4,17 @@ A cross-platform (macOS + Linux) tray app that shows your Claude plan usage at a
 
 It polls your `claude.ai` usage with your browser session and renders a colour-coded gauge in the menu bar / system tray, plus a popover with per-window cards (5-hour session, 7-day week), **burn-rate pacing**, and **model-scoped limits** — each limit names its own model, so a newly released model shows up with no update.
 
+> [!WARNING]
+> **Using this app is very likely a breach of Anthropic's Consumer Terms of Service, and could get your Claude account suspended.**
+>
+> There is no official API for reading Claude subscription usage, so this app polls an **internal, undocumented `claude.ai` endpoint** on a timer, using your **web session cookie**, sending **browser-shaped headers** so it isn't turned away as an automated client. Anthropic's [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) §3 prohibit accessing the Services "through automated or non-human means, whether through a bot, script, or otherwise" without an API key or explicit permission, and prohibit scraping or harvesting data from them. On a plain reading, that covers this app.
+>
+> To be equally clear about what it does *not* do: your session key never leaves your machine except to `claude.ai`, it is never shared with anyone, and the app runs **no inference** — it reads counters, it never spends your allowance. Every publicly reported enforcement action in 2026 targeted third-party tools running *inference* on subscription credentials, and we know of no case involving a read-only usage meter. But Anthropic enforces "without prior notice", and the risk lands on **your** account.
+>
+> Because of this, **the app ships switched off**: it makes no request to claude.ai at all until you tick the acknowledgement in the setup wizard or **Settings → Terms of Service**, and untick it at any time to stop immediately. Existing installs upgrade into the paused state and stay there until you decide.
+
+**Please read [docs/terms-of-service.md](docs/terms-of-service.md)** for the full analysis with quoted clauses and sources, then decide deliberately. Tracking a supported, read-only credential is [issue #40](https://github.com/mpecan/rusted-claude-meter/issues/40).
+
 <p align="center">
   <img src="docs/screenshots/popover.png" alt="Rusted Claude Meter popover showing 5-hour and 7-day usage cards with pace and spend" width="420">
 </p>
@@ -18,6 +29,7 @@ It polls your `claude.ai` usage with your browser session and renders a colour-c
 - **Allowance or cost view** — auto-detects percentage (Pro/Team) vs. spend (token-based) plans, or pin either.
 - **Easy sign-in** — import the `claude.ai` session straight from a browser you're already logged into (Chrome, Safari, Firefox, Edge, and more), or paste a session key by hand.
 - **Statusline export** — writes `~/.claudemeter/usage.json` after every fetch for statusline scripts and other tools (schema-compatible with the original ClaudeMeter — see [External integrations](#external-integrations)).
+- **Off until you say otherwise** — a consent gate blocks every claude.ai request until you acknowledge the Terms-of-Service risk (see the warning above); untick it to stop all traffic immediately.
 - **Launch at login**, configurable refresh interval, and a first-run setup wizard.
 
 ## Install
@@ -77,9 +89,13 @@ If the AppImage aborts on an EGL error or opens a blank window, see [**Troublesh
 
 ## Usage
 
-On first launch a **setup wizard** walks you through connecting your account, picking a tray-icon style, and setting the refresh interval. You can re-run it any time from **Settings → Setup → Run setup again**.
+On first launch a **setup wizard** walks you through the Terms-of-Service warning, connecting your account, picking a tray-icon style, and setting the refresh interval. You can re-run it any time from **Settings → Setup → Run setup again**.
 
-### 1. Connect your Claude account
+### 1. Accept the Terms-of-Service risk
+
+Nothing happens until you do. The wizard's second step, and **Settings → Terms of Service**, explain how the app reads your usage and why that likely breaches Anthropic's Consumer Terms (see [the warning above](#rusted-claude-meter) and [docs/terms-of-service.md](docs/terms-of-service.md)). While the box is unticked the app contacts claude.ai on no path at all — not to poll, not to validate a pasted key, not to import from a browser — and the tray reads *"Paused — review the risk in Settings"*. Untick it later and polling stops immediately.
+
+### 2. Connect your Claude account
 
 The app reads your usage using your existing `claude.ai` browser session — there's no separate login. Two ways to provide it, both in **Settings → Session**:
 
@@ -92,11 +108,11 @@ The app reads your usage using your existing `claude.ai` browser session — the
 
 Your key is stored in the OS keychain and only ever sent to `claude.ai`. `SessionKey` redacts itself in logs.
 
-### 2. Read the meter
+### 3. Read the meter
 
 The tray icon shows your headline usage; open the popover (macOS: left-click the icon) or tray menu (Linux: click the icon) for the full breakdown — per-window cards with pace, a projection of where you'll land, reset time, and spend this period.
 
-### 3. Make it yours
+### 4. Make it yours
 
 Everything is in **Settings**:
 

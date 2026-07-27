@@ -70,6 +70,7 @@ export type BannerKind =
   | "loading"
   | "awaiting_session"
   | "session_expired"
+  | "awaiting_consent"
   | "degraded"
   | "stale"
   | "ok";
@@ -234,6 +235,8 @@ function bannerKind(state: MeterState): BannerKind {
       return "awaiting_session";
     case "session_expired":
       return "session_expired";
+    case "awaiting_consent":
+      return "awaiting_consent";
     case "degraded":
       return "degraded";
     case "polling":
@@ -259,6 +262,13 @@ function statusLine(state: MeterState, now: Date): string {
       return age === null
         ? "Session expired — paste a new key below"
         : `Session expired — showing data from ${age}`;
+    // Not an error and not a setup step the user forgot: they have not agreed
+    // to the ToS risk, so nothing is being fetched. Mirrors
+    // `tray::model::status_line`'s `AwaitingConsent` arms.
+    case "awaiting_consent":
+      return age === null
+        ? "Paused — review the risk in Settings to start tracking"
+        : `Paused — showing data from ${age}`;
     case "degraded":
       return age === null ? "Connection trouble — retrying" : `Connection trouble — data from ${age}`;
     case "polling":

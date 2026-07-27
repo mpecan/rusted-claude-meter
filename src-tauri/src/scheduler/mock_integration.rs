@@ -31,8 +31,8 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::core::{FetchOutcome, Phase};
-use super::test_support::{USAGE_BODY, mount_org_discovery, store_with_key};
-use super::transport::{LiveTransport, UsageTransport};
+use super::test_support::{USAGE_BODY, consenting, mount_org_discovery, store_with_key};
+use super::transport::UsageTransport;
 use super::{PersistPaths, RefreshInterval, SchedulerCore, SchedulerHandle, SystemClock, run_loop};
 
 fn phase_of(core: &Mutex<SchedulerCore>) -> Phase {
@@ -99,7 +99,7 @@ async fn real_http_backoff_sequence_matches_the_core_formula() {
         .mount(&server)
         .await;
 
-    let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+    let transport = consenting(store_with_key(), server.uri());
     let mut core = SchedulerCore::new(RefreshInterval::OneMinute, None);
     let mut delays = Vec::new();
 
@@ -157,7 +157,7 @@ async fn real_http_401_propagates_to_session_expired_and_recovers_on_resume() {
     let notify = Arc::new(Notify::new());
     let handle = SchedulerHandle::new(Arc::clone(&core), Arc::clone(&notify));
     let task = tokio::spawn(run_loop(
-        LiveTransport::with_base_url(store_with_key(), server.uri()),
+        consenting(store_with_key(), server.uri()),
         SystemClock::default(),
         SchedulerHandle::new(Arc::clone(&core), notify),
         PersistPaths::default(),
@@ -204,7 +204,7 @@ async fn run_loop_completes_a_real_fetch_through_the_full_stack() {
     )));
     let notify = Arc::new(Notify::new());
     let task = tokio::spawn(run_loop(
-        LiveTransport::with_base_url(store_with_key(), server.uri()),
+        consenting(store_with_key(), server.uri()),
         SystemClock::default(),
         SchedulerHandle::new(Arc::clone(&core), notify),
         PersistPaths::default(),

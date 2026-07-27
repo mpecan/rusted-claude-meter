@@ -397,6 +397,12 @@ fn status_line(state: &MeterState, now: Timestamp) -> String {
         .as_ref()
         .map(|snapshot| short_duration(now.duration_since(snapshot.fetched_at).as_secs()));
     match (state.phase, age) {
+        // Named as a decision the user still owes, not a fault: polling is off
+        // because the ToS risk has not been accepted (see `crate::consent`).
+        (Phase::AwaitingConsent, None) => "Paused — review the risk in Settings".to_owned(),
+        (Phase::AwaitingConsent, Some(age)) => {
+            format!("Paused — showing data from {age} ago")
+        }
         (Phase::AwaitingSession, None) => "No session key — choose Open to set one".to_owned(),
         (Phase::AwaitingSession, Some(age)) => {
             format!("No session key — showing data from {age} ago")
