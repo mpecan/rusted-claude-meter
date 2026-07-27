@@ -81,11 +81,17 @@ $ harness/bin/vm.sh launch kde binary   # not the AppImage — see below
 $ just vm-vnc kde                       # port 5902, so both run at once
 ```
 
-`launch kde binary` runs the unbundled binary rather than the AppImage. The
-AppImage aborts in a GPU-less VM (`EGL_BAD_PARAMETER`) — see "What the first run
-established". `just vm-launch kde` still runs the AppImage, so the shipped
-artifact is exercised and its failure stays visible rather than being papered
-over.
+`launch kde binary` runs the unbundled binary rather than the AppImage.
+`just vm-launch kde` still runs the AppImage, so the shipped artifact is
+exercised rather than papered over.
+
+The AppImage prints `EGL_BAD_PARAMETER ... Aborting...` in a GPU-less VM —
+see "What the first run established" — but **that line is not the app dying.**
+Re-measured on `rcm-kde`: it keeps running, registers its StatusNotifierItem
+and draws the tray gauge, with no environment overrides. The `binary` variant
+is about the *window*, not about getting the app up. Do not read the EGL line
+as a failed launch; check the bus (`gdbus call … RegisteredStatusNotifierItems`)
+before concluding anything, which is the same reason `status` exists.
 
 Teardown is `just vm-down gnome` (or `harness/bin/vm.sh delete gnome` to
 reclaim the disk).

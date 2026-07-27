@@ -109,23 +109,37 @@ system's WebKit and do not have this class of problem — so if you hit any of
 the below and don't want to debug it, switching install method is the
 reliable fix rather than a workaround.
 
-**It aborts at startup with an EGL error.** Two variants are known:
+**It prints an EGL error at startup.** Two variants are known, and they do
+*not* mean the same thing despite both ending in "Aborting...":
 
 ```
 Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
 Could not create surfaceless EGL display: EGL_BAD_ALLOC. Aborting...
 ```
 
-Both come from WebKitGTK's DMABUF renderer failing to get a usable EGL
-display. `EGL_BAD_PARAMETER` shows up on a GPU-less machine (headless, or
-some remote-desktop setups), `EGL_BAD_ALLOC` has been reported on a hybrid
-Intel/NVIDIA laptop under Wayland ([issue #50][i50]). In both cases:
+Both come from WebKitGTK failing to get a usable EGL display, but only the
+message is shared.
+
+`EGL_BAD_PARAMETER` appears on a GPU-less machine and is **not fatal** — the
+"Aborting..." is a WebKit helper process ending itself, not the app. Measured
+on the harness's GPU-less `rcm-kde` VM: the AppImage prints this line, keeps
+running, registers its StatusNotifierItem and draws the tray gauge, with no
+environment overrides at all. So if you see it and the tray is there, nothing
+is wrong. (What a GPU-less host costs you is window *painting*, which is a
+separate matter — see `harness/README.md` on needing both
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1`
+for a window that actually paints.)
+
+`EGL_BAD_ALLOC` is the one that really does terminate the process, reported
+on a hybrid Intel/NVIDIA laptop under Wayland ([issue #50][i50]) — there the
+app exits immediately with no tray at all. That is where
 
 ```sh
 WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Rusted\ Claude\ Meter_*.AppImage
 ```
 
-gets the process running. On a headless or remote setup, prefer the `.deb`.
+is the documented workaround. On a headless or remote setup, prefer the
+`.deb` regardless.
 
 **It starts, but a window opens blank.** With the DMABUF renderer disabled
 the tray icon appears, but opening the window can still leave it white, with
