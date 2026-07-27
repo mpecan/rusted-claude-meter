@@ -175,7 +175,11 @@ body {
   padding: 0 0.1rem;
 }
 
-.status-line[data-banner="stale"] {
+/* `awaiting_consent` shares the warning treatment: consent withheld is a
+   state the user chose, not a fault, so it reads like "stale" rather than
+   like "degraded". */
+.status-line[data-banner="stale"],
+.status-line[data-banner="awaiting_consent"] {
   background: rgb(232 133 12 / 14%);
   color: var(--color-warning);
 }
@@ -191,30 +195,32 @@ body {
   color: var(--color-accent);
 }
 
-/* Consent withheld: nothing is being fetched. Warning-coloured rather than
-   critical-red — this is a state the user chose, not a fault. */
-.status-line[data-banner="awaiting_consent"] {
-  background: rgb(232 133 12 / 14%);
-  color: var(--color-warning);
-}
-
-/* The Terms-of-Service warning, shown in Settings and as the wizard's consent
-   step. Styled as a warning panel (it borrows the demo-endpoint banner's
-   shape) because it is the one thing in this app a user can regret not
-   reading. */
-.tos-notice {
+/* The bordered warning-panel shape, shared by the demo-endpoint banner and
+   the Terms-of-Service notice: same border, radius, tinted fill and headline
+   colour, so a recolour happens in one place. Each user of it adds its own spacing
+   and type scale below. */
+.warning-panel {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.7rem 0.8rem;
   border: 1px solid var(--color-warning);
   border-radius: 8px;
   background: color-mix(in srgb, var(--color-warning) 12%, transparent);
 }
 
+.warning-panel strong {
+  color: var(--color-warning);
+}
+
+/* The Terms-of-Service warning, shown in Settings and as the wizard's consent
+   step, because it is the one thing in this app a user can regret not
+   reading. */
+.tos-notice {
+  gap: 0.4rem;
+  padding: 0.7rem 0.8rem;
+}
+
 .tos-notice strong {
   font-size: 0.85rem;
-  color: var(--color-warning);
 }
 
 .tos-notice p {
@@ -659,18 +665,12 @@ body {
    Linux demo harness in harness/). Loud on purpose: without it, demo data is
    indistinguishable from real usage. */
 .demo-endpoint-banner {
-  display: flex;
-  flex-direction: column;
   gap: 0.25rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--color-warning);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
 }
 
 .demo-endpoint-banner strong {
   font-size: 0.82rem;
-  color: var(--color-warning);
 }
 
 .demo-endpoint-banner p {

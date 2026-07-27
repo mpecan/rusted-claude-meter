@@ -189,7 +189,9 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
-    use crate::scheduler::test_support::{USAGE_BODY, mount_org_discovery, store_with_key};
+    use crate::scheduler::test_support::{
+        USAGE_BODY, consenting, mount_org_discovery, store_with_key,
+    };
     use crate::store::FakeSessionStore;
     use meter_api::DEFAULT_BASE_URL;
     use pretty_assertions::assert_eq;
@@ -200,18 +202,6 @@ mod tests {
     // `UsageClient` requests over loopback, no live claude.ai access — the
     // scenarios from issue #13, driven through the transport that
     // production code actually uses (not just `meter-api` in isolation).
-
-    /// A transport with the Terms-of-Service consent gate **open**, which is
-    /// what every test below other than the consent tests themselves is
-    /// about: they exercise what happens once the user has agreed. Written as
-    /// a helper so the gate is stated at every construction rather than
-    /// defaulted — a test that silently fetched nothing would pass vacuously.
-    fn consenting(store: Arc<dyn SessionStore>, base_url: impl Into<String>) -> LiveTransport {
-        LiveTransport::with_base_url(store, base_url).with_handles(SharedHandles {
-            response_log: Arc::new(ResponseLog::disabled()),
-            consent: Arc::new(ConsentGate::new(true)),
-        })
-    }
 
     #[tokio::test]
     async fn a_closed_consent_gate_makes_no_request_at_all() {

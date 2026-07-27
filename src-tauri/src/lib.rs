@@ -22,6 +22,7 @@ mod notifier;
 mod scheduler;
 mod settings;
 mod settings_window;
+mod signin;
 mod store;
 mod sync;
 mod tray;

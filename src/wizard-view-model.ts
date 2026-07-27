@@ -54,11 +54,3 @@ export function wizardCustomizeDefaults(
 ): { iconStyle: IconStyle; refreshInterval: RefreshInterval } {
   return { iconStyle: settings.icon_style, refreshInterval: settings.refresh_interval };
 }
-
-/** Whether the wizard may leave the consent step. The gate is the checkbox:
- * there is no "skip" and no "decide later", because every step after this one
- * involves contacting claude.ai. Trivial as a function, but it is the rule the
- * step's Continue button encodes, so it is stated once and tested. */
-export function canLeaveConsentStep(acknowledged: boolean): boolean {
-  return acknowledged;
-}

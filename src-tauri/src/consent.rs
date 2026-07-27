@@ -46,24 +46,13 @@ pub const fn closed() -> ConsentGate {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConsentGate, closed};
+    use super::closed;
 
     #[test]
     fn the_default_gate_is_closed() {
-        // The single most important property in this file: an install that has
-        // never answered the question does not reach claude.ai.
+        // The one thing this module adds over `AtomicFlag` (whose get/set/
+        // default contract is covered in `sync.rs`): an install that has never
+        // answered the question does not reach claude.ai.
         assert!(!closed().get());
-        assert!(!ConsentGate::default().get());
-    }
-
-    #[test]
-    fn the_gate_moves_both_ways() {
-        let gate = closed();
-        gate.set(true);
-        assert!(gate.get());
-        // Withdrawing consent must actually close it again — this is the
-        // "I've deactivated mine" path, not a one-way latch.
-        gate.set(false);
-        assert!(!gate.get());
     }
 }

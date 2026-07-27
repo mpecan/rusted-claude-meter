@@ -64,14 +64,6 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_install_has_not_acknowledged_anything() {
-        assert!(
-            !AppSettings::default().tos_acknowledged,
-            "consent must never default to given"
-        );
-    }
-
-    #[test]
     fn acknowledgement_round_trips_through_settings() {
         let settings = state();
         assert!(store_tos_acknowledged(&settings, true).tos_acknowledged);

@@ -38,7 +38,6 @@ import { REFRESH_INTERVAL_OPTIONS } from "./types";
 import type { Browser, IconStyle, RefreshInterval } from "./types";
 import {
   type WizardStep,
-  canLeaveConsentStep,
   describeWizardValidation,
   stepIndicatorLabel,
   wizardCustomizeDefaults,
@@ -170,9 +169,12 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
 
   /** Keep Continue in step with the checkbox, and persist the answer as it is
    * given rather than on Continue — so a user who ticks the box and closes the
-   * wizard has still consented, and one who unticks it has still withdrawn. */
+   * wizard has still consented, and one who unticks it has still withdrawn.
+   *
+   * The checkbox is the only way past this step: there is no "skip" and no
+   * "decide later", because every step after it involves contacting claude.ai. */
   function syncConsent(): void {
-    consentContinueButton.disabled = !canLeaveConsentStep(tosConsent.checked);
+    consentContinueButton.disabled = !tosConsent.checked;
   }
 
   function loadBrowsers(): void {

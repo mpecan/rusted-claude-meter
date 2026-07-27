@@ -14,7 +14,6 @@ use tauri::State;
 
 use crate::browser_import::{BrowserImportError, DetectedBrowser, ImportSummary};
 use crate::commands::SessionStoreState;
-use crate::commands::consent::WITHHELD_MESSAGE;
 use crate::consent::ConsentGate;
 use crate::scheduler::SchedulerHandle;
 
@@ -22,6 +21,8 @@ use crate::scheduler::SchedulerHandle;
 use crate::browser_import::{LiveSessionValidator, current_os, detected_browsers, import_impl};
 #[cfg(feature = "browser-import")]
 use crate::cookie_reader::RookieCookieReader;
+#[cfg(feature = "browser-import")]
+use crate::signin::SessionSink;
 
 /// List the browsers the user can import a session from on this platform,
 /// with the permission story each implies. Empty in the "lite" build, where
@@ -59,11 +60,6 @@ pub async fn import_browser_session(
     consent: State<'_, Arc<ConsentGate>>,
     browser: Browser,
 ) -> Result<ImportSummary, BrowserImportError> {
-    if !consent.get() {
-        return Err(BrowserImportError::NotAcknowledged(
-            WITHHELD_MESSAGE.to_owned(),
-        ));
-    }
     #[cfg(feature = "browser-import")]
     {
         // Extract owned handles before the first `await`: the `State` guards
@@ -71,11 +67,11 @@ pub async fn import_browser_session(
         // command's future non-`Send`, which Tauri requires.
         let store = Arc::clone(&state.0);
         let scheduler = (*scheduler).clone();
+        let consent = Arc::clone(&consent);
 
         let summary = import_impl(
             RookieCookieReader,
-            &LiveSessionValidator::new(),
-            &store,
+            &SessionSink::new(&store, &LiveSessionValidator::new(), &consent),
             current_os(),
             browser,
         )
@@ -88,7 +84,7 @@ pub async fn import_browser_session(
     {
         // Browser import is compiled out in this build; manual session-key
         // paste is the way in.
-        let _ = (state, scheduler, browser);
+        let _ = (state, scheduler, consent, browser);
         Err(BrowserImportError::Unsupported(
             "Browser import isn't available in this build — paste your session key instead."
                 .to_owned(),

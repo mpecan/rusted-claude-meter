@@ -31,22 +31,9 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::core::{FetchOutcome, Phase};
-use super::test_support::{USAGE_BODY, mount_org_discovery, store_with_key};
-use super::transport::{LiveTransport, SharedHandles, UsageTransport};
+use super::test_support::{USAGE_BODY, consenting, mount_org_discovery, store_with_key};
+use super::transport::UsageTransport;
 use super::{PersistPaths, RefreshInterval, SchedulerCore, SchedulerHandle, SystemClock, run_loop};
-use crate::consent::ConsentGate;
-use crate::store::SessionStore;
-
-/// A transport with the Terms-of-Service consent gate open — every scenario in this module
-/// is about what the stack does *after* the user has accepted the risk. The
-/// gate's own behaviour (no traffic at all while closed) is covered in
-/// `transport.rs` and `core.rs`.
-fn consenting(store: Arc<dyn SessionStore>, base_url: impl Into<String>) -> LiveTransport {
-    LiveTransport::with_base_url(store, base_url).with_handles(SharedHandles {
-        response_log: Arc::new(crate::debug_log::ResponseLog::disabled()),
-        consent: Arc::new(ConsentGate::new(true)),
-    })
-}
 
 fn phase_of(core: &Mutex<SchedulerCore>) -> Phase {
     core.lock()

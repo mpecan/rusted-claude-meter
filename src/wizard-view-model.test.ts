@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   WIZARD_STEPS,
-  canLeaveConsentStep,
   describeWizardValidation,
   stepIndicatorLabel,
   stepNumber,
@@ -34,16 +33,6 @@ describe("the consent step's position", () => {
 
   it("comes after the welcome step, so the warning is not the first thing on screen", () => {
     expect(WIZARD_STEPS.indexOf("consent")).toBeGreaterThan(WIZARD_STEPS.indexOf("welcome"));
-  });
-});
-
-describe("canLeaveConsentStep", () => {
-  it("blocks Continue until the box is ticked", () => {
-    expect(canLeaveConsentStep(false)).toBe(false);
-  });
-
-  it("allows Continue once it is", () => {
-    expect(canLeaveConsentStep(true)).toBe(true);
   });
 });
 
