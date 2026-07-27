@@ -51,6 +51,13 @@ the result back here.
 Nothing needs pushing between releases. The `source=` is a tagged tarball, so
 the package cannot change until there is a new tag.
 
+That sync PR is committed through GitHub's API
+(`peter-evans/create-pull-request` with `sign-commits`), not with the git CLI,
+so the commit is **signed** by the app the token belongs to. A runner has no
+signing key, so a `git commit` there lands unverified and a signed-commits
+ruleset would reject it — the first run of this job, for 0.1.4, produced
+exactly that.
+
 Three values are computed rather than maintained, because each goes stale
 silently and in a different way:
 
