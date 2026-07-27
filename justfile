@@ -15,7 +15,7 @@ dupes_max_near_percent := "1.5"
 dupes_excludes := "--exclude 'target/*' --exclude 'node_modules/*' --exclude 'dist/*' --exclude 'src-tauri/gen/*'"
 
 # Run all checks (what CI runs)
-check: fmt-check lint test file-size deny dupes coverage frontend-typecheck frontend-test
+check: fmt-check lint test file-size lockfile-versions deny dupes coverage frontend-typecheck frontend-test
 
 # One-time setup after cloning
 setup:
@@ -62,6 +62,11 @@ build:
 # Check source file sizes
 file-size:
     bash scripts/check-file-sizes.sh
+
+# Every version-carrying file agrees with Cargo.toml — the guard on
+# release-please's extra-files list (see the script's header)
+lockfile-versions:
+    bash scripts/check-lockfile-versions.sh
 
 # cargo-deny: licenses, security advisories, banned/duplicate-major crates
 deny:

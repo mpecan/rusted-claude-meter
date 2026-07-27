@@ -21,18 +21,28 @@ pub struct ScopedLimit {
     pub display_name: String,
     pub model_id: Option<String>,
     pub usage: UsageWindow,
+    /// The API's `is_active` flag, carried through to the JSON export for
+    /// debugging and **deliberately not a display gate** — see
+    /// [`Self::is_visible`].
     pub is_active: bool,
 }
 
 impl ScopedLimit {
-    /// Whether this scoped limit belongs in the tray/popover/notifier: the
-    /// API reports it active *and* the user opted into showing it (issue
-    /// #6's `shown_scoped_models`, empty/opt-in by default). Single source
-    /// of truth for that gate — `tray::model::menu_model` and
-    /// `notifier::tracked_windows` both call this so their notion of a
+    /// Whether this scoped limit belongs in the tray/popover/notifier: the user
+    /// opted into showing it (issue #6's `shown_scoped_models`, empty/opt-in by
+    /// default). Single source of truth for that gate — `tray::model::menu_model`
+    /// and `notifier::tracked_windows` both call this so their notion of a
     /// visible scoped model cannot drift apart.
+    ///
+    /// [`Self::is_active`] is **not** consulted, though it once was. A captured
+    /// live payload settles what it means: every weekly entry reports it
+    /// `false` — the scoped ones *and* the `weekly_all` headline that claude.ai
+    /// plainly displays — while only `session` is `true`. So it marks the
+    /// currently-binding window, and treating it as visibility hid every weekly
+    /// scoped model from users who had switched one on. See
+    /// `meter-api/tests/fixtures/usage_response_live.json`.
     pub fn is_visible(&self, shown: &HashSet<String>) -> bool {
-        self.is_active && shown.contains(&self.display_name)
+        shown.contains(&self.display_name)
     }
 }
 
@@ -234,6 +244,21 @@ mod tests {
             }],
             spend: None,
             fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn visibility_is_the_opt_in_set_alone_never_the_api_is_active_flag() {
+        // Single source of truth for the tray, the popover and the notifier:
+        // `is_active` is false on every weekly window in a live payload, so
+        // consulting it here hid opted-in models in all three at once.
+        let mut fable = snapshot(0.0, 0.0, 5.0).scoped.remove(0);
+        let shown: HashSet<String> = std::iter::once("Fable".to_owned()).collect();
+        for is_active in [false, true] {
+            fable.is_active = is_active;
+            assert!(fable.is_visible(&shown));
+            // Opt-in remains the gate it always was, in both states.
+            assert!(!fable.is_visible(&HashSet::new()));
         }
     }
 

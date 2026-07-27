@@ -1,0 +1,73 @@
+{
+  "_comment": "Captured verbatim from claude.ai on a Max plan actively using Fable (2026-07-27), via Settings > Log API responses. Unlike usage_response.json — which is hand-written to exercise every branch of the scoped pass — this is ground truth for the shape: the `limits` kinds are `session`/`weekly_all`/`weekly_scoped` (not the flat fields' `five_hour`/`seven_day`), and `is_active` is false on both weekly entries even though claude.ai's own usage panel displays them. That last fact is why ScopedLimit::is_visible does not consult it.",
+  "five_hour": {
+    "utilization": 24.0,
+    "resets_at": "2026-07-27T16:50:00.656766+00:00",
+    "limit_dollars": null,
+    "used_dollars": null,
+    "remaining_dollars": null
+  },
+  "seven_day": {
+    "utilization": 16.0,
+    "resets_at": "2026-08-02T11:00:00.656787+00:00",
+    "limit_dollars": null,
+    "used_dollars": null,
+    "remaining_dollars": null
+  },
+  "seven_day_opus": null,
+  "seven_day_sonnet": null,
+  "extra_usage": {
+    "is_enabled": true,
+    "monthly_limit": null,
+    "used_credits": 35.0,
+    "utilization": null,
+    "currency": "EUR",
+    "decimal_places": 2
+  },
+  "limits": [
+    {
+      "kind": "session",
+      "group": "session",
+      "percent": 24,
+      "severity": "normal",
+      "resets_at": "2026-07-27T16:50:00.656766+00:00",
+      "scope": null,
+      "is_active": true
+    },
+    {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 16,
+      "severity": "normal",
+      "resets_at": "2026-08-02T11:00:00.656787+00:00",
+      "scope": null,
+      "is_active": false
+    },
+    {
+      "kind": "weekly_scoped",
+      "group": "weekly",
+      "percent": 6,
+      "severity": "normal",
+      "resets_at": "2026-08-02T10:59:59.657051+00:00",
+      "scope": {
+        "model": {
+          "id": null,
+          "display_name": "Fable"
+        },
+        "surface": null
+      },
+      "is_active": false
+    }
+  ],
+  "spend": {
+    "used": { "amount_minor": 35, "currency": "EUR", "exponent": 2 },
+    "limit": null,
+    "percent": 0,
+    "severity": "normal",
+    "enabled": true,
+    "cap": null,
+    "balance": null,
+    "disclaimer": "Usage credits cover you when you hit your plan limits."
+  },
+  "member_dashboard_available": false
+}

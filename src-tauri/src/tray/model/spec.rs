@@ -178,11 +178,11 @@ fn toggling_one_model_on_shows_only_that_one() {
 }
 
 #[test]
-fn requires_both_is_active_and_opt_in_either_gate_alone_is_not_enough() {
-    // Mirrors src/view-model.test.ts's "requires both is_active and
-    // opt-in" case: both models are opted in, but "CodeOnly" is not
-    // `is_active`, so it must not produce a usage line even though it's
-    // in `shown`.
+fn opt_in_is_the_only_gate_is_active_does_not_suppress_a_line() {
+    // Mirrors src/view-model.test.ts's "opt-in is the only gate" case. Live
+    // payloads report `is_active: false` on every weekly window (see
+    // `ScopedLimit::is_visible`), so a scoped model the user switched on must
+    // still produce a usage line — while one they did not stays out.
     let mut snap = snapshot();
     snap.five_hour = None;
     snap.seven_day = None;
@@ -191,19 +191,16 @@ fn requires_both_is_active_and_opt_in_either_gate_alone_is_not_enough() {
             display_name: "Sonnet".to_owned(),
             model_id: None,
             usage: window(12.0, 3 * 86_400, LimitWindow::SevenDay),
-            is_active: true,
+            is_active: false,
         },
         ScopedLimit {
-            display_name: "CodeOnly".to_owned(),
+            display_name: "Fable".to_owned(),
             model_id: None,
             usage: window(50.0, 3 * 86_400, LimitWindow::SevenDay),
             is_active: false,
         },
     ];
-    let shown: HashSet<String> = ["Sonnet", "CodeOnly"]
-        .into_iter()
-        .map(String::from)
-        .collect();
+    let shown: HashSet<String> = std::iter::once("Sonnet".to_owned()).collect();
     let model = menu_of(
         &state(Phase::Polling, Staleness::Fresh, Some(snap)),
         now(),

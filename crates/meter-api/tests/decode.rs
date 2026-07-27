@@ -6,6 +6,8 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::collections::HashSet;
+
 use jiff::Timestamp;
 use meter_api::UsageResponse;
 use meter_core::{LimitWindow, UsageMode, UsageStatus};
@@ -20,6 +22,11 @@ const FIXTURE: &str = include_str!("fixtures/usage_response.json");
 // observed directly — the real captured account carried spend *alongside*
 // allowance limits. The spend object here uses that confirmed shape.
 const COST_FIXTURE: &str = include_str!("fixtures/usage_response_cost.json");
+
+// Ground truth: one response captured verbatim from claude.ai. `FIXTURE` above
+// is hand-written to hit every branch, which is what let its `kind` values and
+// its all-`is_active` limits drift away from what the API really sends.
+const LIVE_FIXTURE: &str = include_str!("fixtures/usage_response_live.json");
 
 fn fetched_at() -> Timestamp {
     "2026-07-17T12:00:00Z".parse().unwrap()
@@ -125,6 +132,68 @@ fn scoped_limit_with_null_reset_is_kept_with_a_fallback() {
     assert_eq!(
         fable.usage.resets_at,
         "2026-07-24T12:00:00Z".parse::<Timestamp>().unwrap()
+    );
+}
+
+#[test]
+fn live_payload_yields_the_scoped_model_the_user_can_switch_on() {
+    // The regression this pins: every limit in a real response reports
+    // `is_active: false` except `session`, so gating visibility on that flag
+    // hid Fable from the popover and the tray menu even after the user switched
+    // it on in Settings — while claude.ai's own panel showed it at the same 6%.
+    let snapshot = decode_fixture(LIVE_FIXTURE);
+    let fable = snapshot.scoped_named("Fable").unwrap();
+    assert!(!fable.is_active);
+    assert!((fable.usage.utilization - 6.0).abs() < f64::EPSILON);
+    assert_eq!(fable.usage.window, LimitWindow::SevenDay);
+    assert!(fable.is_visible(&HashSet::from(["Fable".to_owned()])));
+    // Opt-in is still the gate it always was.
+    assert!(!fable.is_visible(&HashSet::new()));
+}
+
+#[test]
+fn live_headline_kinds_are_excluded_from_the_scoped_pass() {
+    // `session` and `weekly_all` are the names the live API uses for the two
+    // headline windows; both already arrive through the flat fields, so the
+    // scoped list must hold only Fable.
+    let snapshot = decode_fixture(LIVE_FIXTURE);
+    let names: Vec<&str> = snapshot
+        .scoped
+        .iter()
+        .map(|l| l.display_name.as_str())
+        .collect();
+    assert_eq!(names, vec!["Fable"]);
+    assert!((snapshot.five_hour.unwrap().utilization - 24.0).abs() < f64::EPSILON);
+    assert!((snapshot.seven_day.unwrap().utilization - 16.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_session_scoped_kind_would_pace_over_five_hours_not_seven_days() {
+    // `window_for_kind` falls back to weekly, which is right for the only
+    // scoped kind seen so far (`weekly_scoped`). Pin that the live payload's
+    // name for the short window is recognised, so a future `session_scoped`
+    // entry is not paced over seven days.
+    let json = r#"{
+        "five_hour": null,
+        "seven_day": null,
+        "limits": [
+            {
+                "kind": "session_scoped",
+                "percent": 40,
+                "resets_at": null,
+                "is_active": false,
+                "scope": { "model": { "id": null, "display_name": "Fable" } }
+            }
+        ]
+    }"#;
+    let response: UsageResponse = serde_json::from_str(json).unwrap();
+    let snapshot = response.into_snapshot(fetched_at());
+    let fable = snapshot.scoped_named("Fable").unwrap();
+    assert_eq!(fable.usage.window, LimitWindow::FiveHour);
+    // Fallback reset = fetched_at + 5h, not + 7d.
+    assert_eq!(
+        fable.usage.resets_at,
+        "2026-07-17T17:00:00Z".parse::<Timestamp>().unwrap()
     );
 }
 

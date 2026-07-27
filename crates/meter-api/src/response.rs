@@ -5,7 +5,14 @@ use serde::Deserialize;
 /// Kinds already surfaced through the flat headline fields. Entries with
 /// these kinds are excluded from the scoped pass so a limit the API reports
 /// both ways cannot render twice.
-const HEADLINE_KINDS: &[&str] = &["five_hour", "seven_day"];
+///
+/// `session` and `weekly_all` are what a captured live payload actually sends;
+/// `five_hour`/`seven_day` are the names the flat fields use and are kept
+/// because the API has used both. Today every headline entry also carries
+/// `scope: null` and so would be dropped for lack of a model anyway — this list
+/// is what keeps that from being the only thing standing between a scoped
+/// headline entry and a duplicate card.
+const HEADLINE_KINDS: &[&str] = &["five_hour", "seven_day", "session", "weekly_all"];
 
 /// Raw shape of `GET /api/organizations/{org_id}/usage`.
 ///
@@ -176,8 +183,13 @@ impl RawLimit {
     }
 }
 
+/// The cadence a `limits` entry paces over. Weekly is the fallback because
+/// every scoped kind observed so far (`weekly_scoped`) is weekly; `session` is
+/// listed alongside `five_hour` because that is the name the live payload uses
+/// for the short window, so a future `session_scoped` lands in the right window
+/// instead of being paced over seven days.
 fn window_for_kind(kind: &str) -> LimitWindow {
-    if kind.starts_with("five_hour") {
+    if kind.starts_with("five_hour") || kind.starts_with("session") {
         LimitWindow::FiveHour
     } else {
         LimitWindow::SevenDay

@@ -70,6 +70,20 @@
   box-sizing: border-box;
 }
 
+/* Every "show this only when …" element in the app is toggled with the `hidden`
+   attribute, and the UA stylesheet's `[hidden] { display: none }` loses to *any*
+   author rule that sets `display` on the same element (author origin always
+   wins). A hidden element that happens to be a flex container therefore stays on
+   screen, showing whatever its unfilled slots say — the Settings demo-endpoint
+   banner shipped in 0.1.4 announcing "reading usage from ⟨nothing⟩". Restoring
+   the invariant once, globally, is the only version of this that cannot rot: the
+   per-class `[hidden]` override it replaces has to be remembered for every new
+   rule, and twice already it wasn't. `!important` is what makes it independent of
+   selector specificity, which is the whole point. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
 }
@@ -477,10 +491,6 @@ body {
   padding: 0.5rem 0.7rem;
 }
 
-/* `.session-form` sets its own `display`, which would otherwise beat the
-   UA stylesheet's `[hidden] { display: none }` (same specificity, author
-   origin always wins) and keep the form visible even with the `hidden`
-   attribute set — hence the explicit override below. */
 .session-form {
   display: flex;
   flex-direction: column;
@@ -489,10 +499,6 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.75rem 0.8rem;
-}
-
-.session-form[hidden] {
-  display: none;
 }
 
 .session-form label {
@@ -765,10 +771,6 @@ body {
   overflow-y: auto;
 }
 
-.wizard-panel[hidden] {
-  display: none;
-}
-
 .wizard-card {
   margin: auto 0;
   display: flex;
@@ -793,10 +795,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-}
-
-.wizard-step[hidden] {
-  display: none;
 }
 
 .wizard-step h2 {

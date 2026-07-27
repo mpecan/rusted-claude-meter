@@ -64,25 +64,29 @@ describe("buildViewModel — cards", () => {
     expect(viewModel.cards.map((c) => c.id)).toEqual(["five_hour"]);
   });
 
-  it("only renders visible (is_active) scoped limits", () => {
+  it("renders an opted-in scoped limit the API reports as not is_active", () => {
+    // The regression behind "Fable doesn't show up even though claude.ai has
+    // the data": live responses report `is_active: false` on every weekly
+    // window, so it cannot be a visibility gate. Mirrors the Rust-side
+    // `opt_in_is_the_only_gate_is_active_does_not_suppress_a_line`.
     const viewModel = buildViewModel(
       state({
         snapshot: {
           five_hour: null,
           seven_day: null,
-          scoped: [scoped("Sonnet", true), scoped("CodeOnly", false)],
+          scoped: [scoped("Fable", false)],
           spend: null, fetched_at: NOW.toISOString(),
         },
       }),
       NOW,
-      ALL_SHOWN,
+      new Set(["Fable"]),
     );
-    expect(viewModel.cards.map((c) => c.id)).toEqual(["scoped:Sonnet"]);
+    expect(viewModel.cards.map((c) => c.id)).toEqual(["scoped:Fable"]);
   });
 
   it("hides every scoped model by default (empty shown set)", () => {
-    // Both models are `is_active`, but an empty `shownScopedModels` — the
-    // default until the user opts in via Settings — keeps them out.
+    // An empty `shownScopedModels` — the default until the user opts in via
+    // Settings — keeps both models out.
     const viewModel = buildViewModel(DEMO_STATE, NOW, new Set());
     expect(viewModel.cards.map((c) => c.id)).toEqual(["five_hour", "seven_day"]);
   });
@@ -92,21 +96,22 @@ describe("buildViewModel — cards", () => {
     expect(viewModel.cards.map((c) => c.id)).toEqual(["five_hour", "seven_day", "scoped:Fable"]);
   });
 
-  it("requires both is_active and opt-in — either gate alone is not enough", () => {
+  it("opt-in is the only gate — is_active never suppresses a card", () => {
     const viewModel = buildViewModel(
       state({
         snapshot: {
           five_hour: null,
           seven_day: null,
-          scoped: [scoped("Sonnet", true), scoped("CodeOnly", false)],
+          // Mixed flags on purpose: neither value changes the outcome, only
+          // membership of the opt-in set does.
+          scoped: [scoped("Sonnet", true), scoped("Fable", false), scoped("CodeOnly", false)],
           spend: null, fetched_at: NOW.toISOString(),
         },
       }),
       NOW,
-      // Both models opted in, but "CodeOnly" is not `is_active`.
-      new Set(["Sonnet", "CodeOnly"]),
+      new Set(["Sonnet", "Fable"]),
     );
-    expect(viewModel.cards.map((c) => c.id)).toEqual(["scoped:Sonnet"]);
+    expect(viewModel.cards.map((c) => c.id)).toEqual(["scoped:Sonnet", "scoped:Fable"]);
   });
 
   it("produces no cards without a snapshot", () => {

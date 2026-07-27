@@ -4,6 +4,10 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    /* Node's built-ins, for `styles.test.ts` reading the stylesheet off disk.
+       Named explicitly rather than left to the default sweep of node_modules/
+       @types so the app code's ambient surface stays a deliberate list. */
+    "types": ["node"],
     "skipLibCheck": true,
 
     /* Bundler mode */
