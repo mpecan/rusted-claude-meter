@@ -1,15 +1,26 @@
 // Pure view-model helpers for the first-run setup wizard (issue #11): welcome
-// → session (import or paste) → validate → pick icon style + interval →
-// done. No DOM, no Tauri, fully unit-testable — mirrors the split
+// → consent → session (import or paste) → validate → pick icon style +
+// interval → done. No DOM, no Tauri, fully unit-testable — mirrors the split
 // `settings-view-model.ts` and `browser-import.ts` use. The DOM wiring lives
 // in `wizard.ts`.
 
 import type { AppSettings, IconStyle, RefreshInterval, SessionSubmission } from "./types";
 
-/** The wizard's steps, in the order the user walks through them. */
-export type WizardStep = "welcome" | "session" | "validate" | "customize" | "done";
+/** The wizard's steps, in the order the user walks through them.
+ *
+ * `consent` sits before `session` deliberately: the Terms-of-Service risk has
+ * to be accepted before the app asks for a claude.ai credential, because
+ * asking for the credential is the first step toward using it. */
+export type WizardStep = "welcome" | "consent" | "session" | "validate" | "customize" | "done";
 
-export const WIZARD_STEPS: readonly WizardStep[] = ["welcome", "session", "validate", "customize", "done"];
+export const WIZARD_STEPS: readonly WizardStep[] = [
+  "welcome",
+  "consent",
+  "session",
+  "validate",
+  "customize",
+  "done",
+];
 
 /** 1-based position of `step` among `WIZARD_STEPS`, for a "Step 2 of 5"
  * indicator. */
@@ -42,4 +53,12 @@ export function wizardCustomizeDefaults(
   settings: Pick<AppSettings, "icon_style" | "refresh_interval">,
 ): { iconStyle: IconStyle; refreshInterval: RefreshInterval } {
   return { iconStyle: settings.icon_style, refreshInterval: settings.refresh_interval };
+}
+
+/** Whether the wizard may leave the consent step. The gate is the checkbox:
+ * there is no "skip" and no "decide later", because every step after this one
+ * involves contacting claude.ai. Trivial as a function, but it is the rule the
+ * step's Continue button encodes, so it is stated once and tested. */
+export function canLeaveConsentStep(acknowledged: boolean): boolean {
+  return acknowledged;
 }

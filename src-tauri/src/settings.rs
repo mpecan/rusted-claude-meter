@@ -137,6 +137,18 @@ pub struct AppSettings {
     /// live `ResponseLog` sink is flipped by `set_debug_logging`; this field is
     /// the persisted state it restores on the next launch.
     pub debug_logging: bool,
+    /// Whether the user has read the Terms-of-Service warning and accepted the
+    /// risk of polling claude.ai's internal usage endpoint with their session
+    /// cookie (see `crate::consent` and `docs/terms-of-service.md`).
+    ///
+    /// **Defaults to `false`, and deliberately has no back-compat escape
+    /// hatch**: the struct-level `#[serde(default)]` that lets older settings
+    /// files keep their other choices fills this field from `Default`, so an
+    /// existing install upgrading into this version arrives with consent
+    /// *withheld* and stops polling until the user answers. That is the point
+    /// — the warning is worth nothing if the app is already making the
+    /// requests it warns about.
+    pub tos_acknowledged: bool,
 }
 
 impl Default for AppSettings {
@@ -156,6 +168,7 @@ impl Default for AppSettings {
             pace_first_display: false,
             pace_tracking_enabled: true,
             debug_logging: false,
+            tos_acknowledged: false,
         }
     }
 }
@@ -292,6 +305,7 @@ mod tests {
             pace_first_display: true,
             pace_tracking_enabled: false,
             debug_logging: true,
+            tos_acknowledged: true,
         }
     }
 
@@ -521,6 +535,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(load(&path).usage_mode, UsageMode::Auto);
+    }
+
+    #[test]
+    fn tos_acknowledgement_defaults_to_withheld() {
+        assert!(!AppSettings::default().tos_acknowledged);
+    }
+
+    #[test]
+    fn an_upgrading_install_arrives_with_consent_withheld() {
+        // The whole point of the gate: a settings file written by a build
+        // that predates `tos_acknowledged` must decode as *not* acknowledged,
+        // keeping every other choice the user made. An existing install
+        // upgrading into this version therefore stops polling until the user
+        // answers the question — silence is never taken for agreement.
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        fs::write(
+            &path,
+            r#"{"version":1,"settings":{"popover_layout":"cards","refresh_interval":"five_minutes"}}"#,
+        )
+        .unwrap();
+        let loaded = load(&path);
+        assert!(!loaded.tos_acknowledged);
+        // The user's other choices must survive: this is an upgrade, not a
+        // reset. (Asserted so the test can't pass by the whole file failing to
+        // decode and falling back to `AppSettings::default`, which would also
+        // leave `tos_acknowledged` false — for the wrong reason.)
+        assert_eq!(loaded.popover_layout, PopoverLayout::Cards);
+        assert_eq!(loaded.refresh_interval, RefreshInterval::FiveMinutes);
     }
 
     #[test]

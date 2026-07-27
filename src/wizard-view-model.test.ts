@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   WIZARD_STEPS,
+  canLeaveConsentStep,
   describeWizardValidation,
   stepIndicatorLabel,
   stepNumber,
@@ -10,17 +11,39 @@ import {
 
 describe("stepNumber", () => {
   it("numbers every step 1-based, in order", () => {
-    expect(WIZARD_STEPS.map(stepNumber)).toEqual([1, 2, 3, 4, 5]);
+    expect(WIZARD_STEPS.map(stepNumber)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });
 
 describe("stepIndicatorLabel", () => {
   it("describes the welcome step as step 1", () => {
-    expect(stepIndicatorLabel("welcome")).toBe("Step 1 of 5");
+    expect(stepIndicatorLabel("welcome")).toBe("Step 1 of 6");
   });
 
   it("describes the done step as the last step", () => {
-    expect(stepIndicatorLabel("done")).toBe("Step 5 of 5");
+    expect(stepIndicatorLabel("done")).toBe("Step 6 of 6");
+  });
+});
+
+describe("the consent step's position", () => {
+  it("comes before the session step", () => {
+    // Load-bearing ordering, not cosmetic: the app must not ask for a
+    // claude.ai credential before the user has accepted the risk of using it.
+    expect(WIZARD_STEPS.indexOf("consent")).toBeLessThan(WIZARD_STEPS.indexOf("session"));
+  });
+
+  it("comes after the welcome step, so the warning is not the first thing on screen", () => {
+    expect(WIZARD_STEPS.indexOf("consent")).toBeGreaterThan(WIZARD_STEPS.indexOf("welcome"));
+  });
+});
+
+describe("canLeaveConsentStep", () => {
+  it("blocks Continue until the box is ticked", () => {
+    expect(canLeaveConsentStep(false)).toBe(false);
+  });
+
+  it("allows Continue once it is", () => {
+    expect(canLeaveConsentStep(true)).toBe(true);
   });
 });
 

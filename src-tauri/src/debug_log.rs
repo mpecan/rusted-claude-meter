@@ -12,10 +12,10 @@
 //! are their own business on a shared machine. Logging is best-effort — a write
 //! failure is swallowed so it can never break a poll — and off by default.
 
+use crate::sync::AtomicFlag;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use jiff::Timestamp;
 
@@ -34,7 +34,7 @@ const MAX_LOG_BYTES: u64 = 4 * 1024 * 1024;
 /// see the same atomic flag and path.
 #[derive(Debug)]
 pub struct ResponseLog {
-    enabled: AtomicBool,
+    enabled: AtomicFlag,
     /// Destination file, or `None` when no log directory could be resolved — in
     /// which case logging is a no-op regardless of the toggle.
     path: Option<PathBuf>,
@@ -45,7 +45,7 @@ impl ResponseLog {
     #[must_use]
     pub const fn new(path: Option<PathBuf>, enabled: bool) -> Self {
         Self {
-            enabled: AtomicBool::new(enabled),
+            enabled: AtomicFlag::new(enabled),
             path,
         }
     }
@@ -60,7 +60,7 @@ impl ResponseLog {
     /// Turn logging on or off (the Settings toggle). Takes effect on the next
     /// recorded response.
     pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Relaxed);
+        self.enabled.set(enabled);
     }
 
     /// The log file path, for display in Settings. `None` when no log directory
@@ -75,7 +75,7 @@ impl ResponseLog {
     /// error is intentionally swallowed: capturing a debug trace must never
     /// perturb polling.
     pub fn record(&self, endpoint: &str, body: &str) {
-        if !self.enabled.load(Ordering::Relaxed) {
+        if !self.enabled.get() {
             return;
         }
         if let Some(path) = self.path.as_deref() {

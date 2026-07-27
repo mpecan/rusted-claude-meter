@@ -1,6 +1,8 @@
-// DOM wiring for the first-run setup wizard (issue #11): welcome → session
-// (import via #10 or paste) → validate (spinner + friendly errors) → pick
-// icon style + interval → done. Kept separate from `main.ts` for the same
+// DOM wiring for the first-run setup wizard (issue #11): welcome → consent →
+// session (import via #10 or paste) → validate (spinner + friendly errors) →
+// pick icon style + interval → done. The consent step is a hard gate, not a
+// notice: until its checkbox is ticked the Continue button stays disabled and
+// the backend refuses every claude.ai call anyway (see `src-tauri/src/consent.rs`). Kept separate from `main.ts` for the same
 // reason the Settings panel's own render/logic split is: this is a whole
 // self-contained flow with its own element ids, and factoring it out keeps
 // `main.ts` from having to know its internals — `main.ts` only calls
@@ -25,10 +27,18 @@ import { createIconStylePicker } from "./icon-style-picker";
 import { describeError } from "./ipc";
 import type { UsageBackend } from "./ipc";
 import { renderSelectOptions } from "./settings-render";
+import {
+  DOCS_URL,
+  TOS_BODY,
+  TOS_CONSENT_LABEL,
+  TOS_HEADLINE,
+  TOS_MITIGATION,
+} from "./tos-notice";
 import { REFRESH_INTERVAL_OPTIONS } from "./types";
 import type { Browser, IconStyle, RefreshInterval } from "./types";
 import {
   type WizardStep,
+  canLeaveConsentStep,
   describeWizardValidation,
   stepIndicatorLabel,
   wizardCustomizeDefaults,
@@ -41,6 +51,9 @@ import {
 export interface WizardCallbacks {
   onIconStyleChange(style: IconStyle): void;
   onRefreshIntervalChange(interval: RefreshInterval): void;
+  /** The consent step moved the ToS acknowledgement, so the Settings panel's
+   * own checkbox and paused/active hint stay in step with it. */
+  onTosAcknowledgedChange(acknowledged: boolean): void;
   /** Called every time the wizard closes, finished or cancelled, so the
    * caller can refresh anything the wizard may have changed (session status,
    * browser list). */
@@ -74,6 +87,7 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
 
   const steps: Record<WizardStep, HTMLElement> = {
     welcome: requireElement("wizard-step-welcome"),
+    consent: requireElement("wizard-step-consent"),
     session: requireElement("wizard-step-session"),
     validate: requireElement("wizard-step-validate"),
     customize: requireElement("wizard-step-customize"),
@@ -82,6 +96,17 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
 
   const skipButton = requireElement<HTMLButtonElement>("wizard-skip-button");
   const startButton = requireElement<HTMLButtonElement>("wizard-start-button");
+
+  const tosHeadline = requireElement<HTMLElement>("wizard-tos-headline");
+  const tosBody = requireElement<HTMLElement>("wizard-tos-body");
+  const tosMitigation = requireElement<HTMLElement>("wizard-tos-mitigation");
+  const tosDocsLink = requireElement<HTMLButtonElement>("wizard-tos-docs-link");
+  const tosConsent = requireElement<HTMLInputElement>("wizard-tos-consent");
+  const tosConsentLabel = requireElement<HTMLElement>("wizard-tos-consent-label");
+  const consentBackButton = requireElement<HTMLButtonElement>("wizard-consent-back-button");
+  const consentContinueButton = requireElement<HTMLButtonElement>(
+    "wizard-consent-continue-button",
+  );
 
   const browserImportList = requireElement<HTMLElement>("wizard-browser-import-list");
   const sessionForm = requireElement<HTMLFormElement>("wizard-session-form");
@@ -103,6 +128,13 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   const finishButton = requireElement<HTMLButtonElement>("wizard-finish-button");
 
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
+
+  // Copy comes from `tos-notice.ts` so the wizard and Settings state the same
+  // risk in the same words — see that module's header.
+  tosHeadline.textContent = TOS_HEADLINE;
+  tosBody.textContent = TOS_BODY.join(" ");
+  tosMitigation.textContent = TOS_MITIGATION;
+  tosConsentLabel.textContent = TOS_CONSENT_LABEL;
 
   const iconStylePicker = createIconStylePicker(iconStyleContainer, "battery", (style) => {
     backend.setIconStyle(style).catch((error: unknown) => {
@@ -134,6 +166,13 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
           console.error("failed to detect desktop session", error);
         });
     }
+  }
+
+  /** Keep Continue in step with the checkbox, and persist the answer as it is
+   * given rather than on Continue — so a user who ticks the box and closes the
+   * wizard has still consented, and one who unticks it has still withdrawn. */
+  function syncConsent(): void {
+    consentContinueButton.disabled = !canLeaveConsentStep(tosConsent.checked);
   }
 
   function loadBrowsers(): void {
@@ -204,10 +243,21 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
       });
   });
 
-  sessionBackButton.addEventListener("click", () => goToStep("welcome"));
+  tosConsent.addEventListener("change", () => {
+    syncConsent();
+    backend.setTosAcknowledged(tosConsent.checked).catch((error: unknown) => {
+      console.error("failed to persist ToS acknowledgement", error);
+    });
+    callbacks.onTosAcknowledgedChange(tosConsent.checked);
+  });
+  tosDocsLink.addEventListener("click", () => handleOpenSettingsPane(DOCS_URL));
+  consentBackButton.addEventListener("click", () => goToStep("welcome"));
+  consentContinueButton.addEventListener("click", () => goToStep("session"));
+
+  sessionBackButton.addEventListener("click", () => goToStep("consent"));
   sessionCancelButton.addEventListener("click", close);
   skipButton.addEventListener("click", close);
-  startButton.addEventListener("click", () => goToStep("session"));
+  startButton.addEventListener("click", () => goToStep("consent"));
 
   validateRetryButton.addEventListener("click", () => goToStep("session"));
   validateContinueButton.addEventListener("click", () => goToStep("customize"));
@@ -250,6 +300,10 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
         const defaults = wizardCustomizeDefaults(settings);
         iconStylePicker.setSelected(defaults.iconStyle);
         refreshIntervalSelect.value = defaults.refreshInterval;
+        // Reflect a previously given answer, so "Run setup again" does not
+        // present someone who already consented with an unticked box.
+        tosConsent.checked = settings.tos_acknowledged;
+        syncConsent();
       })
       .catch((error: unknown) => {
         console.error("failed to load current settings for the customize step", error);
@@ -260,6 +314,10 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     panel.hidden = false;
     sessionInput.value = "";
     sessionError.hidden = true;
+    // Closed until `loadCustomizeDefaults` says otherwise: the box must never
+    // be pre-ticked on a first run.
+    tosConsent.checked = false;
+    syncConsent();
     loadCustomizeDefaults();
     goToStep("welcome");
   }

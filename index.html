@@ -82,6 +82,25 @@
           </p>
         </div>
 
+        <!-- First section in the panel on purpose: it is the switch that
+             decides whether this app talks to claude.ai at all. -->
+        <div class="settings-section">
+          <h3>Terms of Service</h3>
+          <div class="tos-notice">
+            <strong id="settings-tos-headline"></strong>
+            <p id="settings-tos-body"></p>
+            <p id="settings-tos-mitigation" class="tos-mitigation"></p>
+            <button id="settings-tos-docs-link" class="link-button" type="button">
+              Read the full explanation, with the clauses quoted
+            </button>
+          </div>
+          <label class="tos-consent">
+            <input id="settings-tos-consent" type="checkbox" />
+            <span id="settings-tos-consent-label"></span>
+          </label>
+          <p id="settings-tos-state" class="settings-hint" role="status"></p>
+        </div>
+
         <div class="settings-section">
           <h3>Setup</h3>
           <p class="settings-hint">Re-run the first-run wizard: session, tray icon, refresh interval.</p>
@@ -303,6 +322,32 @@
                 </button>
                 <button id="wizard-start-button" class="primary-button" type="button">
                   Get started
+                </button>
+              </div>
+            </div>
+
+            <!-- Sits between welcome and session on purpose: the risk has to
+                 be accepted before the app asks for a credential, not after. -->
+            <div id="wizard-step-consent" class="wizard-step" hidden>
+              <h2>Before you connect</h2>
+              <div class="tos-notice">
+                <strong id="wizard-tos-headline"></strong>
+                <p id="wizard-tos-body"></p>
+                <p id="wizard-tos-mitigation" class="tos-mitigation"></p>
+                <button id="wizard-tos-docs-link" class="link-button" type="button">
+                  Read the full explanation, with the clauses quoted
+                </button>
+              </div>
+              <label class="tos-consent">
+                <input id="wizard-tos-consent" type="checkbox" />
+                <span id="wizard-tos-consent-label"></span>
+              </label>
+              <div class="wizard-actions">
+                <button id="wizard-consent-back-button" class="ghost-button" type="button">
+                  Back
+                </button>
+                <button id="wizard-consent-continue-button" class="primary-button" type="button" disabled>
+                  Continue
                 </button>
               </div>
             </div>

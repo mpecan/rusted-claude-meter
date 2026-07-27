@@ -277,6 +277,22 @@ describe("buildViewModel — banner and status line", () => {
     expect(viewModel.statusLine).toBe("No session key — paste one below to get started");
   });
 
+  it("reports paused, not broken, when ToS consent is withheld", () => {
+    const viewModel = buildViewModel(state({ phase: "awaiting_consent" }), NOW, ALL_SHOWN);
+    expect(viewModel.bannerKind).toBe("awaiting_consent");
+    expect(viewModel.statusLine).toBe("Paused — review the risk in Settings to start tracking");
+    // No session CTA: pasting a key would be refused by the backend anyway
+    // while the gate is closed, so offering the field would just mislead.
+    expect(viewModel.showSessionForm).toBe(false);
+  });
+
+  it("keeps showing cached numbers, dated, after consent is withdrawn", () => {
+    const withdrawn: MeterState = { ...DEMO_STATE, phase: "awaiting_consent" };
+    const viewModel = buildViewModel(withdrawn, NOW, ALL_SHOWN);
+    expect(viewModel.statusLine).toBe("Paused — showing data from under 1m ago");
+    expect(viewModel.cards.length).toBeGreaterThan(0);
+  });
+
   it("surfaces cached data age alongside the session-expired CTA", () => {
     const aged: MeterState = { ...DEMO_STATE, phase: "session_expired" };
     const viewModel = buildViewModel(aged, NOW, ALL_SHOWN);

@@ -107,6 +107,11 @@ export interface UsageBackend {
   /** Switch the usage view mode (Auto / Allowance / Cost). Resolves with the
    * resulting settings. */
   setUsageMode(mode: UsageMode): Promise<AppSettings>;
+  /** Accept or withdraw the Terms-of-Service risk acknowledgement — the gate
+   * on every claude.ai request this app makes. Turning it off parks the
+   * scheduler immediately; turning it on resumes polling. Resolves with the
+   * resulting settings. See `docs/terms-of-service.md`. */
+  setTosAcknowledged(acknowledged: boolean): Promise<AppSettings>;
   /** Toggle debug logging of raw API responses to a local file. Resolves with
    * the resulting settings. */
   setDebugLogging(enabled: boolean): Promise<AppSettings>;
@@ -248,6 +253,10 @@ class TauriBackend implements UsageBackend {
 
   setUsageMode(mode: UsageMode): Promise<AppSettings> {
     return invoke<AppSettings>("set_usage_mode", { mode });
+  }
+
+  setTosAcknowledged(acknowledged: boolean): Promise<AppSettings> {
+    return invoke<AppSettings>("set_tos_acknowledged", { acknowledged });
   }
 
   setDebugLogging(enabled: boolean): Promise<AppSettings> {
@@ -527,6 +536,11 @@ class DemoBackend implements UsageBackend {
 
   setUsageMode(mode: UsageMode): Promise<AppSettings> {
     this.settings = { ...this.settings, usage_mode: mode };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  setTosAcknowledged(acknowledged: boolean): Promise<AppSettings> {
+    this.settings = { ...this.settings, tos_acknowledged: acknowledged };
     return Promise.resolve({ ...this.settings });
   }
 

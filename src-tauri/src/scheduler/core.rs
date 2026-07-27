@@ -54,6 +54,10 @@ pub enum FetchOutcome {
     Success(UsageSnapshot),
     /// No session key is stored; polling pauses until the user provides one.
     NoSession,
+    /// The user has not accepted the Terms-of-Service risk, so no request was
+    /// made — the gate is checked before the credential store is even read.
+    /// Polling pauses until consent is given (see `crate::consent`).
+    NotAcknowledged,
     /// HTTP 401: the key expired. Polling pauses — retrying cannot help and
     /// would only hammer the API (no retry storm).
     Unauthorized,
@@ -72,6 +76,11 @@ pub enum Phase {
     Degraded,
     /// No session key stored; waiting for the user.
     AwaitingSession,
+    /// The Terms-of-Service warning has not been accepted; nothing is polled at all.
+    /// Distinct from `AwaitingSession` because the remedy is different and
+    /// the app must say which one it is: a missing key is a setup step, this
+    /// is a decision the user is being asked to make.
+    AwaitingConsent,
     /// Session key rejected (401); waiting for a new key.
     SessionExpired,
 }
@@ -153,6 +162,10 @@ impl SchedulerCore {
                 self.failures = 0;
                 self.phase = Phase::AwaitingSession;
             }
+            FetchOutcome::NotAcknowledged => {
+                self.failures = 0;
+                self.phase = Phase::AwaitingConsent;
+            }
             FetchOutcome::Unauthorized => {
                 self.failures = 0;
                 self.phase = Phase::SessionExpired;
@@ -180,7 +193,7 @@ impl SchedulerCore {
     /// the same outage do not stampede.
     pub fn next_delay(&self, jitter: f64) -> Option<Duration> {
         match self.phase {
-            Phase::AwaitingSession | Phase::SessionExpired => None,
+            Phase::AwaitingSession | Phase::SessionExpired | Phase::AwaitingConsent => None,
             Phase::Polling => Some(self.interval.duration()),
             Phase::Degraded => Some(backoff_delay(self.failures, jitter)),
         }
@@ -354,6 +367,33 @@ mod tests {
         core.record(FetchOutcome::NoSession);
         assert_eq!(core.next_delay(0.5), None);
         assert_eq!(core.state(now()).phase, Phase::AwaitingSession);
+    }
+
+    #[test]
+    fn withheld_consent_pauses_polling_entirely() {
+        let mut core = SchedulerCore::new(RefreshInterval::OneMinute, None);
+        core.record(FetchOutcome::NotAcknowledged);
+        assert_eq!(core.next_delay(0.5), None);
+        assert_eq!(core.state(now()).phase, Phase::AwaitingConsent);
+    }
+
+    #[test]
+    fn withheld_consent_keeps_the_last_good_snapshot() {
+        // Withdrawing consent stops *fetching*; it does not pretend the
+        // numbers already on screen were never seen. Same discipline as every
+        // other non-success outcome.
+        let mut core = core_with_snapshot(30);
+        core.record(FetchOutcome::NotAcknowledged);
+        assert!(core.state(now()).snapshot.is_some());
+    }
+
+    #[test]
+    fn resume_restores_polling_after_consent_is_given() {
+        let mut core = SchedulerCore::new(RefreshInterval::OneMinute, None);
+        core.record(FetchOutcome::NotAcknowledged);
+        core.resume();
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(1)));
+        assert_eq!(core.state(now()).phase, Phase::Polling);
     }
 
     #[test]

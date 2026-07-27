@@ -191,6 +191,65 @@ body {
   color: var(--color-accent);
 }
 
+/* Consent withheld: nothing is being fetched. Warning-coloured rather than
+   critical-red — this is a state the user chose, not a fault. */
+.status-line[data-banner="awaiting_consent"] {
+  background: rgb(232 133 12 / 14%);
+  color: var(--color-warning);
+}
+
+/* The Terms-of-Service warning, shown in Settings and as the wizard's consent
+   step. Styled as a warning panel (it borrows the demo-endpoint banner's
+   shape) because it is the one thing in this app a user can regret not
+   reading. */
+.tos-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--color-warning);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+}
+
+.tos-notice strong {
+  font-size: 0.85rem;
+  color: var(--color-warning);
+}
+
+.tos-notice p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.tos-notice .tos-mitigation {
+  color: var(--text-muted);
+}
+
+.tos-notice .link-button {
+  align-self: flex-start;
+  font-size: 0.78rem;
+}
+
+/* The consent checkbox itself. Given more room than an ordinary settings
+   toggle so it reads as a decision rather than a preference. */
+.tos-consent {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.6rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.tos-consent input {
+  flex: none;
+  margin-top: 0.15rem;
+}
+
 .empty-state {
   margin: 0.25rem 0;
   font-size: 0.85rem;

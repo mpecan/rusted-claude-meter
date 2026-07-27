@@ -15,6 +15,8 @@
 //!   [`run_store_op`]'s blocking pool, so a slow or stuck credential daemon
 //!   can never freeze tray or window redraws.
 
+pub mod browser;
+pub mod consent;
 pub mod debug;
 pub mod pace;
 pub mod popover;
@@ -30,7 +32,8 @@ use tauri::{Emitter, State};
 use crate::browser_import::{
     LiveSessionValidator, SessionValidator, StoreAndValidateError, store_and_validate,
 };
-use crate::scheduler::{MeterState, RefreshInterval, SchedulerHandle};
+use crate::consent::ConsentGate;
+use crate::scheduler::{FetchOutcome, MeterState, RefreshInterval, SchedulerHandle};
 use crate::settings::{AppSettings, PopoverLayout, SettingsState};
 use crate::store::{SessionStore, StoreError, run_store_op};
 use crate::tray;
@@ -61,6 +64,9 @@ pub enum SessionCommandError {
     Rejected(String),
     /// The credential-store backend failed.
     Store(String),
+    /// Terms-of-Service consent is withheld, so validating the key against claude.ai —
+    /// which is a request to claude.ai — was refused (`crate::consent`).
+    NotAcknowledged(String),
 }
 
 impl From<SessionKeyError> for SessionCommandError {
@@ -143,8 +149,16 @@ fn session_status_impl(store: &dyn SessionStore) -> Result<SessionStatus, StoreE
 pub async fn set_session_key(
     state: State<'_, SessionStoreState>,
     scheduler: State<'_, SchedulerHandle>,
+    consent: State<'_, Arc<ConsentGate>>,
     input: String,
 ) -> Result<SessionSubmission, SessionCommandError> {
+    // Storing a key means validating it against claude.ai, which is a
+    // request; refuse before making one (see `crate::consent`).
+    if !consent.get() {
+        return Err(SessionCommandError::NotAcknowledged(
+            consent::WITHHELD_MESSAGE.to_owned(),
+        ));
+    }
     // Owned handles, so nothing borrowed from the `State` guards is held
     // across the await (mirrors `import_browser_session`).
     let store = Arc::clone(&state.0);
@@ -176,7 +190,7 @@ pub async fn clear_session_key(
     scheduler: State<'_, SchedulerHandle>,
 ) -> Result<(), SessionCommandError> {
     run_store_op(&state.0, |store| store.clear()).await?;
-    scheduler.mark_no_session();
+    scheduler.update(|core| core.record(FetchOutcome::NoSession));
     Ok(())
 }
 
@@ -205,7 +219,7 @@ pub fn set_refresh_interval(
     settings: State<'_, SettingsState>,
     interval: RefreshInterval,
 ) {
-    scheduler.set_interval(interval);
+    scheduler.update(|core| core.set_interval(interval));
     settings.update(|s| s.refresh_interval = interval);
 }
 

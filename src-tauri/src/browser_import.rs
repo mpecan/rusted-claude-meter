@@ -31,12 +31,9 @@ use meter_core::{Browser, BrowserFamily, SessionKey};
 #[cfg(feature = "browser-import")]
 use meter_core::{CookieImportError, Os, session_key_from_cookies};
 use serde::Serialize;
-use tauri::State;
 
-use crate::commands::SessionStoreState;
 #[cfg(feature = "browser-import")]
-use crate::cookie_reader::{BrowserCookieReader, CookieStoreError, RookieCookieReader};
-use crate::scheduler::SchedulerHandle;
+use crate::cookie_reader::{BrowserCookieReader, CookieStoreError};
 use crate::store::{SessionStore, run_store_op};
 
 /// A browser offered to the user as an import source, with the permission
@@ -89,6 +86,9 @@ pub enum BrowserImportError {
     Rejected(String),
     /// The credential store refused to persist the key.
     Store(String),
+    /// Terms-of-Service consent is withheld, so nothing was read or contacted at all
+    /// (`crate::consent`).
+    NotAcknowledged(String),
 }
 
 /// Confirms a session key with claude.ai. The seam the import flow is generic
@@ -158,7 +158,7 @@ impl SessionValidator for LiveSessionValidator {
 /// The importable browsers for `os`, with per-browser permission copy. Pure,
 /// so it is exercised without a Tauri runtime.
 #[cfg(feature = "browser-import")]
-fn detected_browsers(os: Os) -> Vec<DetectedBrowser> {
+pub fn detected_browsers(os: Os) -> Vec<DetectedBrowser> {
     Browser::ALL
         .into_iter()
         .filter(|browser| browser.available_on(os))
@@ -174,7 +174,7 @@ fn detected_browsers(os: Os) -> Vec<DetectedBrowser> {
 
 /// The OS this binary is running on, in the domain crate's terms.
 #[cfg(feature = "browser-import")]
-const fn current_os() -> Os {
+pub const fn current_os() -> Os {
     #[cfg(target_os = "macos")]
     {
         Os::MacOs
@@ -249,7 +249,7 @@ pub async fn store_and_validate(
 /// claude.ai is rolled back (see [`store_and_validate`]), so a failed import
 /// never destroys a working session and nothing invalid lingers.
 #[cfg(feature = "browser-import")]
-async fn import_impl(
+pub async fn import_impl(
     reader: impl BrowserCookieReader + 'static,
     validator: &impl SessionValidator,
     store: &Arc<dyn SessionStore>,
@@ -302,64 +302,6 @@ async fn import_impl(
         browser: display_name,
         validated,
     })
-}
-
-/// List the browsers the user can import a session from on this platform,
-/// with the permission story each implies. Empty in the "lite" build, where
-/// automated import is compiled out and only manual session-key paste remains.
-#[tauri::command]
-#[cfg_attr(not(feature = "browser-import"), allow(clippy::missing_const_for_fn))]
-pub fn list_browser_sessions() -> Vec<DetectedBrowser> {
-    #[cfg(feature = "browser-import")]
-    {
-        detected_browsers(current_os())
-    }
-    #[cfg(not(feature = "browser-import"))]
-    {
-        Vec::new()
-    }
-}
-
-/// Import the claude.ai session from `browser`: read it, persist it, validate
-/// it, and wake the polling loop so the new key takes effect immediately.
-/// Reports "unavailable" in the "lite" build (no cookie-store access).
-#[tauri::command]
-#[cfg_attr(not(feature = "browser-import"), allow(clippy::unused_async))]
-pub async fn import_browser_session(
-    state: State<'_, SessionStoreState>,
-    scheduler: State<'_, SchedulerHandle>,
-    browser: Browser,
-) -> Result<ImportSummary, BrowserImportError> {
-    #[cfg(feature = "browser-import")]
-    {
-        // Extract owned handles before the first `await`: the `State` guards
-        // are not `Send`, so holding them across the await would make the
-        // command's future non-`Send`, which Tauri requires.
-        let store = Arc::clone(&state.0);
-        let scheduler = (*scheduler).clone();
-
-        let summary = import_impl(
-            RookieCookieReader,
-            &LiveSessionValidator::new(),
-            &store,
-            current_os(),
-            browser,
-        )
-        .await?;
-
-        scheduler.resume_polling();
-        Ok(summary)
-    }
-    #[cfg(not(feature = "browser-import"))]
-    {
-        // Browser import is compiled out in this build; manual session-key
-        // paste is the way in.
-        let _ = (state, scheduler, browser);
-        Err(BrowserImportError::Unsupported(
-            "Browser import isn't available in this build — paste your session key instead."
-                .to_owned(),
-        ))
-    }
 }
 
 // Two separate cfg attributes (not `all(test, …)`) so clippy still recognizes

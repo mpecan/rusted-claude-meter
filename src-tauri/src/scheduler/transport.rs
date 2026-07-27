@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use jiff::Timestamp;
 use meter_api::{ApiError, UsageClient, UsageResponse};
 
+use crate::consent::ConsentGate;
 use crate::debug_log::ResponseLog;
 use crate::scheduler::core::FetchOutcome;
 use crate::store::{SessionStore, run_store_op};
@@ -19,6 +20,14 @@ use crate::store::{SessionStore, run_store_op};
 /// scheduler core never sees transport-specific error types.
 pub trait UsageTransport: Send + Sync {
     fn fetch(&self) -> impl Future<Output = FetchOutcome> + Send;
+}
+
+/// The live, shared handles [`LiveTransport`] is built with. Both are flipped
+/// from Settings and read on every poll tick, so neither can be a value copied
+/// in at startup — they are `Arc`s of the very objects the commands mutate.
+pub struct SharedHandles {
+    pub response_log: Arc<ResponseLog>,
+    pub consent: Arc<ConsentGate>,
 }
 
 /// Production transport talking to claude.ai.
@@ -34,10 +43,15 @@ pub struct LiveTransport {
     /// key (possibly for another account) rediscovers its organization.
     org_id: Mutex<Option<String>>,
     /// Opt-in raw-response logger. Off (a no-op [`ResponseLog::disabled`]) until
-    /// production wiring attaches the real one via [`Self::with_response_log`];
+    /// production wiring attaches the real one via [`Self::with_handles`];
     /// the usage body is written through it before it's decoded, so a real
     /// payload can be captured to verify the `spend` shape against more accounts.
     response_log: Arc<ResponseLog>,
+    /// The Terms-of-Service consent gate. Shared with the Settings command that flips it,
+    /// and checked at the top of every [`Self::attempt`]; a closed gate makes
+    /// this transport a no-op that reports [`FetchOutcome::NotAcknowledged`].
+    /// Defaults to closed, so a transport built without one polls nothing.
+    consent: Arc<ConsentGate>,
 }
 
 impl LiveTransport {
@@ -46,21 +60,28 @@ impl LiveTransport {
     /// `RCM_API_BASE_URL` override is set; integration tests and the Linux
     /// demo harness pass a local mock server, so a real `UsageClient` runs
     /// with no network access.
+    /// The consent gate starts **closed**: a transport built this way fetches
+    /// nothing until [`Self::with_handles`] attaches the shared gate. Failing
+    /// closed is the deliberate direction — a wiring mistake costs a dead
+    /// meter, which is loud, rather than un-consented traffic, which is silent.
     pub fn with_base_url(store: Arc<dyn SessionStore>, base_url: impl Into<String>) -> Self {
         Self {
             store,
             base_url: base_url.into(),
             org_id: Mutex::new(None),
             response_log: Arc::new(ResponseLog::disabled()),
+            consent: Arc::new(crate::consent::closed()),
         }
     }
 
-    /// Attach the shared debug response log (Settings' "Log API responses").
-    /// Builder-style so production wiring reads
-    /// `LiveTransport::with_base_url(store, base).with_response_log(log)`.
+    /// Attach the shared runtime handles — the consent gate and the debug
+    /// response log. One builder rather than one per handle: they are always
+    /// attached together, and two `fn with_x(mut self, x) -> Self { self.x = x;
+    /// self }` methods are the same code twice.
     #[must_use]
-    pub fn with_response_log(mut self, response_log: Arc<ResponseLog>) -> Self {
-        self.response_log = response_log;
+    pub fn with_handles(mut self, handles: SharedHandles) -> Self {
+        self.consent = handles.consent;
+        self.response_log = handles.response_log;
         self
     }
 
@@ -76,6 +97,12 @@ impl LiveTransport {
     }
 
     async fn attempt(&self) -> FetchOutcome {
+        // Consent first, before anything else — deliberately ahead of the
+        // credential-store read, so a user who has not accepted the ToS risk
+        // gets no claude.ai traffic *and* no keychain prompt out of this app.
+        if !self.consent.get() {
+            return FetchOutcome::NotAcknowledged;
+        }
         // The credential store is a synchronous OS round trip; every poll
         // tick routes it through the blocking pool so a slow Keychain /
         // Secret-Service daemon can't tie up an async worker thread.
@@ -169,10 +196,82 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    /// A `LiveTransport` pointed at a mock server end to end: real
-    /// `UsageClient` requests over loopback, no live claude.ai access — the
-    /// scenarios from issue #13, driven through the transport that
-    /// production code actually uses (not just `meter-api` in isolation).
+    // A `LiveTransport` pointed at a mock server end to end: real
+    // `UsageClient` requests over loopback, no live claude.ai access — the
+    // scenarios from issue #13, driven through the transport that
+    // production code actually uses (not just `meter-api` in isolation).
+
+    /// A transport with the Terms-of-Service consent gate **open**, which is
+    /// what every test below other than the consent tests themselves is
+    /// about: they exercise what happens once the user has agreed. Written as
+    /// a helper so the gate is stated at every construction rather than
+    /// defaulted — a test that silently fetched nothing would pass vacuously.
+    fn consenting(store: Arc<dyn SessionStore>, base_url: impl Into<String>) -> LiveTransport {
+        LiveTransport::with_base_url(store, base_url).with_handles(SharedHandles {
+            response_log: Arc::new(ResponseLog::disabled()),
+            consent: Arc::new(ConsentGate::new(true)),
+        })
+    }
+
+    #[tokio::test]
+    async fn a_closed_consent_gate_makes_no_request_at_all() {
+        // The load-bearing test for the whole feature. The mock server is
+        // fully healthy and a valid key is stored, so the *only* reason for
+        // not fetching is the gate — and `received_requests` proves nothing
+        // went over the wire, rather than merely that the outcome was mapped.
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        assert_eq!(transport.fetch().await, FetchOutcome::NotAcknowledged);
+        assert!(
+            server
+                .received_requests()
+                .await
+                .is_some_and(|r| r.is_empty()),
+            "a transport without consent must not touch claude.ai"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_closed_gate_is_checked_before_the_credential_store() {
+        // No session key is stored either, so both refusals apply; consent
+        // must win, because the app should never read the user's keychain on
+        // behalf of a request it is not allowed to make.
+        let transport =
+            LiveTransport::with_base_url(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
+        assert_eq!(transport.fetch().await, FetchOutcome::NotAcknowledged);
+    }
+
+    #[tokio::test]
+    async fn withdrawing_consent_stops_a_transport_that_was_fetching() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let gate = Arc::new(ConsentGate::new(true));
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri()).with_handles(
+            SharedHandles {
+                response_log: Arc::new(ResponseLog::disabled()),
+                consent: Arc::clone(&gate),
+            },
+        );
+        assert!(matches!(transport.fetch().await, FetchOutcome::Success(_)));
+
+        // Flipping the shared gate reaches the live transport without
+        // rebuilding it — un-ticking the box stops polling immediately.
+        gate.set(false);
+        assert_eq!(transport.fetch().await, FetchOutcome::NotAcknowledged);
+    }
 
     #[tokio::test]
     async fn fetch_against_a_healthy_mock_server_succeeds() {
@@ -184,7 +283,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        let transport = consenting(store_with_key(), server.uri());
         let outcome = transport.fetch().await;
         assert!(matches!(outcome, FetchOutcome::Success(_)));
     }
@@ -202,8 +301,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join(crate::debug_log::LOG_FILE);
         let log = Arc::new(ResponseLog::new(Some(log_path.clone()), true));
-        let transport =
-            LiveTransport::with_base_url(store_with_key(), server.uri()).with_response_log(log);
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri()).with_handles(
+            SharedHandles {
+                response_log: Arc::clone(&log),
+                consent: Arc::new(ConsentGate::new(true)),
+            },
+        );
 
         let outcome = transport.fetch().await;
         assert!(matches!(outcome, FetchOutcome::Success(_)));
@@ -227,8 +330,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join(crate::debug_log::LOG_FILE);
         let log = Arc::new(ResponseLog::new(Some(log_path.clone()), false));
-        let transport =
-            LiveTransport::with_base_url(store_with_key(), server.uri()).with_response_log(log);
+        let transport = LiveTransport::with_base_url(store_with_key(), server.uri()).with_handles(
+            SharedHandles {
+                response_log: Arc::clone(&log),
+                consent: Arc::new(ConsentGate::new(true)),
+            },
+        );
 
         assert!(matches!(transport.fetch().await, FetchOutcome::Success(_)));
         assert!(!log_path.exists(), "a disabled log must not be written");
@@ -243,7 +350,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        let transport = consenting(store_with_key(), server.uri());
         assert_eq!(transport.fetch().await, FetchOutcome::Unauthorized);
     }
 
@@ -257,7 +364,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        let transport = consenting(store_with_key(), server.uri());
         assert_eq!(transport.fetch().await, FetchOutcome::Transient);
     }
 
@@ -271,7 +378,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        let transport = consenting(store_with_key(), server.uri());
         assert_eq!(transport.fetch().await, FetchOutcome::Transient);
     }
 
@@ -285,7 +392,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        let transport = consenting(store_with_key(), server.uri());
         assert_eq!(transport.fetch().await, FetchOutcome::Transient);
     }
 
@@ -299,7 +406,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let transport = LiveTransport::with_base_url(store_with_key(), server.uri());
+        let transport = consenting(store_with_key(), server.uri());
         assert_eq!(transport.fetch().await, FetchOutcome::Transient);
     }
 
@@ -322,24 +429,19 @@ mod tests {
 
     #[tokio::test]
     async fn missing_session_key_is_reported_without_touching_the_network() {
-        let transport =
-            LiveTransport::with_base_url(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
+        let transport = consenting(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
         assert_eq!(transport.fetch().await, FetchOutcome::NoSession);
     }
 
     #[tokio::test]
     async fn unavailable_credential_store_is_transient() {
-        let transport = LiveTransport::with_base_url(
-            Arc::new(FakeSessionStore::unavailable()),
-            DEFAULT_BASE_URL,
-        );
+        let transport = consenting(Arc::new(FakeSessionStore::unavailable()), DEFAULT_BASE_URL);
         assert_eq!(transport.fetch().await, FetchOutcome::Transient);
     }
 
     #[test]
     fn unauthorized_clears_the_cached_organization() {
-        let transport =
-            LiveTransport::with_base_url(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
+        let transport = consenting(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
         transport.set_cached_org(Some("org-1".to_owned()));
         transport.classify_and_reset(&ApiError::Unauthorized);
         assert_eq!(transport.cached_org(), None);
@@ -347,8 +449,7 @@ mod tests {
 
     #[test]
     fn transient_errors_keep_the_cached_organization() {
-        let transport =
-            LiveTransport::with_base_url(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
+        let transport = consenting(Arc::new(FakeSessionStore::new()), DEFAULT_BASE_URL);
         transport.set_cached_org(Some("org-1".to_owned()));
         transport.classify_and_reset(&ApiError::Blocked);
         assert_eq!(transport.cached_org(), Some("org-1".to_owned()));
