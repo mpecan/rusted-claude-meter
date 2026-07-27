@@ -210,11 +210,10 @@ export function buildViewModel(
       cards.push(cardFor("seven_day", HEADLINE_LABELS.seven_day, snapshot.seven_day, now, opts));
     }
     for (const limit of snapshot.scoped) {
-      // Only visible (active) *and* opted-in scoped limits render as cards.
-      // `is_active` is real API data (plan doesn't include it, surface-only
-      // scope, ...); `shownScopedModels` is the user's own Settings choice —
-      // both gates must pass.
-      if (!limit.is_active || !shownScopedModels.has(limit.display_name)) {
+      // The Settings opt-in is the only gate, mirroring `ScopedLimit::is_visible`
+      // (meter-core/src/snapshot.rs) — see its doc comment for why the API's
+      // `is_active` is deliberately not consulted.
+      if (!shownScopedModels.has(limit.display_name)) {
         continue;
       }
       cards.push(cardFor(`scoped:${limit.display_name}`, limit.display_name, limit.usage, now, opts));

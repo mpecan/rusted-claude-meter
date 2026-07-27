@@ -70,6 +70,16 @@
   box-sizing: border-box;
 }
 
+/* The UA stylesheet's `[hidden] { display: none }` loses to any author rule
+   setting `display` on the same element, so a hidden flex container stays on
+   screen showing its unfilled slots (the 0.1.4 demo-endpoint banner). One
+   `!important` rule holds whatever a class's specificity; the per-class
+   overrides it replaces had to be remembered for every new rule, and twice
+   weren't. Pinned by src/styles.test.ts. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
 }
@@ -477,10 +487,6 @@ body {
   padding: 0.5rem 0.7rem;
 }
 
-/* `.session-form` sets its own `display`, which would otherwise beat the
-   UA stylesheet's `[hidden] { display: none }` (same specificity, author
-   origin always wins) and keep the form visible even with the `hidden`
-   attribute set — hence the explicit override below. */
 .session-form {
   display: flex;
   flex-direction: column;
@@ -489,10 +495,6 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.75rem 0.8rem;
-}
-
-.session-form[hidden] {
-  display: none;
 }
 
 .session-form label {
@@ -765,10 +767,6 @@ body {
   overflow-y: auto;
 }
 
-.wizard-panel[hidden] {
-  display: none;
-}
-
 .wizard-card {
   margin: auto 0;
   display: flex;
@@ -793,10 +791,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-}
-
-.wizard-step[hidden] {
-  display: none;
 }
 
 .wizard-step h2 {

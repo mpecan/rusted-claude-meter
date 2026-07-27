@@ -269,9 +269,10 @@ mod tests {
     }
 
     #[test]
-    fn tracked_windows_only_includes_shown_and_active_scoped_models() {
-        // "Sonnet" is shown but not active, "CodeOnly" is active but not
-        // shown, "Fable" is both — only Fable's scoped window is tracked.
+    fn tracked_windows_only_includes_scoped_models_the_user_switched_on() {
+        // "CodeOnly" is not in `shown`. "Sonnet" is `is_active: false` (see
+        // `ScopedLimit::is_visible`) but must still be tracked, or an opted-in
+        // model's notifications would silently never fire.
         let shown: HashSet<String> = ["Fable", "Sonnet"].into_iter().map(String::from).collect();
         let ids: Vec<WindowId> = tracked_windows(&snapshot(), &shown)
             .map(|(id, _)| id)
@@ -282,6 +283,7 @@ mod tests {
                 WindowId::Headline(LimitWindow::FiveHour),
                 WindowId::Headline(LimitWindow::SevenDay),
                 WindowId::Scoped("Fable".to_owned()),
+                WindowId::Scoped("Sonnet".to_owned()),
             ]
         );
     }

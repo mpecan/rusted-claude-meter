@@ -6,6 +6,8 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::collections::HashSet;
+
 use jiff::Timestamp;
 use meter_api::UsageResponse;
 use meter_core::{LimitWindow, UsageMode, UsageStatus};
@@ -20,6 +22,11 @@ const FIXTURE: &str = include_str!("fixtures/usage_response.json");
 // observed directly — the real captured account carried spend *alongside*
 // allowance limits. The spend object here uses that confirmed shape.
 const COST_FIXTURE: &str = include_str!("fixtures/usage_response_cost.json");
+
+// Ground truth: one response captured verbatim. `FIXTURE` above is hand-written
+// to hit every branch, which is what let its `kind` values drift from what the
+// API really sends.
+const LIVE_FIXTURE: &str = include_str!("fixtures/usage_response_live.json");
 
 fn fetched_at() -> Timestamp {
     "2026-07-17T12:00:00Z".parse().unwrap()
@@ -126,6 +133,36 @@ fn scoped_limit_with_null_reset_is_kept_with_a_fallback() {
         fable.usage.resets_at,
         "2026-07-24T12:00:00Z".parse::<Timestamp>().unwrap()
     );
+}
+
+#[test]
+fn live_payload_yields_the_scoped_model_the_user_can_switch_on() {
+    // Fable is `is_active: false` here (see `ScopedLimit::is_visible`) yet
+    // claude.ai shows it at the same 6% — gating on that flag hid it from the
+    // popover and tray menu even once switched on in Settings.
+    let snapshot = decode_fixture(LIVE_FIXTURE);
+    let fable = snapshot.scoped_named("Fable").unwrap();
+    assert!(!fable.is_active);
+    assert!((fable.usage.utilization - 6.0).abs() < f64::EPSILON);
+    assert_eq!(fable.usage.window, LimitWindow::SevenDay);
+    assert!(fable.is_visible(&HashSet::from(["Fable".to_owned()])));
+    // Opt-in is still the gate it always was.
+    assert!(!fable.is_visible(&HashSet::new()));
+}
+
+#[test]
+fn live_headline_kinds_are_excluded_from_the_scoped_pass() {
+    // `session`/`weekly_all` are headline kinds already arriving through the
+    // flat fields, so only Fable is scoped.
+    let snapshot = decode_fixture(LIVE_FIXTURE);
+    let names: Vec<&str> = snapshot
+        .scoped
+        .iter()
+        .map(|l| l.display_name.as_str())
+        .collect();
+    assert_eq!(names, vec!["Fable"]);
+    assert!((snapshot.five_hour.unwrap().utilization - 24.0).abs() < f64::EPSILON);
+    assert!((snapshot.seven_day.unwrap().utilization - 16.0).abs() < f64::EPSILON);
 }
 
 #[test]

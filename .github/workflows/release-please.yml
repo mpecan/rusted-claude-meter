@@ -10,6 +10,11 @@ name: Release Please
 # GITHUB_TOKEN) on purpose: a release created by GITHUB_TOKEN does NOT emit a
 # `release` event, so release.yml would never fire. The App token makes the
 # `release: published` event fire normally.
+#
+# Lockfiles are bumped by `extra-files` entries in .release-please-config.json
+# that rewrite their version fields, since this Action has no working tree to
+# run npm/cargo in. `just lockfile-versions` fails CI if a version-carrying
+# file falls out of step — see docs/packaging.md for the full rationale.
 on:
   push:
     branches:
