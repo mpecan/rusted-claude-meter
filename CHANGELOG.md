@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.3...v0.1.4) (2026-07-27)
+
+
+### Bug Fixes
+
+* **linux:** install.sh icons, AUR package corrections, [#50](https://github.com/mpecan/rusted-claude-meter/issues/50) root cause, and an Arch x86_64 harness ([#57](https://github.com/mpecan/rusted-claude-meter/issues/57)) ([8bd5162](https://github.com/mpecan/rusted-claude-meter/commit/8bd5162fc9b59b8d081cbaf24bf9d8074707290f))
+
 ## [0.1.3](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.2...v0.1.3) (2026-07-22)
 
 
