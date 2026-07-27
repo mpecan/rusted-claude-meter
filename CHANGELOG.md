@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.4...v0.1.5) (2026-07-27)
+
+
+### Bug Fixes
+
+* show opted-in scoped models, and hide elements marked hidden ([#61](https://github.com/mpecan/rusted-claude-meter/issues/61)) ([a08fc07](https://github.com/mpecan/rusted-claude-meter/commit/a08fc073895f1112ae2b890b88aafc2abc5cf8dc))
+
 ## [0.1.4](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.3...v0.1.4) (2026-07-27)
 
 
