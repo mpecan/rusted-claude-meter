@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.5...v0.1.6) (2026-07-27)
+
+
+### Features
+
+* gate all claude.ai access behind an explicit ToS acknowledgement ([#64](https://github.com/mpecan/rusted-claude-meter/issues/64)) ([e72f829](https://github.com/mpecan/rusted-claude-meter/commit/e72f82922c70584dbb5a142387c1834e39b5a091))
+
 ## [0.1.5](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.4...v0.1.5) (2026-07-27)
 
 
