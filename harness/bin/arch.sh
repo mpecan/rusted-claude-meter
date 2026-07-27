@@ -9,14 +9,9 @@
 #   arch.sh install-sh  run scripts/install.sh against this pacman host
 #   arch.sh status      what the instance and the rootfs look like
 #
-# This is the only x86_64 target in the harness. Everything else is aarch64,
-# because the Macs this is developed on are Apple Silicon. See
-# harness/lima/arch-x86.yaml for why it is a Rosetta VM rather than a container
-# or an emulated guest, and harness/provision/arch-x86.sh for the three
-# approaches that did not work before this one.
-#
-# Deliberately headless: it answers packaging questions. Anything with a window
-# belongs on the GNOME/KDE targets.
+# The only x86_64 target in the harness, and headless: it answers packaging
+# questions, and anything with a window belongs on the GNOME/KDE targets.
+# "Arch x86_64" in harness/README.md has the rest.
 
 set -euo pipefail
 

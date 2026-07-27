@@ -4,31 +4,13 @@
 # Run over `limactl shell` by harness/bin/arch.sh, not from a `provision:`
 # block, so a failed step can be read, fixed and re-run on its own.
 #
-# The VM's own userspace is aarch64 Ubuntu. Everything Arch lives in a rootfs
-# at $ROOT and only runs at all because the instance has
-# `vmOpts.vz.rosetta.binfmt` — see harness/lima/arch-x86.yaml.
+# The VM's userspace is aarch64 Ubuntu; everything Arch lives in a rootfs at
+# $ROOT and runs only because the instance sets `vmOpts.vz.rosetta.binfmt`.
 #
-# Three approaches were tried before this one; the notes are here because each
-# fails in a way that does not name its own cause:
-#
-# 1. Plain `chroot`. Rosetta reads /proc/self/exe on every exec, so without
-#    /proc mounted every x86_64 binary dies with
-#    "rosetta error: Unable to open /proc/self/exe: 2" — which reads as a
-#    corrupt binary rather than a missing mount.
-# 2. `chroot` with /proc, /sys, /dev, /run bind-mounted. Rosetta works, but
-#    pacman fails with "could not determine cachedir mount point" and then
-#    "not enough free disk space" on a disk that is 8% full: /proc/self/mounts
-#    inside the chroot still describes the *host's* paths, so pacman cannot
-#    match /var/cache/pacman/pkg to any mount and gives up on the space check.
-# 3. `systemd-nspawn`. Refuses a pre-populated /dev, and then fails with
-#    "Failed to determine whether the unified cgroups hierarchy is used" —
-#    there is no cgroup setup to inherit under `limactl shell`.
-#
-# What works is `arch-chroot` (Ubuntu's arch-install-scripts) over a rootfs
-# that has been bind-mounted onto itself. The self-bind is the load-bearing
-# part: it makes $ROOT a real mount point, so "/" appears in the chroot's
-# mount table and pacman's space check resolves. Without it arch-chroot warns
-# "not a mountpoint" and pacman fails exactly as in (2).
+# Plain chroot and systemd-nspawn were both tried and both fail here. What
+# works is `arch-chroot` over a rootfs bind-mounted onto itself. The failure
+# modes are written up in harness/README.md under "Arch x86_64", because not
+# one of them names its own cause.
 
 set -euo pipefail
 
@@ -70,21 +52,10 @@ mount_self() {
     mountpoint -q "$ROOT" || sudo mount --bind "$ROOT" "$ROOT"
 }
 
-# Rosetta will not run an AppImage without this, and the reason is not
-# guessable from the error ("cannot execute binary file: Exec format error" on
-# a binary that `file` calls a perfectly good x86-64 ELF).
-#
-# Lima registers Rosetta with this mask:
-#   magic 7f454c46 02010100 0000000000000000 02003e00
-#   mask  ffffffff fffefe00 ffffffffffffffff feffffff
-#                           ^^^^^^^^^^^^^^^^
-# Those eight mask bytes are 0xff, so bytes 8-15 of the header — the unused
-# e_ident padding — have to be zero for the handler to match. A type-2
-# AppImage stamps its own magic there ("AI\x02", 41 49 02), so it never
-# matches and the kernel finds no interpreter at all.
-#
-# This registers the same interpreter with those eight bytes masked out, which
-# is the whole fix. Also lost on reboot, like the bind mount above.
+# Lima's own Rosetta registration masks ELF bytes 8-15 as must-be-zero, but a
+# type-2 AppImage stamps "AI\x02" into that e_ident padding, so it never
+# matches and AppImages die with "Exec format error". Same interpreter, those
+# eight bytes masked out. Lost on reboot, like the bind mount above.
 register_appimage_binfmt() {
     [ -e /proc/sys/fs/binfmt_misc/rosetta-appimage ] && return 0
     [ -e /proc/sys/fs/binfmt_misc/rosetta ] || {
@@ -103,11 +74,8 @@ provision_pacman() {
     log "configuring mirror and keyring"
     echo "$MIRROR" | sudo tee "$ROOT/etc/pacman.d/mirrorlist" >/dev/null
 
-    # pacman 7 sandboxes downloads with Landlock and the Lima guest kernel does
-    # not have it: without this, every operation fails with "restricting
-    # filesystem access failed because Landlock is not supported by the
-    # kernel!" then "switching to sandbox user 'alpm' failed!". Arch containers
-    # under podman hit the same wall.
+    # pacman 7 sandboxes downloads with Landlock, which the Lima guest kernel
+    # lacks; without this every pacman call fails in that sandbox.
     grep -q '^DisableSandbox' "$ROOT/etc/pacman.conf" ||
         sudo sed -i '/^\[options\]/a DisableSandbox' "$ROOT/etc/pacman.conf"
 
@@ -119,10 +87,8 @@ provision_pacman() {
 
 provision_packages() {
     log "installing toolchain and app dependencies"
-    # webkit2gtk-4.1 and friends are both build and runtime dependency on Arch;
-    # there is no separate -dev split as on Debian. This list is deliberately
-    # the PKGBUILD's depends+makedepends, so a missing entry there shows up
-    # here as a build failure rather than being silently papered over.
+    # Deliberately the PKGBUILD's own depends+makedepends, so anything missing
+    # there surfaces here as a build failure instead of being papered over.
     in_arch 'pacman -S --noconfirm --needed base-devel git sudo \
         rust nodejs npm \
         webkit2gtk-4.1 libayatana-appindicator librsvg gtk3 openssl xdotool'

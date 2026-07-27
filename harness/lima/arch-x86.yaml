@@ -1,33 +1,8 @@
-# Arch Linux **x86_64**, for packaging checks that the other targets cannot do.
+# Arch Linux **x86_64**, for packaging checks the aarch64 targets cannot do.
+# Headless on purpose. See "Arch x86_64" in harness/README.md for why it is a
+# Rosetta VM and not a container or an Arch Linux ARM image.
 #
-# Everything else in this harness is aarch64: the Macs this is developed on are
-# Apple Silicon, the podman machine has no x86_64 emulation at all (an amd64
-# container dies with "Exec format error"), and `tonistiigi/binfmt`'s QEMU
-# handler installs but then segfaults under libkrun. So an x86_64 check needed
-# a different mechanism, and this is it.
-#
-# The guest kernel here is still aarch64. What makes it useful is Rosetta:
-# `vmOpts.vz.rosetta` registers a binfmt_misc handler for x86_64 ELF, so an
-# x86_64 *userspace* runs on top of that aarch64 kernel at translation speed
-# rather than emulation speed. Provisioning unpacks Arch's official x86_64
-# bootstrap tarball into /opt/arch-x86 and we chroot into it — genuine Arch,
-# genuine x86_64 binaries, real pacman and real makepkg.
-#
-# Why that matters and Arch Linux ARM would not: `packaging/aur/PKGBUILD`
-# declares `arch=('x86_64')`, and Arch Linux ARM is a separate distribution
-# with its own repositories. A package that builds there is not evidence about
-# the package we would publish.
-#
-# Deliberately headless — no Plasma, no Xvnc, no port forwards. This target
-# answers "does the package build and does install.sh behave on a pacman
-# host", and the aarch64 KDE targets already cover everything with a window in
-# it. Adding a desktop here would mean an x86_64 Plasma on llvmpipe under
-# translation, which is slow enough to be its own problem.
-#
-# This file describes the VM's *shape* only. Provisioning lives in
-# `harness/provision/*.sh` and is run by `harness/bin/arch.sh` over `limactl
-# shell`, for the same reason the other templates do it that way: a failed step
-# can be read, fixed and re-run on its own.
+# Shape only; provisioning lives in harness/provision/arch-x86.sh.
 #
 # `__REPO__` and `__ARTIFACTS__` are substituted before this is handed to
 # limactl; Lima has no environment expansion for mount paths.
@@ -39,20 +14,17 @@ base:
 vmType: vz
 cpus: 4
 memory: "6GiB"
-# A Tauri target dir plus an Arch bootstrap and its package cache. The same
-# sparse-image warning as the other templates applies: oversizing this quietly
+# Same sparse-image warning as the other templates: oversizing this quietly
 # grows until it exhausts the host.
 disk: "40GiB"
 
 vmOpts:
   vz:
     rosetta:
-      # The whole point of this instance.
       enabled: true
-      # Register the handler in /proc/sys/fs/binfmt_misc. Registered with the
-      # "F" (fix-binary) flag, which is what lets it still work inside the
-      # chroot — the interpreter is opened at registration time rather than
-      # resolved against the chroot's own filesystem.
+      # Registers with the "F" (fix-binary) flag, which is what lets it work
+      # inside the chroot: the interpreter is opened now, not resolved against
+      # the chroot's filesystem later.
       binfmt: true
 
 mounts:

@@ -6,16 +6,14 @@ pkgdesc="Cross-platform tray app showing your Claude plan usage"
 arch=('x86_64')
 url="https://github.com/mpecan/rusted-claude-meter"
 license=('MIT')
-# ring (a transitive TLS dep) compiles its own C/asm objects outside rustc's
-# LTO awareness; makepkg.conf's default LTO breaks symbol resolution against
-# those objects at link time. Must stay off for this package.
+# ring (a transitive TLS dep) compiles C/asm objects outside rustc's LTO
+# awareness, and makepkg.conf's default LTO then breaks symbol resolution
+# against them at link time. Must stay off.
 options=('!lto')
-# Mirrors bundle.linux.deb.depends in src-tauri/tauri.conf.json. xdotool is
-# what provides libxdo.so here, so it is a runtime dependency, not a build-only
-# one. libjxl is deliberately absent: it reaches us only through webkit2gtk-4.1,
-# which carries its own soname dependency on it, so pacman already resolves a
-# compatible pair. (The version skew in issue #50 is specific to the AppImage,
-# which ships its own WebKit; building against system libs is what avoids it.)
+# Mirrors bundle.linux.deb.depends in src-tauri/tauri.conf.json. xdotool
+# provides libxdo.so, so it belongs here rather than in makedepends. libjxl is
+# deliberately absent — it reaches us only through webkit2gtk-4.1, which
+# carries its own soname dependency on it.
 depends=(
   'webkit2gtk-4.1'
   'libayatana-appindicator'
@@ -42,19 +40,16 @@ build() {
 package() {
   cd "$pkgname-$pkgver"
 
-  # Unpack the .deb we just built rather than reaching into Tauri's staging
-  # directory beside it: that layout is an undocumented internal, and globbing
-  # it silently yields a broken path if it ever holds zero or more than one
-  # directory.
+  # Unpack the built .deb rather than Tauri's staging directory beside it: that
+  # layout is an undocumented internal, and a glob over it fails silently.
   local debs=(target/release/bundle/deb/*.deb)
   if (( ${#debs[@]} != 1 )) || [[ ! -f "${debs[0]}" ]]; then
     echo "expected exactly one .deb under target/release/bundle/deb, found ${#debs[@]}" >&2
     return 1
   fi
 
-  # 'data.tar*' rather than a fixed suffix: which compression Tauri's bundler
-  # picks is not a contract. bsdtar comes from libarchive, which pacman itself
-  # depends on, so it is always present.
+  # 'data.tar*' because which compression the bundler picks is not a contract.
+  # bsdtar is always present: pacman itself depends on libarchive.
   bsdtar -xOf "${debs[0]}" 'data.tar*' | bsdtar -xf - -C "$pkgdir" ./usr
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

@@ -298,20 +298,13 @@ jobs:
           git push
 
   # Publish packaging/aur to the AUR, so `yay -S rusted-claude-meter` tracks
-  # releases. Only ever needs to run per *release*: the PKGBUILD points at the
-  # tagged source tarball, so nothing about it changes between tags.
+  # releases. Per *release* only: the PKGBUILD points at the tagged tarball, so
+  # nothing about it changes between tags.
   #
-  # Needs AUR_SSH_PRIVATE_KEY — an SSH key whose public half is on the AUR
-  # account that owns the package. Missing it degrades gracefully (the release
-  # still ships, the AUR just lags) rather than failing the run, matching how
-  # the Apple secrets behave above.
-  #
-  # The three things that have to be true of every push are computed here
-  # rather than maintained by hand, because all three go stale silently:
-  # pkgver follows the tag, sha256sums is of a tarball that does not exist
-  # until the tag is cut, and .SRCINFO is a generated file that pacman clients
-  # read *instead of* the PKGBUILD — a stale one advertises the wrong version
-  # no matter what the PKGBUILD says.
+  # pkgver, sha256sums and .SRCINFO are computed rather than hand-maintained —
+  # packaging/aur/README.md has the why for each. Needs AUR_SSH_PRIVATE_KEY;
+  # missing it degrades to a skip rather than failing an already-shipped
+  # release, like the Apple secrets above.
   publish-aur:
     name: Publish to the AUR
     runs-on: ubuntu-latest
@@ -361,17 +354,13 @@ jobs:
               chown -R builder /work
 
               sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
-              # A new upstream version always restarts pkgrel; it only counts
-              # rebuilds of the *same* version.
+              # pkgrel counts rebuilds of one version, so a new version resets it.
               sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-              # updpkgsums downloads the tagged tarball and rewrites sha256sums
-              # in place, so the checksum is always of what we just released.
               sudo -u builder updpkgsums
               sudo -u builder makepkg --printsrcinfo > .SRCINFO
 
-              # Build it before publishing. An AUR package that fails to build
-              # is worse than one that lags, and this is the only place the
-              # real thing gets exercised on x86_64.
+              # An AUR package that fails to build is worse than one that lags,
+              # and this is the only x86_64 check the package gets.
               sudo -u builder makepkg -f --noconfirm
             '
           echo "--- PKGBUILD/.SRCINFO after refresh ---"
@@ -408,10 +397,9 @@ jobs:
           git commit -m "Update to ${TAG#v}"
           git push
 
-      # Keep the in-tree copy equal to what was published, so
-      # `makepkg -si` from packaging/aur keeps working for anyone following
-      # the README, and so pkgver stops being a version that a human has to
-      # remember to bump.
+      # Keep the in-tree copy equal to what was published: the README tells
+      # Arch users to makepkg from it, and it takes pkgver off the list of
+      # versions a human has to remember to bump.
       - name: Generate GitHub App token (self)
         id: repo-token
         if: steps.gate.outputs.enabled == 'true'

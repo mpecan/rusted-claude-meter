@@ -57,14 +57,11 @@ fi
 command -v curl >/dev/null || { echo "error: curl is required" >&2; exit 1; }
 
 echo "Fetching latest release info for ${REPO}..."
-# Fetch first, parse second, rather than piping curl into the parser. Under
-# `set -o pipefail` any consumer that exits early — `head -1`, or `grep -m1`
-# once it has its match — closes the pipe, and whatever is upstream dies of
-# EPIPE and fails the whole pipeline. Piping into `head` sends that to grep;
-# piping into `grep -m1` sends it to curl ("curl: Failed writing body",
-# exit 23), which is worse, because a short response makes it look fine on one
-# machine and it fails every time on another. With the body in a variable
-# there is no upstream process left to kill.
+# Fetch first, parse second. Under `set -o pipefail` any consumer that exits
+# early (`head -1`, `grep -m1`) closes the pipe and kills whatever is upstream
+# with EPIPE — grep in the first case, curl in the second ("curl: Failed
+# writing body", exit 23). Short responses hide it on one machine and it fails
+# every time on another. In a variable there is no upstream left to kill.
 RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")
 ASSET_URL=$(printf '%s' "${RELEASE_JSON}" \
   | grep -m1 -o '"browser_download_url": *"[^"]*amd64\.AppImage"' \
