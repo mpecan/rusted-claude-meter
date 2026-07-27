@@ -41,25 +41,54 @@ cd rusted-claude-meter/packaging/aur && makepkg -si
 
 ## Publishing to the AUR
 
-1. Clone the AUR git repo (`ssh://aur@aur.archlinux.org/rusted-claude-meter.git`)
-   — an AUR account and SSH key are required, and the package name must not
-   already be taken.
-2. Copy `PKGBUILD` and `.SRCINFO` into that clone, commit, and push.
-3. Regenerate `.SRCINFO` after every `PKGBUILD` edit: `makepkg --printsrcinfo > .SRCINFO`.
-4. Bump `pkgver`/`pkgrel` in step with each GitHub release tag, and refresh
-   the checksum with `updpkgsums`.
+**Automated.** The `publish-aur` job in `.github/workflows/release.yml` runs on
+every published release and does the whole thing: sets `pkgver` from the tag,
+resets `pkgrel`, refreshes `sha256sums` with `updpkgsums`, regenerates
+`.SRCINFO`, **builds the package to prove it still works**, pushes to
+`ssh://aur@aur.archlinux.org/rusted-claude-meter.git`, and opens a PR syncing
+the result back here.
 
-Once it is live, swap the build-from-source block above (and the README's
-Linux section) for `yay -S rusted-claude-meter`.
+Nothing needs pushing between releases. The `source=` is a tagged tarball, so
+the package cannot change until there is a new tag.
 
-This directory is the source of truth kept in-tree; the AUR git repo is a
-mirror published from it.
+Three values are computed rather than maintained, because each goes stale
+silently and in a different way:
 
-Two things this costs, both worth knowing before the first publish:
+| Value | Why it cannot be hand-maintained |
+| --- | --- |
+| `pkgver` | Follows the tag. Left behind, `yay` simply never offers the update. |
+| `sha256sums` | Of a tarball that does not exist until the tag is cut, so it is *never* correct at commit time. |
+| `.SRCINFO` | Generated, and it is what pacman clients read **instead of** the PKGBUILD — stale, it advertises the wrong version whatever the PKGBUILD says. |
 
-- **`pkgver` is a third place the version lives.** `docs/packaging.md`'s
-  premise is that release-please bumps every version automatically; this file
-  and `.SRCINFO` are outside that, so they need either a release-please extra
-  file or a `just` recipe, or they will drift.
-- **`build()` needs the network** (`npm ci`, `cargo fetch`). That is normal
-  for Tauri packages in the AUR but does mean `makepkg` cannot run offline.
+Setup is one secret: **`AUR_SSH_PRIVATE_KEY`**, the private half of a key
+registered on the AUR account that owns the package. Without it the job logs a
+skip and the release still ships — the AUR just lags, the same way a missing
+Apple secret degrades signing rather than failing the run. The AUR host key is
+pinned in the workflow (`SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4`)
+rather than accepted on first use.
+
+### The first publish is still manual
+
+The AUR creates a package from its first push, so that one has to be done by a
+human who has confirmed the name is free:
+
+```sh
+git clone ssh://aur@aur.archlinux.org/rusted-claude-meter.git
+cp packaging/aur/{PKGBUILD,.SRCINFO} rusted-claude-meter/
+cd rusted-claude-meter && git add . && git commit -m "Initial import" && git push
+```
+
+Then swap the build-from-source block above — and the README's Linux section —
+for `yay -S rusted-claude-meter`.
+
+### Bumping without a release
+
+If the *packaging* changes but the version does not (a dependency fix, say),
+that is a `pkgrel` bump: increment it here and push the two files by hand. The
+release job resets `pkgrel=1` on the next real version, which is correct — it
+counts rebuilds of one version, not releases.
+
+### Remaining cost
+
+`build()` needs the network (`npm ci`, `cargo fetch`). Normal for Tauri
+packages in the AUR, but it does mean `makepkg` cannot run offline.

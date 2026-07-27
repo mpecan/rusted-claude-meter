@@ -296,3 +296,152 @@ jobs:
           fi
           git commit -m "chore: rusted-claude-meter ${VERSION#v}"
           git push
+
+  # Publish packaging/aur to the AUR, so `yay -S rusted-claude-meter` tracks
+  # releases. Only ever needs to run per *release*: the PKGBUILD points at the
+  # tagged source tarball, so nothing about it changes between tags.
+  #
+  # Needs AUR_SSH_PRIVATE_KEY — an SSH key whose public half is on the AUR
+  # account that owns the package. Missing it degrades gracefully (the release
+  # still ships, the AUR just lags) rather than failing the run, matching how
+  # the Apple secrets behave above.
+  #
+  # The three things that have to be true of every push are computed here
+  # rather than maintained by hand, because all three go stale silently:
+  # pkgver follows the tag, sha256sums is of a tarball that does not exist
+  # until the tag is cut, and .SRCINFO is a generated file that pacman clients
+  # read *instead of* the PKGBUILD — a stale one advertises the wrong version
+  # no matter what the PKGBUILD says.
+  publish-aur:
+    name: Publish to the AUR
+    runs-on: ubuntu-latest
+    # x86_64 on purpose: the package is arch=('x86_64'), so makepkg runs
+    # natively here and the build below is a real check rather than a smoke
+    # test under emulation.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Check for the AUR key
+        id: gate
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+            echo "no AUR_SSH_PRIVATE_KEY — skipping AUR publish" >&2
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Arch tooling via docker rather than a job-level `container:`, because
+      # the Arch image has no node and GitHub's JS actions (checkout, etc.)
+      # cannot run without one.
+      #
+      # makepkg refuses to run as root, hence the builder user; the uid is
+      # matched to the runner's so the bind-mounted files stay writable.
+      - name: Refresh pkgver, checksums and .SRCINFO, then build it
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work/packaging/aur \
+            -e "VERSION=${TAG#v}" -e "HOST_UID=$(id -u)" \
+            docker.io/library/archlinux:base-devel bash -euo pipefail -c '
+              # Landlock is unavailable on the runner kernel; without this every
+              # pacman call dies in its download sandbox.
+              sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
+              pacman -Syu --noconfirm --needed pacman-contrib git nodejs npm rust \
+                webkit2gtk-4.1 libayatana-appindicator librsvg gtk3 openssl xdotool
+              useradd -u "$HOST_UID" -m builder 2>/dev/null || useradd -m builder
+              chown -R builder /work
+
+              sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+              # A new upstream version always restarts pkgrel; it only counts
+              # rebuilds of the *same* version.
+              sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+              # updpkgsums downloads the tagged tarball and rewrites sha256sums
+              # in place, so the checksum is always of what we just released.
+              sudo -u builder updpkgsums
+              sudo -u builder makepkg --printsrcinfo > .SRCINFO
+
+              # Build it before publishing. An AUR package that fails to build
+              # is worse than one that lags, and this is the only place the
+              # real thing gets exercised on x86_64.
+              sudo -u builder makepkg -f --noconfirm
+            '
+          echo "--- PKGBUILD/.SRCINFO after refresh ---"
+          grep -E '^(pkgver|pkgrel|sha256sums)' packaging/aur/PKGBUILD
+
+      - name: Push to the AUR
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          # Pinned, not trust-on-first-use. Fingerprint
+          # SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4, as published in
+          # the AUR submission guidelines.
+          printf '%s %s %s\n' aur.archlinux.org ssh-ed25519 \
+            AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN \
+            > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
+
+          git clone ssh://aur@aur.archlinux.org/rusted-claude-meter.git aur-repo
+          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --staged --quiet; then
+            echo "AUR package unchanged — nothing to publish"
+            exit 0
+          fi
+          git commit -m "Update to ${TAG#v}"
+          git push
+
+      # Keep the in-tree copy equal to what was published, so
+      # `makepkg -si` from packaging/aur keeps working for anyone following
+      # the README, and so pkgver stops being a version that a human has to
+      # remember to bump.
+      - name: Generate GitHub App token (self)
+        id: repo-token
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.REPOSITORY_BUTLER_APP_ID }}
+          private-key: ${{ secrets.REPOSITORY_BUTLER_PEM }}
+
+      - name: Sync the in-tree copy back to main
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ steps.repo-token.outputs.token }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          # Non-fatal: the AUR is already updated by this point, and a blocked
+          # push here should not fail a release that shipped.
+          if ! git diff --quiet -- packaging/aur; then
+            branch="chore/aur-${TAG#v}"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git checkout -b "$branch"
+            git add packaging/aur/PKGBUILD packaging/aur/.SRCINFO
+            git commit -m "chore(aur): sync packaging/aur to ${TAG#v}"
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+            git push -u origin "$branch" &&
+              gh pr create --base main --head "$branch" \
+                --title "chore(aur): sync packaging/aur to ${TAG#v}" \
+                --body "Checksums and .SRCINFO as published to the AUR for ${TAG}. Generated by release.yml." ||
+              echo "could not open the sync PR; the AUR itself is already updated" >&2
+          else
+            echo "packaging/aur already matches what was published"
+          fi

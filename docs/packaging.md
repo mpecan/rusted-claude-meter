@@ -260,6 +260,31 @@ brew install --cask mpecan/tools/rusted-claude-meter-lite   # lite (EDR-safe)
 with no new cask content is a no-op push. Each cask points at that release's
 notarized DMG asset, so it only resolves once the release is published.
 
+## AUR
+
+The Arch package in `packaging/aur/` is published by the `publish-aur` job in
+the same workflow, on the same trigger, and for the same reason as the cask
+push: a release that ships without updating its distribution channels is a
+release users do not get.
+
+It differs from the cask in one way worth knowing. The cask is *rendered* from
+a template at release time and is disposable; the AUR `PKGBUILD` is a real
+file that Arch users are told to `makepkg` from directly, so the job pushes
+the computed result **back here as a PR** rather than only outward. That keeps
+the in-tree copy equal to what is published, and takes `pkgver` off the list of
+versions a human has to remember to bump — which otherwise made it a fourth
+version location outside release-please's reach, alongside `Cargo.toml`,
+`tauri.conf.json` and `package.json`.
+
+The job also *builds* the package before pushing, on `ubuntu-latest`, which is
+x86_64 and so matches `arch=('x86_64')` natively. That is the only place the
+AUR package is exercised in CI. Locally the equivalent is `just arch-makepkg`
+against the Rosetta VM — see `harness/README.md`.
+
+Setup is one secret, `AUR_SSH_PRIVATE_KEY`; without it the job skips and the
+release still ships. Details and the manual first-import in
+[`packaging/aur/README.md`](../packaging/aur/README.md).
+
 ## Fresh-machine install acceptance criteria
 
 The issue's acceptance criteria — "fresh-machine installs (macOS + one Linux
