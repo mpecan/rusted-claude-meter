@@ -66,8 +66,7 @@ describe("buildViewModel — cards", () => {
 
   it("renders an opted-in scoped limit the API reports as not is_active", () => {
     // The regression behind "Fable doesn't show up even though claude.ai has
-    // the data": live responses report `is_active: false` on every weekly
-    // window, so it cannot be a visibility gate. Mirrors the Rust-side
+    // the data" — see `buildViewModel`. Mirrors the Rust-side
     // `opt_in_is_the_only_gate_is_active_does_not_suppress_a_line`.
     const viewModel = buildViewModel(
       state({

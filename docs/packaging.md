@@ -24,10 +24,10 @@ tag push:
      the GitHub API — and its own first-party lockfile updaters do the same
      field rewrite, which for a version-only bump is what the package managers
      would have produced anyway.
-   - `just lockfile-versions` fails the build if any version-carrying file
-     falls out of step with `Cargo.toml`. Both lockfiles were missing from
-     `extra-files` until after 0.1.4 and so shipped stale; the check exists so
-     the next omission is loud.
+   - `just lockfile-versions` fails the build if a version-carrying file falls
+     out of step with `Cargo.toml`, or if a workspace crate is missing from
+     `extra-files` altogether. Both lockfiles were missing until after 0.1.4
+     and so shipped stale; the check exists so the next omission is loud.
    - It authenticates as a GitHub App (`REPOSITORY_BUTLER_APP_ID` /
      `REPOSITORY_BUTLER_PEM`), not the default `GITHUB_TOKEN`, **so the
      `release: published` event actually fires** — a release created by

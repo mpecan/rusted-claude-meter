@@ -34,12 +34,12 @@ impl ScopedLimit {
     /// and `notifier::tracked_windows` both call this so their notion of a
     /// visible scoped model cannot drift apart.
     ///
-    /// [`Self::is_active`] is **not** consulted, though it once was. A captured
-    /// live payload settles what it means: every weekly entry reports it
-    /// `false` — the scoped ones *and* the `weekly_all` headline that claude.ai
-    /// plainly displays — while only `session` is `true`. So it marks the
-    /// currently-binding window, and treating it as visibility hid every weekly
-    /// scoped model from users who had switched one on. See
+    /// [`Self::is_active`] is **not** consulted, though it once was. Every
+    /// weekly entry in a live payload reports it `false` — the scoped ones
+    /// *and* the `weekly_all` headline claude.ai plainly displays — while only
+    /// `session` is `true`, so it marks the currently-binding window. Treating
+    /// it as visibility hid every weekly scoped model from users who had
+    /// switched one on. Fixture:
     /// `meter-api/tests/fixtures/usage_response_live.json`.
     pub fn is_visible(&self, shown: &HashSet<String>) -> bool {
         shown.contains(&self.display_name)
@@ -249,9 +249,8 @@ mod tests {
 
     #[test]
     fn visibility_is_the_opt_in_set_alone_never_the_api_is_active_flag() {
-        // Single source of truth for the tray, the popover and the notifier:
-        // `is_active` is false on every weekly window in a live payload, so
-        // consulting it here hid opted-in models in all three at once.
+        // Single source of truth for the tray, the popover and the notifier —
+        // see `is_visible` above for why `is_active` is ignored.
         let mut fable = snapshot(0.0, 0.0, 5.0).scoped.remove(0);
         let shown: HashSet<String> = std::iter::once("Fable".to_owned()).collect();
         for is_active in [false, true] {

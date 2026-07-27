@@ -11,23 +11,10 @@ name: Release Please
 # `release` event, so release.yml would never fire. The App token makes the
 # `release: published` event fire normally.
 #
-# Lockfiles are bumped by the `extra-files` entries in
-# .release-please-config.json, not by running a package manager. There is no
-# hook for that and there cannot be one: this Action never checks out a working
-# tree — it builds the new file contents in memory and commits them through the
-# GitHub API (code-suggester -> Octokit), so `npm install` and `cargo update`
-# have nothing to run against. release-please's own first-party lockfile
-# support works the same way (updaters/node/package-lock-json.js sets
-# `version` and `packages[""].version`; updaters/rust/cargo-lock.js rewrites
-# each workspace member's `version` in place), and for a version-only bump that
-# is byte-for-byte what the package managers would have produced. The
-# `simple` release-type does not wire those updaters up, so the config
-# expresses the same rewrites through the generic json/toml ones.
-#
-# 0.1.4 shipped with both lockfiles still on the previous version because they
-# were not listed at all. `just lockfile-versions` now fails the build if a
-# lockfile falls out of step with its manifest, so the next omission is caught
-# on the release PR rather than discovered in a later diff.
+# Lockfiles are bumped by `extra-files` entries in .release-please-config.json
+# that rewrite their version fields, since this Action has no working tree to
+# run npm/cargo in. `just lockfile-versions` fails CI if a version-carrying
+# file falls out of step — see docs/packaging.md for the full rationale.
 on:
   push:
     branches:

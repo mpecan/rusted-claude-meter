@@ -70,16 +70,12 @@
   box-sizing: border-box;
 }
 
-/* Every "show this only when …" element in the app is toggled with the `hidden`
-   attribute, and the UA stylesheet's `[hidden] { display: none }` loses to *any*
-   author rule that sets `display` on the same element (author origin always
-   wins). A hidden element that happens to be a flex container therefore stays on
-   screen, showing whatever its unfilled slots say — the Settings demo-endpoint
-   banner shipped in 0.1.4 announcing "reading usage from ⟨nothing⟩". Restoring
-   the invariant once, globally, is the only version of this that cannot rot: the
-   per-class `[hidden]` override it replaces has to be remembered for every new
-   rule, and twice already it wasn't. `!important` is what makes it independent of
-   selector specificity, which is the whole point. */
+/* The UA stylesheet's `[hidden] { display: none }` loses to any author rule
+   setting `display` on the same element, so a hidden flex container stays on
+   screen showing its unfilled slots (the 0.1.4 demo-endpoint banner). One
+   `!important` rule holds whatever a class's specificity; the per-class
+   overrides it replaces had to be remembered for every new rule, and twice
+   weren't. Pinned by src/styles.test.ts. */
 [hidden] {
   display: none !important;
 }

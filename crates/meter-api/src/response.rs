@@ -2,16 +2,13 @@ use jiff::Timestamp;
 use meter_core::{LimitWindow, Money, ScopedLimit, Spend, UsageSnapshot, UsageWindow};
 use serde::Deserialize;
 
-/// Kinds already surfaced through the flat headline fields. Entries with
-/// these kinds are excluded from the scoped pass so a limit the API reports
-/// both ways cannot render twice.
+/// Kinds already surfaced through the flat headline fields, excluded from the
+/// scoped pass so a limit the API reports both ways cannot render twice.
 ///
-/// `session` and `weekly_all` are what a captured live payload actually sends;
-/// `five_hour`/`seven_day` are the names the flat fields use and are kept
-/// because the API has used both. Today every headline entry also carries
-/// `scope: null` and so would be dropped for lack of a model anyway — this list
-/// is what keeps that from being the only thing standing between a scoped
-/// headline entry and a duplicate card.
+/// `session`/`weekly_all` are the live API's names, `five_hour`/`seven_day` the
+/// flat fields' own; both are listed since the API has used both. Today's
+/// headline entries also carry `scope: null` and would be dropped anyway — this
+/// list is what stops that from being the only thing preventing a duplicate.
 const HEADLINE_KINDS: &[&str] = &["five_hour", "seven_day", "session", "weekly_all"];
 
 /// Raw shape of `GET /api/organizations/{org_id}/usage`.
@@ -184,10 +181,9 @@ impl RawLimit {
 }
 
 /// The cadence a `limits` entry paces over. Weekly is the fallback because
-/// every scoped kind observed so far (`weekly_scoped`) is weekly; `session` is
-/// listed alongside `five_hour` because that is the name the live payload uses
-/// for the short window, so a future `session_scoped` lands in the right window
-/// instead of being paced over seven days.
+/// every scoped kind observed so far (`weekly_scoped`) is weekly. `session` is
+/// the live payload's name for the short window, so a future `session_scoped`
+/// lands there rather than being paced over seven days.
 fn window_for_kind(kind: &str) -> LimitWindow {
     if kind.starts_with("five_hour") || kind.starts_with("session") {
         LimitWindow::FiveHour
@@ -221,6 +217,13 @@ mod tests {
 
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn scoped_kinds_pace_over_the_window_their_prefix_names() {
+        assert_eq!(window_for_kind("weekly_scoped"), LimitWindow::SevenDay);
+        assert_eq!(window_for_kind("session_scoped"), LimitWindow::FiveHour);
+        assert_eq!(window_for_kind("five_hour_scoped"), LimitWindow::FiveHour);
+    }
 
     #[test]
     fn unsurfaced_stub_yields_no_spend() {

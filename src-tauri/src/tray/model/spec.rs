@@ -179,10 +179,9 @@ fn toggling_one_model_on_shows_only_that_one() {
 
 #[test]
 fn opt_in_is_the_only_gate_is_active_does_not_suppress_a_line() {
-    // Mirrors src/view-model.test.ts's "opt-in is the only gate" case. Live
-    // payloads report `is_active: false` on every weekly window (see
-    // `ScopedLimit::is_visible`), so a scoped model the user switched on must
-    // still produce a usage line — while one they did not stays out.
+    // Mirrors src/view-model.test.ts's "opt-in is the only gate" case: a model
+    // the user switched on produces a line despite `is_active: false` (see
+    // `ScopedLimit::is_visible`), one they did not stays out.
     let mut snap = snapshot();
     snap.five_hour = None;
     snap.seven_day = None;

@@ -210,12 +210,9 @@ export function buildViewModel(
       cards.push(cardFor("seven_day", HEADLINE_LABELS.seven_day, snapshot.seven_day, now, opts));
     }
     for (const limit of snapshot.scoped) {
-      // The user's Settings opt-in is the only gate, mirroring
-      // `ScopedLimit::is_visible` on the Rust side. The API's `is_active` is
-      // deliberately not consulted: live payloads report it `false` for every
-      // weekly window — the scoped ones *and* the headline `weekly_all` that
-      // claude.ai plainly displays — so it marks the currently-binding window,
-      // not visibility. See that method's doc comment.
+      // The Settings opt-in is the only gate, mirroring `ScopedLimit::is_visible`
+      // (meter-core/src/snapshot.rs) — see its doc comment for why the API's
+      // `is_active` is deliberately not consulted.
       if (!shownScopedModels.has(limit.display_name)) {
         continue;
       }

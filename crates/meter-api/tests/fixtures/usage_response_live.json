@@ -1,5 +1,5 @@
 {
-  "_comment": "Captured verbatim from claude.ai on a Max plan actively using Fable (2026-07-27), via Settings > Log API responses. Unlike usage_response.json — which is hand-written to exercise every branch of the scoped pass — this is ground truth for the shape: the `limits` kinds are `session`/`weekly_all`/`weekly_scoped` (not the flat fields' `five_hour`/`seven_day`), and `is_active` is false on both weekly entries even though claude.ai's own usage panel displays them. That last fact is why ScopedLimit::is_visible does not consult it.",
+  "_comment": "Captured verbatim from claude.ai (Max plan using Fable, 2026-07-27) via Settings > Log API responses — ground truth for the payload shape, unlike the hand-written usage_response.json. See ScopedLimit::is_visible for what `is_active` means here.",
   "five_hour": {
     "utilization": 24.0,
     "resets_at": "2026-07-27T16:50:00.656766+00:00",
