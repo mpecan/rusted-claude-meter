@@ -57,12 +57,23 @@ Both are identical otherwise. If you're unsure, start with **Full**; switch to *
 
 ### Linux (x86_64)
 
-Download from the [latest release](https://github.com/mpecan/rusted-claude-meter/releases/latest):
+**Arch Linux (and derivatives) — build the package (recommended):**
+```sh
+git clone https://github.com/mpecan/rusted-claude-meter
+cd rusted-claude-meter/packaging/aur && makepkg -si
+```
+It links your system's `webkit2gtk` instead of shipping its own, which avoids the AppImage's bundled-library skew entirely — see [`packaging/aur`](packaging/aur). Not on the AUR yet, so there's no `yay -S` for it.
+
+**Everyone else — download from the [latest release](https://github.com/mpecan/rusted-claude-meter/releases/latest):**
 
 - **AppImage** — `Rusted Claude Meter_<version>_amd64.AppImage`; `chmod +x` and run it.
 - **Debian/Ubuntu** — `Rusted Claude Meter_<version>_amd64.deb`; `sudo apt install ./<file>.deb`.
 
 > Linux builds are **amd64 only**. On **GNOME** you also need the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) for the tray icon to appear; **KDE Plasma** shows it out of the box but draws tray icons in a square cell, so the app offers you a squarer icon style there. Because StatusNotifierItem gives no click events on Linux, the **tray menu is the primary surface** (there's no popover). See **[Rusted Claude Meter on Linux](docs/linux.md)** for the full picture, with screenshots of both desktops.
+
+Alternatively, run [`scripts/install.sh`](scripts/install.sh) to fetch the latest AppImage and register a desktop entry and icons automatically (on Arch it points you at the package above instead; `--force` overrides).
+
+If the AppImage aborts on an EGL error or opens a blank window, see [**Troubleshooting the AppImage**](docs/linux.md#troubleshooting-the-appimage).
 
 ## Usage
 

@@ -1,0 +1,49 @@
+# Arch Linux **x86_64**, for packaging checks the aarch64 targets cannot do.
+# Headless on purpose. See "Arch x86_64" in harness/README.md for why it is a
+# Rosetta VM and not a container or an Arch Linux ARM image.
+#
+# Shape only; provisioning lives in harness/provision/arch-x86.sh.
+#
+# `__REPO__` and `__ARTIFACTS__` are substituted before this is handed to
+# limactl; Lima has no environment expansion for mount paths.
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: vz
+cpus: 4
+memory: "6GiB"
+# Same sparse-image warning as the other templates: oversizing this quietly
+# grows until it exhausts the host.
+disk: "40GiB"
+
+vmOpts:
+  vz:
+    rosetta:
+      enabled: true
+      # Registers with the "F" (fix-binary) flag, which is what lets it work
+      # inside the chroot: the interpreter is opened now, not resolved against
+      # the chroot's filesystem later.
+      binfmt: true
+
+mounts:
+  # The repo, read-only: the VM builds from it but must never write into the
+  # working tree on the Mac.
+  - location: "__REPO__"
+    mountPoint: "/repo"
+    writable: false
+  # Built packages cross back to the host here.
+  - location: "__ARTIFACTS__"
+    mountPoint: "/artifacts"
+    writable: true
+
+# `host.lima.internal` resolves to the Mac, where the demo API server runs.
+hostResolver:
+  enabled: true
+
+# Lima's default template installs containerd/nerdctl. Nothing here uses
+# containers, and it is a sizeable download on every fresh instance.
+containerd:
+  system: false
+  user: false
