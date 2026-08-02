@@ -12,11 +12,27 @@ use jiff::Timestamp;
 use meter_core::UsageSnapshot;
 use serde::{Deserialize, Serialize};
 
+use crate::source::UsageSource;
+
 /// In-memory freshness window: a forced refresh (wake, manual, new key)
 /// within this age is served from the cached snapshot instead of the
 /// network. Slightly below the shortest polling interval so scheduled ticks
 /// are never suppressed.
 const MEMORY_TTL: Duration = Duration::from_secs(55);
+/// How often the recorded status-line file is re-read
+/// ([`UsageSource::ClaudeCodeStatusline`]).
+///
+/// Fixed, and deliberately not the user's [`RefreshInterval`]: that setting
+/// exists to pace *requests to claude.ai*, and there are none here — this is a
+/// sub-kilobyte local file the bridge rewrites on every Claude Code render.
+/// Pacing a file read at five minutes would leave the tray five minutes behind
+/// data that is seconds old.
+///
+/// The refresh interval still governs [`SchedulerCore::staleness`] on this
+/// source, which is the question that does still matter there: not "how often
+/// do we look" but "how old may a reading get before it stops being worth
+/// trusting".
+const STATUSLINE_POLL: Duration = Duration::from_secs(15);
 
 /// First backoff step after a transient failure.
 const BACKOFF_BASE_SECS: u32 = 10;
@@ -118,12 +134,21 @@ pub struct MeterState {
 /// The scheduler's decision core. See the module docs for the design.
 #[derive(Debug)]
 pub struct SchedulerCore {
-    interval: RefreshInterval,
+    /// The user's polling cadence. Public, like [`Self::source`], because
+    /// both are inputs the app pushes in rather than state this machine
+    /// derives — everything it *decides* (phase, failures, snapshot) stays
+    /// private. Two one-line setters for them were the same code twice.
+    pub interval: RefreshInterval,
     failures: u32,
     phase: Phase,
     snapshot: Option<UsageSnapshot>,
     last_wall: Option<Timestamp>,
     last_monotonic: Option<Duration>,
+    /// Which source is live. Not a copy of the persisted setting for its own
+    /// sake — the core needs it because what a fetch *costs* differs by
+    /// source, and both the poll cadence and the forced-refresh TTL follow
+    /// from that. Public for the same reason as [`Self::interval`].
+    pub source: UsageSource,
 }
 
 impl SchedulerCore {
@@ -137,22 +162,49 @@ impl SchedulerCore {
             snapshot: initial,
             last_wall: None,
             last_monotonic: None,
+            // Defaulted rather than a constructor argument: every existing
+            // caller and test means claude.ai, and only `lib.rs` and the
+            // source command have an opinion, and they assign `source`.
+            source: UsageSource::ClaudeAi,
         }
     }
 
-    pub const fn set_interval(&mut self, interval: RefreshInterval) {
-        self.interval = interval;
+    /// How long to wait between scheduled fetches from the live source.
+    const fn poll_interval(&self) -> Duration {
+        if self.source.is_statusline() {
+            STATUSLINE_POLL
+        } else {
+            self.interval.duration()
+        }
+    }
+
+    /// Whether `candidate` says anything the held snapshot does not.
+    ///
+    /// Used to keep the disk cache and the public `usage.json` export from
+    /// being rewritten on every tick: polling a local file every
+    /// [`STATUSLINE_POLL`] would otherwise rewrite both files four times a
+    /// minute with byte-identical content, which is wasted I/O here and a
+    /// spurious change event for anything watching the export. A claude.ai
+    /// snapshot carries a fresh `fetched_at` every time, so this is always
+    /// true there and nothing changes for that source.
+    #[must_use]
+    pub fn is_new_snapshot(&self, candidate: &UsageSnapshot) -> bool {
+        self.snapshot.as_ref() != Some(candidate)
     }
 
     /// Whether a refresh attempt should actually hit the network.
     ///
-    /// Scheduled ticks (`forced == false`) always fetch — the interval is
-    /// longer than the TTL by construction. Forced refreshes (wake from
-    /// sleep, manual, new session key) are served from the in-memory
-    /// snapshot when it is younger than [`MEMORY_TTL`], so a burst of
-    /// wake/manual events cannot hammer the API.
+    /// Scheduled ticks (`forced == false`) always fetch. Forced refreshes
+    /// (wake from sleep, manual, new session key) are served from the
+    /// in-memory snapshot when it is younger than [`MEMORY_TTL`], so a burst
+    /// of wake/manual events cannot hammer the API.
+    ///
+    /// The TTL exists to protect claude.ai, so it does not apply to the
+    /// status-line source: re-reading a local file costs nothing, and
+    /// swallowing a manual "Refresh Now" for up to 55 seconds there would be
+    /// a delay with no purpose behind it.
     pub fn should_fetch(&self, now: Timestamp, forced: bool) -> bool {
-        if !forced {
+        if !forced || self.source.is_statusline() {
             return true;
         }
         !self.snapshot.as_ref().is_some_and(|snapshot| {
@@ -215,7 +267,7 @@ impl SchedulerCore {
             // Keeps the normal cadence rather than parking: nothing external
             // wakes the loop when Claude Code finally writes the file, so the
             // only way to notice is to look again. Cheap — a local file read.
-            Phase::Polling | Phase::AwaitingStatusline => Some(self.interval.duration()),
+            Phase::Polling | Phase::AwaitingStatusline => Some(self.poll_interval()),
             Phase::Degraded => Some(backoff_delay(self.failures, jitter)),
         }
     }
@@ -327,7 +379,7 @@ mod tests {
         core.record(FetchOutcome::Success(snapshot_at(now())));
         assert_eq!(core.next_delay(0.7), Some(Duration::from_mins(5)));
 
-        core.set_interval(RefreshInterval::TenMinutes);
+        core.interval = RefreshInterval::TenMinutes;
         assert_eq!(core.next_delay(0.2), Some(Duration::from_mins(10)));
     }
 
@@ -406,6 +458,64 @@ mod tests {
         let mut core = core_with_snapshot(30);
         core.record(FetchOutcome::NotAcknowledged);
         assert!(core.state(now()).snapshot.is_some());
+    }
+
+    /// The point of the whole source-aware cadence: a local file the bridge
+    /// rewrites every few seconds must not be read on a five-minute API
+    /// schedule, or the tray sits five minutes behind data that is current.
+    #[test]
+    fn the_statusline_source_polls_far_faster_than_the_api_interval() {
+        let mut core = SchedulerCore::new(RefreshInterval::FiveMinutes, None);
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(5)));
+        core.source = UsageSource::ClaudeCodeStatusline;
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_secs(15)));
+    }
+
+    /// Including while it is still waiting for Claude Code to run — that is
+    /// exactly when a user is watching for the numbers to appear.
+    #[test]
+    fn waiting_for_the_status_line_also_polls_at_the_fast_cadence() {
+        let mut core = SchedulerCore::new(RefreshInterval::TenMinutes, None);
+        core.source = UsageSource::ClaudeCodeStatusline;
+        core.record(FetchOutcome::AwaitingStatusline);
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_secs(15)));
+    }
+
+    /// Switching back must restore the API cadence — a fast poll against
+    /// claude.ai is exactly what the refresh interval exists to prevent.
+    #[test]
+    fn switching_back_to_claude_ai_restores_the_users_interval() {
+        let mut core = SchedulerCore::new(RefreshInterval::TenMinutes, None);
+        core.source = UsageSource::ClaudeCodeStatusline;
+        core.source = UsageSource::ClaudeAi;
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(10)));
+    }
+
+    /// The memory TTL exists to protect claude.ai from a burst of manual
+    /// refreshes. Applying it to a local file would swallow "Refresh Now"
+    /// for most of a minute for no reason at all.
+    #[test]
+    fn a_forced_refresh_is_never_served_from_memory_on_the_statusline_source() {
+        let mut core = core_with_snapshot(0);
+        assert!(
+            !core.should_fetch(now(), true),
+            "claude.ai keeps its TTL on a fresh snapshot"
+        );
+        core.source = UsageSource::ClaudeCodeStatusline;
+        assert!(core.should_fetch(now(), true));
+    }
+
+    /// Guards the disk churn the fast cadence would otherwise cause: four
+    /// rewrites a minute of two files with identical content.
+    #[test]
+    fn an_unchanged_reading_is_not_worth_writing_to_disk_again() {
+        // Aged, so advancing `fetched_at` to now is a real difference.
+        let core = core_with_snapshot(30);
+        let held = core.state(now()).snapshot.unwrap();
+        assert!(!core.is_new_snapshot(&held));
+        let mut moved_on = held;
+        moved_on.fetched_at = now();
+        assert!(core.is_new_snapshot(&moved_on));
     }
 
     /// The defining difference from every other "waiting" phase: this one

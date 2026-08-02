@@ -37,7 +37,14 @@ pub fn set_usage_source(
     source: UsageSource,
 ) -> AppSettings {
     selection.set(source.is_statusline());
-    scheduler.resume_polling();
+    // Both of the scheduler's mirrors in one lock: the core paces polling to
+    // what a fetch costs (a local file read is not worth a five-minute
+    // interval), and the resume makes the switch take effect on the next tick
+    // rather than at the end of the old source's wait.
+    scheduler.update(|core| {
+        core.source = source;
+        core.resume();
+    });
     store_usage_source(&settings, source)
 }
 

@@ -188,6 +188,9 @@ pub fn run() -> tauri::Result<()> {
                 app_settings.refresh_interval,
                 cache_path.as_deref().and_then(cache::load),
             );
+            // The core paces itself to what a fetch costs, so it needs the
+            // source as well as the transport does.
+            core.source = app_settings.usage_source;
             // Start parked when consent is withheld, so the tray's very first
             // render already says "waiting for you to accept" instead of
             // showing a hopeful "polling" that the first tick immediately

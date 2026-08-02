@@ -72,7 +72,7 @@ pub fn set_refresh_interval(
     settings: State<'_, SettingsState>,
     interval: RefreshInterval,
 ) {
-    scheduler.update(|core| core.set_interval(interval));
+    scheduler.update(|core| core.interval = interval);
     settings.update(|s| s.refresh_interval = interval);
 }
 

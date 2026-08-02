@@ -99,7 +99,7 @@ impl SchedulerHandle {
     ///
     /// The one mutating entry point, rather than a named method per operation:
     /// every such method was the same two lines with a different inner call
-    /// (`record`, `set_interval`, …), which is what the duplication ratchet
+    /// (`record`, an `interval` assignment, …), which is what the duplication ratchet
     /// exists to catch. Callers name the intent at the call site instead —
     /// `update(|core| core.record(FetchOutcome::NotAcknowledged))`.
     pub fn update(&self, mutate: impl FnOnce(&mut SchedulerCore)) {
@@ -161,7 +161,16 @@ pub async fn run_loop<T: UsageTransport, C: Clock>(
     loop {
         if lock(&core).should_fetch(clock.wall(), forced) {
             let outcome = transport.fetch().await;
-            if let FetchOutcome::Success(snapshot) = &outcome {
+            // Only a reading that says something new is written to disk. The
+            // status-line source re-reads its file every few seconds, and
+            // rewriting the cache and the public `usage.json` export with
+            // byte-identical content on every tick would be wasted I/O and a
+            // spurious change event for anything watching the export. A
+            // claude.ai snapshot always differs (fresh `fetched_at`), so
+            // nothing changes for that source.
+            if let FetchOutcome::Success(snapshot) = &outcome
+                && lock(&core).is_new_snapshot(snapshot)
+            {
                 if let Some(path) = &persist.cache {
                     // Cache write failure is not a refresh failure; the
                     // in-memory snapshot stays authoritative.
@@ -633,7 +642,7 @@ mod tests {
         let handle = SchedulerHandle::new(Arc::clone(&core), Arc::new(Notify::new()));
         assert_eq!(handle.state_now().phase, Phase::Polling);
 
-        handle.update(|core| core.set_interval(RefreshInterval::TenMinutes));
+        handle.update(|core| core.interval = RefreshInterval::TenMinutes);
         assert_eq!(lock(&core).next_delay(0.0), Some(Duration::from_mins(10)));
     }
 
