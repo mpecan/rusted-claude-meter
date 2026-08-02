@@ -32,7 +32,7 @@ It polls your `claude.ai` usage with your browser session and renders a colour-c
 - **Easy sign-in** — import the `claude.ai` session straight from a browser you're already logged into (Chrome, Safari, Firefox, Edge, and more), or paste a session key by hand.
 - **Statusline export** — writes `~/.claudemeter/usage.json` after every fetch for statusline scripts and other tools (schema-compatible with the original ClaudeMeter — see [External integrations](#external-integrations)).
 - **Off until you say otherwise** — a consent gate blocks every claude.ai request until you acknowledge the Terms-of-Service risk (see the warning above); untick it to stop all traffic immediately.
-- **Or skip claude.ai entirely** — read usage from [Claude Code's status line](docs/claude-code-statusline.md) instead: no requests, no credential, no Terms-of-Service risk. Headline windows only, and only while Claude Code runs.
+- **Or skip claude.ai entirely** — read usage from [Claude Code's status line](docs/claude-code-statusline.md) instead: no requests, no credential, no Terms-of-Service risk. Headline windows only, and only while Claude Code runs. The same bridge can print usage *into* your status line, optionally with an off-pace signal (`5h 95% · 7d 40% · 🔥1.6×`) — something Claude Code cannot show you itself, since it reports a percentage but not whether you are outrunning the window.
 - **Launch at login**, configurable refresh interval, and a first-run setup wizard.
 
 ## Install
@@ -135,7 +135,7 @@ Everything is in **Settings**:
 - **Pace** — turn burn-rate tracking on/off, lead with consumption or pace, and set the weekly pace basis (5/6/7 days).
 - **Notifications** — warning and critical thresholds (which also drive the icon colours) and a reset ping; send a test notification to check it works.
 - **Model-scoped limits** — flip each reported model on to show it in the popover and tray.
-- **Usage source** — claude.ai or Claude Code (see step 1), with a copy-ready status-line command for this install.
+- **Usage source** — claude.ai or Claude Code (see step 1), with a copy-ready status-line command for this install and a `/statusline` one-liner that wires it up for you.
 - **Refresh interval**, **usage view** (Auto / Allowance / Cost), and **Launch at login**.
 
 ## Status

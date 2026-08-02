@@ -102,13 +102,18 @@ Add `--pace` and the segment gains an off-pace signal — the one thing Claude C
 
 It is **quiet by default**, and deliberately quieter than the tray: the flame needs 1.2× before it appears, not the 1.0× the tray badge uses. A status line lives in your prompt permanently and carries no context, so a ratio hovering either side of 1.0 would flicker in and out all afternoon and render as a self-contradictory `🔥1.0×`. Underuse shows below 0.8×.
 
-Pace also needs 5% of a window elapsed before it means anything, so a freshly reset 5-hour window shows nothing for its first ~15 minutes.
+Two more reasons it may say nothing, both deliberate:
 
-Whether pace *shows* is this flag's business — the status line is its own surface, and the tray's own display preferences do not reach it. But the **numbers** come from the app: it mirrors your weekly pace basis and the pace master switch into `~/.claudemeter/statusline-config.json` on every settings change, and the bridge reads it fresh on each render. That matters more than it sounds: the same 75% weekly usage is `🔥1.3×` paced over 7 days and no signal at all paced over 5. Turning pace tracking off in Settings silences it here too.
+- **Underuse is a weekly-only signal.** A 5-hour window sitting at 0.2× pace is just you not having worked for an hour, and a snowflake every time you make coffee would be noise. Overuse is flagged on either window.
+- **A window needs 5% elapsed before a ratio means anything**, so a freshly reset 5-hour window shows nothing for its first ~15 minutes, and a fresh week is quiet until several hours in.
+
+If you want to know *why* nothing is showing, the honest answer is usually that you are on pace — the ratio has to leave the 0.8–1.2 band before there is anything worth interrupting you about.
+
+Whether pace *shows* is this flag's business — the status line is its own surface, and the tray's own display preferences do not reach it. But the **numbers** come from the app: it mirrors your weekly pace basis and the pace master switch into `~/.claudemeter/statusline-config.json` at launch and after every settings change, and the bridge reads it fresh on each render. That matters more than it sounds: the same 75% weekly usage is `🔥1.3×` paced over 7 days and no signal at all paced over 5. Turning pace tracking off in Settings silences it here too.
 
 ### 3. Check it
 
-Prompt Claude Code once. Within your refresh interval the tray should stop saying *"Waiting for Claude Code to report usage"*. You can confirm the bridge is firing at all with:
+Prompt Claude Code once. Within ~15 seconds the tray should stop saying *"Waiting for Claude Code to report usage"*. You can confirm the bridge is firing at all with:
 
 ```sh
 cat ~/.claudemeter/statusline.json
@@ -123,7 +128,7 @@ cat ~/.claudemeter/statusline.json
 | `usage.json` | **out** | The app's public export for external scripts (see the README). |
 | `statusline.json` | **in** | The reading the bridge records; what the meter reads. |
 | `statusline-command.txt` | out | This machine's setup command, for `/statusline` and for you. Rewritten on every launch. |
-| `statusline-config.json` | out | Your pace basis and pace master switch, mirrored for the bridge. Rewritten on every settings change. |
+| `statusline-config.json` | out | Your pace basis and pace master switch, mirrored for the bridge. Written at launch and after every settings change. |
 
 ---
 
@@ -181,6 +186,9 @@ You are on a Rusted Claude Meter older than 0.1.7. It does not recognise `status
 
 **The file exists but the numbers never change.**
 Claude Code is probably on an unsupported auth mode (API key, Bedrock, Vertex) or a version below 2.1.216 — in both cases it emits no `rate_limits`, and the bridge deliberately records nothing rather than overwriting a good reading with an empty one. Check `claude --version`.
+
+**The percentages show but the pace signal never does.**
+Most likely you are on pace: the signal only appears outside 0.8×–1.2×. Check the ratio the tray or popover shows for the same window — if it sits near 1.0×, silence is correct. Otherwise confirm `~/.claudemeter/statusline-config.json` has `"pace_tracking_enabled": true` (Settings' pace master switch turns it off everywhere), and that your command really has `--pace` on the `statusline` call.
 
 **My status line went blank.**
 The bridge prints nothing when it has nothing to report, which is normal on a cold session. If your own segments vanished too, `$input` is likely being consumed twice — capture stdin once into `input` and pipe a copy, as above.
