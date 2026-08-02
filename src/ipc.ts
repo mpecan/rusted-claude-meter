@@ -28,6 +28,7 @@ import type {
   SessionStatus,
   SessionSubmission,
   UsageMode,
+  UsageSource,
 } from "./types";
 
 const USAGE_STATE_EVENT = "usage-state";
@@ -112,6 +113,15 @@ export interface UsageBackend {
    * scheduler immediately; turning it on resumes polling. Resolves with the
    * resulting settings. See `docs/terms-of-service.md`. */
   setTosAcknowledged(acknowledged: boolean): Promise<AppSettings>;
+  /** Switch where usage numbers come from. Takes effect on the next poll
+   * rather than the next refresh interval — the command wakes the scheduler.
+   * Resolves with the resulting settings. */
+  setUsageSource(source: UsageSource): Promise<AppSettings>;
+  /** A ready-to-paste `statusLine.command` for this install, with the
+   * executable's real path already quoted. Generated rather than documented
+   * because on macOS the binary lives inside the app bundle, at a path
+   * containing spaces. */
+  statuslineCommand(): Promise<string>;
   /** Toggle debug logging of raw API responses to a local file. Resolves with
    * the resulting settings. */
   setDebugLogging(enabled: boolean): Promise<AppSettings>;
@@ -257,6 +267,14 @@ class TauriBackend implements UsageBackend {
 
   setTosAcknowledged(acknowledged: boolean): Promise<AppSettings> {
     return invoke<AppSettings>("set_tos_acknowledged", { acknowledged });
+  }
+
+  setUsageSource(source: UsageSource): Promise<AppSettings> {
+    return invoke<AppSettings>("set_usage_source", { source });
+  }
+
+  statuslineCommand(): Promise<string> {
+    return invoke<string>("statusline_command");
   }
 
   setDebugLogging(enabled: boolean): Promise<AppSettings> {
@@ -542,6 +560,19 @@ class DemoBackend implements UsageBackend {
   setTosAcknowledged(acknowledged: boolean): Promise<AppSettings> {
     this.settings = { ...this.settings, tos_acknowledged: acknowledged };
     return Promise.resolve({ ...this.settings });
+  }
+
+  setUsageSource(source: UsageSource): Promise<AppSettings> {
+    this.settings = { ...this.settings, usage_source: source };
+    return Promise.resolve({ ...this.settings });
+  }
+
+  statuslineCommand(): Promise<string> {
+    // Shaped like the real one so the Settings row is exercisable in a plain
+    // browser; the real path is the running executable resolved in Rust.
+    return Promise.resolve(
+      "input=$(cat); meter=$(printf '%s' \"$input\" | '/usr/bin/rusted-claude-meter' statusline); printf '%s' \"$meter\"",
+    );
   }
 
   setDebugLogging(enabled: boolean): Promise<AppSettings> {

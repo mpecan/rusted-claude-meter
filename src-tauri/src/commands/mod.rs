@@ -20,6 +20,7 @@ pub mod consent;
 pub mod debug;
 pub mod pace;
 pub mod popover;
+pub mod source;
 
 use std::collections::HashSet;
 use std::sync::Arc;

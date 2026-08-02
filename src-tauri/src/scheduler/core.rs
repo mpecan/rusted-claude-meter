@@ -58,6 +58,11 @@ pub enum FetchOutcome {
     /// made — the gate is checked before the credential store is even read.
     /// Polling pauses until consent is given (see `crate::consent`).
     NotAcknowledged,
+    /// The Claude Code status-line source is selected but has nothing to
+    /// report yet — the file is absent, unreadable, or carries no window.
+    /// Unlike the pauses above this keeps polling: only re-reading the file
+    /// can discover that Claude Code has since run.
+    AwaitingStatusline,
     /// HTTP 401: the key expired. Polling pauses — retrying cannot help and
     /// would only hammer the API (no retry storm).
     Unauthorized,
@@ -81,6 +86,12 @@ pub enum Phase {
     /// the app must say which one it is: a missing key is a setup step, this
     /// is a decision the user is being asked to make.
     AwaitingConsent,
+    /// The Claude Code status-line source is selected but has not reported
+    /// usage yet. Distinct from `AwaitingSession`/`AwaitingConsent` in both
+    /// remedy (set up the status line, rather than supply a key or accept a
+    /// risk) and behaviour: this one keeps polling, because the file appearing
+    /// is the only signal that the wait is over.
+    AwaitingStatusline,
     /// Session key rejected (401); waiting for a new key.
     SessionExpired,
 }
@@ -166,6 +177,13 @@ impl SchedulerCore {
                 self.failures = 0;
                 self.phase = Phase::AwaitingConsent;
             }
+            // Not a failure: a status line that has not run yet is the
+            // ordinary state of a fresh setup, so this must not accumulate
+            // backoff the way `Transient` does.
+            FetchOutcome::AwaitingStatusline => {
+                self.failures = 0;
+                self.phase = Phase::AwaitingStatusline;
+            }
             FetchOutcome::Unauthorized => {
                 self.failures = 0;
                 self.phase = Phase::SessionExpired;
@@ -194,7 +212,10 @@ impl SchedulerCore {
     pub fn next_delay(&self, jitter: f64) -> Option<Duration> {
         match self.phase {
             Phase::AwaitingSession | Phase::SessionExpired | Phase::AwaitingConsent => None,
-            Phase::Polling => Some(self.interval.duration()),
+            // Keeps the normal cadence rather than parking: nothing external
+            // wakes the loop when Claude Code finally writes the file, so the
+            // only way to notice is to look again. Cheap — a local file read.
+            Phase::Polling | Phase::AwaitingStatusline => Some(self.interval.duration()),
             Phase::Degraded => Some(backoff_delay(self.failures, jitter)),
         }
     }
@@ -384,6 +405,36 @@ mod tests {
         // other non-success outcome.
         let mut core = core_with_snapshot(30);
         core.record(FetchOutcome::NotAcknowledged);
+        assert!(core.state(now()).snapshot.is_some());
+    }
+
+    /// The defining difference from every other "waiting" phase: this one
+    /// keeps polling. Nothing external wakes the loop when Claude Code
+    /// finally writes the file, so parking here would wait forever.
+    #[test]
+    fn waiting_for_the_status_line_keeps_polling_rather_than_parking() {
+        let mut core = SchedulerCore::new(RefreshInterval::OneMinute, None);
+        core.record(FetchOutcome::AwaitingStatusline);
+        assert_eq!(core.state(now()).phase, Phase::AwaitingStatusline);
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(1)));
+    }
+
+    /// A status line that has not run yet is an ordinary state, not a fault,
+    /// so it must not accumulate the backoff `Transient` does — otherwise a
+    /// meter left alone overnight would come back polling every few minutes.
+    #[test]
+    fn waiting_for_the_status_line_never_backs_off() {
+        let mut core = SchedulerCore::new(RefreshInterval::OneMinute, None);
+        for _ in 0..10 {
+            core.record(FetchOutcome::AwaitingStatusline);
+        }
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(1)));
+    }
+
+    #[test]
+    fn waiting_for_the_status_line_keeps_the_last_good_snapshot() {
+        let mut core = core_with_snapshot(30);
+        core.record(FetchOutcome::AwaitingStatusline);
         assert!(core.state(now()).snapshot.is_some());
     }
 

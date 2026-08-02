@@ -70,7 +70,8 @@ export type Phase =
   | "degraded"
   | "awaiting_session"
   | "session_expired"
-  | "awaiting_consent";
+  | "awaiting_consent"
+  | "awaiting_statusline";
 
 /** Mirrors `scheduler::core::MeterState`: the single source of truth pushed
  * over the `usage-state` event and returned by the `usage_state` command. */
@@ -253,7 +254,18 @@ export interface AppSettings {
    * refuse while it is off. Mirrors `settings::AppSettings::tos_acknowledged`;
    * see `docs/terms-of-service.md`. */
   tos_acknowledged: boolean;
+  /** Where usage numbers come from. `claude_ai` (the default) polls claude.ai
+   * and needs `tos_acknowledged`; `claude_code_statusline` reads what Claude
+   * Code recorded through the `rusted-claude-meter statusline` bridge, which
+   * makes no claude.ai request and so needs no acknowledgement — but reports
+   * only the two headline windows, and only while Claude Code is running.
+   * Mirrors `source::UsageSource`. */
+  usage_source: UsageSource;
 }
+
+/** Mirrors `source::UsageSource` — which source the scheduler fetches from.
+ * See `AppSettings.usage_source`. */
+export type UsageSource = "claude_ai" | "claude_code_statusline";
 
 /** Mirrors `meter_shell::settings::PopoverLayout` — the two popover layouts
  * (redesign 1a compact rows / 1c status cards). */

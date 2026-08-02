@@ -82,9 +82,26 @@
           </p>
         </div>
 
-        <!-- First section in the panel on purpose: it is the switch that
-             decides whether this app talks to claude.ai at all. -->
+        <!-- First section in the panel on purpose: it decides whether this
+             app talks to claude.ai at all, and so whether the Terms-of-Service
+             question below applies. -->
         <div class="settings-section">
+          <h3>Usage source</h3>
+          <p class="settings-hint">Where the meter gets its numbers.</p>
+          <select id="usage-source-select"></select>
+          <p id="usage-source-hint" class="settings-hint" role="status"></p>
+          <div id="statusline-setup" class="statusline-setup" hidden>
+            <p id="statusline-setup-intro" class="settings-hint"></p>
+            <code id="statusline-command" class="statusline-command"></code>
+            <p id="statusline-setup-target" class="settings-hint"></p>
+            <button id="copy-statusline-command" class="ghost-button" type="button">
+              Copy command
+            </button>
+            <span id="copy-statusline-status" class="settings-hint" role="status"></span>
+          </div>
+        </div>
+
+        <div id="settings-tos-section" class="settings-section">
           <h3>Terms of Service</h3>
           <div class="warning-panel tos-notice">
             <strong id="settings-tos-headline"></strong>
@@ -115,6 +132,7 @@
             A model appears here as soon as it's reported. Switch it on to show it in the popover
             and the tray menu.
           </p>
+          <p id="scoped-source-hint" class="settings-hint" hidden></p>
           <div id="model-toggles" class="model-toggles"></div>
         </div>
 

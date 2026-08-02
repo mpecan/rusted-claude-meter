@@ -10,6 +10,7 @@
 pub mod core;
 #[cfg(test)]
 mod mock_integration;
+pub mod sourced;
 #[cfg(test)]
 mod test_support;
 pub mod transport;
@@ -22,6 +23,7 @@ use jiff::Timestamp;
 use tokio::sync::Notify;
 
 pub use self::core::{FetchOutcome, MeterState, Phase, RefreshInterval, SchedulerCore, Staleness};
+pub use self::sourced::{SourcedTransport, StatuslineTransport};
 pub use self::transport::{LiveTransport, SharedHandles};
 
 use self::transport::UsageTransport;

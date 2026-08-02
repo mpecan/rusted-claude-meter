@@ -34,6 +34,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Withheld until `getSettings()` says otherwise, so the pre-resolve render
   // can never show the consent box already ticked.
   tos_acknowledged: false,
+  // The source every install used before this setting existed, so the
+  // pre-resolve render never implies a source the user has not chosen.
+  usage_source: "claude_ai",
 };
 
 /** Deduped, snapshot-order list of every scoped model's display name in the

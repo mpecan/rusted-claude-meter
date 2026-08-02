@@ -23,6 +23,7 @@ mod scheduler;
 mod settings;
 mod settings_window;
 mod signin;
+mod source;
 mod statusline;
 mod store;
 mod sync;
@@ -37,8 +38,8 @@ use commands::SessionStoreState;
 use jiff::Timestamp;
 use notifier::NotifierState;
 use scheduler::{
-    LiveTransport, PersistPaths, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT,
-    run_loop,
+    LiveTransport, PersistPaths, SchedulerCore, SchedulerHandle, SourcedTransport,
+    StatuslineTransport, SystemClock, USAGE_STATE_EVENT, run_loop,
 };
 use settings::SettingsState;
 use store::{KeyringSessionStore, SessionStore};
@@ -112,6 +113,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_popover_layout,
             commands::set_usage_mode,
             commands::consent::set_tos_acknowledged,
+            commands::source::set_usage_source,
+            commands::source::statusline_command,
             commands::debug::set_debug_logging,
             commands::debug::debug_log_path,
             commands::debug::reveal_debug_log,
@@ -176,6 +179,11 @@ pub fn run() -> tauri::Result<()> {
             // the command that flips it and the transport that checks it.
             let consent = Arc::new(consent::ConsentGate::new(app_settings.tos_acknowledged));
             app.manage(Arc::clone(&consent));
+            // Which source the scheduler reads from (`crate::source`), seeded
+            // from the persisted choice. Shared between the Settings command
+            // that flips it and the transport that dispatches on it.
+            let selection = Arc::new(source::selection(app_settings.usage_source));
+            app.manage(Arc::clone(&selection));
             let mut core = SchedulerCore::new(
                 app_settings.refresh_interval,
                 cache_path.as_deref().and_then(cache::load),
@@ -183,8 +191,11 @@ pub fn run() -> tauri::Result<()> {
             // Start parked when consent is withheld, so the tray's very first
             // render already says "waiting for you to accept" instead of
             // showing a hopeful "polling" that the first tick immediately
-            // contradicts.
-            if !consent.get() {
+            // contradicts. Only when claude.ai is the source: the status-line
+            // source originates no request, so consent has no bearing on it
+            // and parking there would strand a user who chose it *because*
+            // they declined.
+            if !consent.get() && !app_settings.usage_source.is_statusline() {
                 core.record(scheduler::FetchOutcome::NotAcknowledged);
             }
             let shown: HashSet<String> = app_settings.shown_scoped_models.iter().cloned().collect();
@@ -223,17 +234,31 @@ pub fn run() -> tauri::Result<()> {
             // continuous. macOS has an NSPopover, which is always content-sized.
             #[cfg(target_os = "linux")]
             app.manage(commands::popover::ContentFit::default());
+            // Read target for the Claude Code source, resolved once here for
+            // the same reason `export_path` is: the bridge writes it under
+            // `$HOME`, and the GUI has Tauri's path API to find it with.
+            let statusline_path = app
+                .path()
+                .home_dir()
+                .ok()
+                .map(|dir| statusline::statusline_path(&dir));
             spawn_scheduler(
                 app,
-                scheduler_store,
+                SourcedTransport {
+                    live: LiveTransport::with_base_url(scheduler_store, api_base::api_base_url())
+                        .with_handles(scheduler::SharedHandles {
+                            response_log,
+                            consent,
+                        }),
+                    statusline: StatuslineTransport {
+                        path: statusline_path,
+                    },
+                    selection,
+                },
                 core,
                 PersistPaths {
                     cache: cache_path,
                     export: export_path,
-                },
-                scheduler::SharedHandles {
-                    response_log,
-                    consent,
                 },
             );
             Ok(())
@@ -289,13 +314,14 @@ fn configure_popover_window(app: &tauri::App) {
 
 /// Expose the already-seeded scheduler core as managed state and start the
 /// polling loop on Tauri's async runtime. The core arrives pre-loaded from
-/// the disk cache (see `setup`) so the tray could render it immediately.
+/// the disk cache (see `setup`) so the tray could render it immediately, and
+/// the transport arrives fully assembled — which source it reads is `setup`'s
+/// business, not this function's.
 fn spawn_scheduler(
     app: &tauri::App,
-    session_store: Arc<dyn SessionStore>,
+    transport: SourcedTransport,
     core: SchedulerCore,
     persist: PersistPaths,
-    handles: scheduler::SharedHandles,
 ) {
     let core = Arc::new(Mutex::new(core));
     let handle = SchedulerHandle::new(core, Arc::new(Notify::new()));
@@ -303,7 +329,7 @@ fn spawn_scheduler(
 
     let emitter = app.handle().clone();
     tauri::async_runtime::spawn(run_loop(
-        LiveTransport::with_base_url(session_store, api_base::api_base_url()).with_handles(handles),
+        transport,
         SystemClock::default(),
         handle,
         persist,

@@ -1,9 +1,9 @@
-//! `rusted-claude-meter statusline` — the Claude Code status-line bridge.
+//! `rusted-claude-meter statusline` — the Claude Code side of the bridge.
 //!
-//! Claude Code spawns the command configured under `statusLine.command` and
-//! writes a JSON blob to its **stdin** on every status-line render. Since
-//! Claude Code 2.1.216 that blob carries a `rate_limits` object holding the
-//! very same 5-hour and 7-day windows this app otherwise polls claude.ai for:
+//! Claude Code spawns the command named by `statusLine.command` and writes a
+//! JSON blob to its **stdin** on every status-line render. Since Claude Code
+//! 2.1.216 that blob carries a `rate_limits` object holding the same two
+//! headline windows this app otherwise polls claude.ai for:
 //!
 //! ```json
 //! { "rate_limits": {
@@ -11,74 +11,53 @@
 //!     "seven_day": { "used_percentage": 61.2, "resets_at": 1785920400 } } }
 //! ```
 //!
-//! `resets_at` is epoch **seconds**; `used_percentage` is already on the
-//! 0–100 scale [`meter_core::UsageWindow::utilization`] uses.
+//! `resets_at` is epoch **seconds**. `used_percentage` is already on the
+//! 0–100 scale [`meter_core::UsageWindow::utilization`] uses, and arrives as
+//! a JSON **integer** whenever a window sits on a round number — see the
+//! captured fixture in the tests.
 //!
-//! **Why this exists.** Claude Code derives those numbers from the
-//! `anthropic-ratelimit-unified-{5h,7d}-{utilization,reset}` response headers
-//! on the user's *own* API traffic. Nothing in this module makes a claude.ai
-//! request — Claude Code already made it, as itself — so this is the one data
-//! path that sidesteps the Terms-of-Service problem written up in
-//! `docs/terms-of-service.md` and guarded at runtime by [`crate::consent`].
-//! It is deliberately **not** wired to that gate: there is nothing to consent
-//! to when the app originates no traffic.
-//!
-//! **Why it cannot replace the poller.** Three hard limits, none of them
-//! fixable here:
-//! - Headline windows only. The payload carries no per-model breakdown, so
-//!   `shown_scoped_models` has no source. (The Agent SDK's experimental
-//!   `get_usage` control request does carry `model_scoped`; that is a
-//!   different, heavier integration.)
-//! - Subscription auth only. Claude Code hard-gates the store, so API-key,
-//!   Bedrock and Vertex sessions omit `rate_limits` entirely.
-//! - Only while Claude Code runs, and only from its first API response
-//!   onward — the key is absent until then.
-//!
-//! So this records an *additional*, ToS-clean source alongside the gated
-//! poller rather than replacing it.
+//! **What this source cannot report**, all three fixed upstream rather than
+//! here:
+//! - Headline windows only — no per-model breakdown, so `shown_scoped_models`
+//!   has no source. (The Agent SDK's experimental `get_usage` control request
+//!   does carry `model_scoped`; a different, heavier integration.)
+//! - Subscription auth only. Claude Code hard-gates its rate-limit store, so
+//!   API-key, Bedrock and Vertex sessions omit `rate_limits` entirely.
+//! - Only while Claude Code runs, and only from its first API response onward.
 //!
 //! **Composing with an existing status line.** The `statusLine.command` slot
-//! holds exactly one command, and most users already have one. `--quiet`
-//! records without printing, so an existing line keeps its own rendering:
+//! holds exactly one command, so this is designed to be added to whatever the
+//! user already has rather than to replace it. It prints its segment on
+//! stdout, so command substitution drops it into an existing line:
 //!
 //! ```sh
 //! input=$(cat)
-//! printf '%s' "$input" | rusted-claude-meter statusline --quiet
-//! # ...the user's own rendering of "$input" follows
+//! meter=$(printf '%s' "$input" | rusted-claude-meter statusline)
+//! printf '%s' "…the user's own line… $meter"
 //! ```
+//!
+//! `--quiet` records without printing, for a line that wants the recording
+//! but not the text.
 
 use std::io::{self, Read as _};
-use std::path::{Path, PathBuf};
 
 use jiff::Timestamp;
 use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-use crate::export::{EXPORT_DIR, ExportLimit};
-use crate::io_util::atomic_write;
+use super::{default_path, record};
 
 /// `argv[1]` that selects this mode instead of launching the GUI.
 pub const SUBCOMMAND: &str = "statusline";
 /// Record the reading but print nothing, so the user's own status-line
 /// command keeps the slot. See the module docs.
 pub const QUIET_FLAG: &str = "--quiet";
-/// File name inside [`EXPORT_DIR`], alongside `export.rs`'s `usage.json`.
-///
-/// A separate file on purpose: `usage.json` is this app's (and the Swift
-/// app's) *output*, last-writer-wins with no merging. This one flows the
-/// other way — written by a Claude Code subprocess, read by the app — and
-/// mixing the two directions in one path would make "who wrote this?"
-/// unanswerable.
-pub const STATUSLINE_FILE: &str = "statusline.json";
-/// Bumped whenever [`StatusLinePayload`] changes shape incompatibly, so a
-/// future reader can tell a stale file from one it understands.
-pub const SCHEMA_VERSION: u32 = 1;
 
 /// The status-line separator, matching the tray menu's detail lines.
 const SEPARATOR: &str = " · ";
 
 /// One window as Claude Code writes it. Field names are Claude Code's, not
-/// ours — this is a wire type, mapped to the domain by [`RawWindow::into_domain`].
+/// ours — a wire type, mapped to the domain by [`RawWindow::into_domain`].
 #[derive(Debug, Clone, Copy, Deserialize)]
 struct RawWindow {
     used_percentage: f64,
@@ -124,7 +103,7 @@ pub struct Invocation {
 /// Classify `args` (argv **without** the program name).
 ///
 /// `None` means "not a status-line invocation" — the caller falls through to
-/// launching the GUI, so a normal double-click is unaffected.
+/// launching the GUI, so an ordinary launch is unaffected.
 ///
 /// Unrecognized extra arguments are ignored rather than rejected: this runs
 /// on every status-line render, and failing loudly there would break the
@@ -173,49 +152,6 @@ pub fn snapshot(input: &str, now: Timestamp) -> Option<UsageSnapshot> {
     })
 }
 
-/// The recorded reading, as it lands on disk.
-///
-/// Reuses [`ExportLimit`] so the two files in `~/.claudemeter/` describe a
-/// limit the same way — a consumer that already reads `usage.json` needs no
-/// second parser for the `utilization`/`reset_at` pair.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StatusLinePayload {
-    pub schema: u32,
-    /// The 5-hour headline window; `null` when Claude Code reported only the
-    /// weekly one.
-    pub session_usage: Option<ExportLimit>,
-    /// The 7-day headline window; see `session_usage`.
-    pub weekly_usage: Option<ExportLimit>,
-    /// When this bridge observed the reading — *not* when Claude Code fetched
-    /// it. A reader should treat a stale `recorded_at` as "Claude Code has
-    /// not run recently", which is the normal case.
-    pub recorded_at: Timestamp,
-}
-
-impl From<&UsageSnapshot> for StatusLinePayload {
-    fn from(snapshot: &UsageSnapshot) -> Self {
-        Self {
-            schema: SCHEMA_VERSION,
-            session_usage: snapshot.five_hour.as_ref().map(ExportLimit::from),
-            weekly_usage: snapshot.seven_day.as_ref().map(ExportLimit::from),
-            recorded_at: snapshot.fetched_at,
-        }
-    }
-}
-
-/// `~/.claudemeter/statusline.json` given the user's home directory.
-#[must_use]
-pub fn statusline_path(home: &Path) -> PathBuf {
-    home.join(EXPORT_DIR).join(STATUSLINE_FILE)
-}
-
-/// Persist `snapshot`, replacing any previous reading. Atomic, so the app can
-/// read the file at any moment without seeing a half-written document.
-pub fn record(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
-    let body = serde_json::to_string_pretty(&StatusLinePayload::from(snapshot))?;
-    atomic_write(path, &body)
-}
-
 /// The one-line status-line segment, e.g. `5h 37% · 7d 61%`.
 ///
 /// Only windows Claude Code actually reported appear, so a payload carrying
@@ -230,14 +166,6 @@ pub fn render(snapshot: &UsageSnapshot) -> String {
         segments.push(format!("7d {:.0}%", window.utilization));
     }
     segments.join(SEPARATOR)
-}
-
-/// `$HOME`, which is what both target platforms (macOS, Linux) define. The
-/// GUI resolves this through Tauri's path API, but that needs a built `App`
-/// and this runs long before — and instead of — one.
-fn home_dir() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    (!home.as_os_str().is_empty()).then_some(home)
 }
 
 /// Read one blob from stdin, record it, and print the segment unless
@@ -256,7 +184,7 @@ pub fn execute(invocation: Invocation) {
     let Some(snapshot) = snapshot(&raw, Timestamp::now()) else {
         return;
     };
-    if let Some(path) = home_dir().map(|home| statusline_path(&home))
+    if let Some(path) = default_path()
         && let Err(error) = record(&path, &snapshot)
     {
         eprintln!("rusted-claude-meter: could not record the reading: {error}");
@@ -276,7 +204,11 @@ mod tests {
 
     use super::*;
     use pretty_assertions::assert_eq;
-    use std::fs;
+
+    /// Captured from Claude Code 2.1.220 (paths and ids genericised, the
+    /// `rate_limits` block verbatim) — the fixture to check shape questions
+    /// against, mirroring `meter-api`'s `usage_response_live.json`.
+    const LIVE: &str = include_str!("../../tests/fixtures/statusline_payload_live.json");
 
     fn now() -> Timestamp {
         "2026-08-02T12:00:00Z".parse().unwrap()
@@ -286,16 +218,12 @@ mod tests {
         raw.iter().map(|arg| (*arg).to_owned()).collect()
     }
 
-    /// Shaped after the real payload Claude Code 2.1.220 emits, unrelated
-    /// fields included: the point is that they are ignored, so the bridge
-    /// survives Claude Code adding to the blob.
+    /// Hand-written, covering every branch; see [`LIVE`] for shape questions.
     fn payload() -> String {
         serde_json::json!({
             "cwd": "/home/example/project",
             "model": { "id": "claude-opus-5", "display_name": "Opus 5" },
-            "workspace": { "current_dir": "/home/example/project" },
             "cost": { "total_cost_usd": 1.25 },
-            "context_window": { "used_percentage": 12.0 },
             "exceeds_200k_tokens": false,
             "rate_limits": {
                 "five_hour": { "used_percentage": 37.4, "resets_at": 1_785_682_800_i64 },
@@ -395,19 +323,14 @@ mod tests {
         assert!(snapshot.seven_day.is_some());
     }
 
-    /// Captured from Claude Code 2.1.220 (paths and ids genericised, the
-    /// `rate_limits` block verbatim) — the fixture to check shape questions
-    /// against, mirroring `meter-api`'s `usage_response_live.json`.
-    ///
-    /// It pins two things the hand-written fixture above cannot: that the
-    /// unrelated two thirds of the blob really are ignorable, and that
-    /// `used_percentage` arrives as a JSON **integer** for a window sitting
-    /// on a round number (`seven_day` was `3`, not `3.0`) while its sibling
-    /// carries `float`-noise from Claude Code's `utilization * 100`.
+    /// Pins two things the hand-written fixture cannot: that the unrelated
+    /// two thirds of the blob really are ignorable, and that
+    /// `used_percentage` arrives as a JSON **integer** for a window on a
+    /// round number (`seven_day` was `3`, not `3.0`) while its sibling
+    /// carries float noise from Claude Code's `utilization * 100`.
     #[test]
     fn the_live_captured_payload_maps_cleanly() {
-        let raw = include_str!("../tests/fixtures/statusline_payload_live.json");
-        let snapshot = snapshot(raw, now()).unwrap();
+        let snapshot = snapshot(LIVE, now()).unwrap();
         assert_eq!(
             snapshot.five_hour.unwrap().utilization,
             14.000_000_000_000_002
@@ -422,8 +345,7 @@ mod tests {
 
     #[test]
     fn the_live_payload_renders_without_float_noise() {
-        let raw = include_str!("../tests/fixtures/statusline_payload_live.json");
-        assert_eq!(render(&snapshot(raw, now()).unwrap()), "5h 14% · 7d 3%");
+        assert_eq!(render(&snapshot(LIVE, now()).unwrap()), "5h 14% · 7d 3%");
     }
 
     #[test]
@@ -453,8 +375,10 @@ mod tests {
 
     #[test]
     fn render_shows_both_windows_rounded() {
-        let snapshot = snapshot(&payload(), now()).unwrap();
-        assert_eq!(render(&snapshot), "5h 37% · 7d 61%");
+        assert_eq!(
+            render(&snapshot(&payload(), now()).unwrap()),
+            "5h 37% · 7d 61%"
+        );
     }
 
     #[test]
@@ -466,60 +390,5 @@ mod tests {
         })
         .to_string();
         assert_eq!(render(&snapshot(&raw, now()).unwrap()), "7d 61%");
-    }
-
-    /// Golden-file test: pins the on-disk contract the app-side reader will
-    /// be written against. Any change here is a breaking change.
-    #[test]
-    fn golden_recorded_schema() {
-        let payload = StatusLinePayload::from(&snapshot(&payload(), now()).unwrap());
-        assert_eq!(
-            serde_json::to_value(&payload).unwrap(),
-            serde_json::json!({
-                "schema": 1,
-                "session_usage": {
-                    "utilization": 37.4,
-                    "reset_at": "2026-08-02T15:00:00Z",
-                },
-                "weekly_usage": {
-                    "utilization": 61.2,
-                    "reset_at": "2026-08-05T09:00:00Z",
-                },
-                "recorded_at": "2026-08-02T12:00:00Z",
-            })
-        );
-    }
-
-    #[test]
-    fn record_round_trips_through_the_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = statusline_path(dir.path());
-        let snapshot = snapshot(&payload(), now()).unwrap();
-        record(&path, &snapshot).unwrap();
-        let decoded: StatusLinePayload =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(decoded, StatusLinePayload::from(&snapshot));
-    }
-
-    #[test]
-    fn record_replaces_a_previous_reading_and_leaves_no_temp_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = statusline_path(dir.path());
-        let mut snapshot = snapshot(&payload(), now()).unwrap();
-        record(&path, &snapshot).unwrap();
-        snapshot.fetched_at = "2026-08-02T13:00:00Z".parse().unwrap();
-        record(&path, &snapshot).unwrap();
-        let decoded: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(decoded["recorded_at"], "2026-08-02T13:00:00Z");
-        assert!(!path.with_extension("json.tmp").exists());
-    }
-
-    #[test]
-    fn the_recorded_file_sits_beside_the_usage_export() {
-        assert_eq!(
-            statusline_path(Path::new("/home/example")),
-            PathBuf::from("/home/example/.claudemeter/statusline.json")
-        );
     }
 }

@@ -41,7 +41,16 @@ import {
   type RefreshInterval,
   type UsageMode,
   type UsageSnapshot,
+  type UsageSource,
 } from "./types";
+import {
+  STATUSLINE_NO_SCOPED_MODELS,
+  STATUSLINE_SETUP_INTRO,
+  STATUSLINE_SETUP_TARGET,
+  USAGE_SOURCE_OPTIONS,
+  tosAppliesTo,
+  usageSourceHint,
+} from "./usage-source";
 import { describeWizardValidation } from "./wizard-view-model";
 import { createWizard } from "./wizard";
 
@@ -90,6 +99,16 @@ function bindSegmented<T>(
 
 export function initSettingsView(backend: UsageBackend): void {
   const modelTogglesEl = requireElement<HTMLElement>("model-toggles");
+  const usageSourceSelect = requireElement<HTMLSelectElement>("usage-source-select");
+  const usageSourceHintEl = requireElement<HTMLElement>("usage-source-hint");
+  const statuslineSetup = requireElement<HTMLElement>("statusline-setup");
+  const statuslineSetupIntro = requireElement<HTMLElement>("statusline-setup-intro");
+  const statuslineSetupTarget = requireElement<HTMLElement>("statusline-setup-target");
+  const statuslineCommandEl = requireElement<HTMLElement>("statusline-command");
+  const copyStatuslineButton = requireElement<HTMLButtonElement>("copy-statusline-command");
+  const copyStatuslineStatus = requireElement<HTMLElement>("copy-statusline-status");
+  const scopedSourceHint = requireElement<HTMLElement>("scoped-source-hint");
+  const tosSection = requireElement<HTMLElement>("settings-tos-section");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
   const warningInput = requireElement<HTMLInputElement>("warning-threshold");
   const warningValue = requireElement<HTMLElement>("warning-threshold-value");
@@ -125,6 +144,10 @@ export function initSettingsView(backend: UsageBackend): void {
   const browserImportError = requireElement<HTMLElement>("browser-import-error");
   const runSetupAgainButton = requireElement<HTMLButtonElement>("run-setup-again-button");
 
+  renderSelectOptions(usageSourceSelect, USAGE_SOURCE_OPTIONS);
+  statuslineSetupIntro.textContent = STATUSLINE_SETUP_INTRO;
+  statuslineSetupTarget.textContent = STATUSLINE_SETUP_TARGET;
+  scopedSourceHint.textContent = STATUSLINE_NO_SCOPED_MODELS;
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
 
   let settings: AppSettings = DEFAULT_SETTINGS;
@@ -232,6 +255,42 @@ export function initSettingsView(backend: UsageBackend): void {
     setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
     tosConsent.checked = settings.tos_acknowledged;
     tosState.textContent = tosStateHint(settings.tos_acknowledged);
+    applyUsageSourceToForm();
+  }
+
+  /** Everything that keys off which source is selected. The status-line setup
+   * block and the scoped-models caveat only make sense for one source, and
+   * showing either against the other would be actively misleading. */
+  function applyUsageSourceToForm(): void {
+    const source = settings.usage_source;
+    usageSourceSelect.value = source;
+    usageSourceHintEl.textContent = usageSourceHint(source);
+    const statusline = source === "claude_code_statusline";
+    statuslineSetup.hidden = !statusline;
+    scopedSourceHint.hidden = !statusline;
+    // The consent question is about claude.ai traffic. On the status-line
+    // source there is none, so the warning is dimmed rather than removed —
+    // switching back must not feel like the risk quietly disappeared.
+    tosSection.classList.toggle("not-applicable", !tosAppliesTo(source));
+    if (statusline) {
+      loadStatuslineCommand();
+    }
+  }
+
+  /** Fetched lazily and only once: it is the running executable's path, which
+   * cannot change while the app is open. */
+  function loadStatuslineCommand(): void {
+    if (statuslineCommandEl.textContent) {
+      return;
+    }
+    backend
+      .statuslineCommand()
+      .then((command) => {
+        statuslineCommandEl.textContent = command;
+      })
+      .catch((error: unknown) => {
+        console.error("failed to build the status-line command", error);
+      });
   }
 
   function refreshSessionStatus(): void {
@@ -392,6 +451,28 @@ export function initSettingsView(backend: UsageBackend): void {
   refreshAutostartStatus();
   loadDebugLogPath();
   loadDemoEndpointBanner();
+
+  usageSourceSelect.addEventListener("change", () => {
+    const source = usageSourceSelect.value as UsageSource;
+    settings = { ...settings, usage_source: source };
+    applyUsageSourceToForm();
+    backend.setUsageSource(source).catch((error: unknown) => {
+      console.error("failed to persist the usage source", error);
+    });
+  });
+
+  copyStatuslineButton.addEventListener("click", () => {
+    const command = statuslineCommandEl.textContent ?? "";
+    navigator.clipboard
+      .writeText(command)
+      .then(() => {
+        copyStatuslineStatus.textContent = "Copied.";
+      })
+      .catch((error: unknown) => {
+        console.error("failed to copy the status-line command", error);
+        copyStatuslineStatus.textContent = "Couldn't copy — select the command and copy it.";
+      });
+  });
 
   refreshIntervalSelect.addEventListener("change", () => {
     const interval = refreshIntervalSelect.value as RefreshInterval;

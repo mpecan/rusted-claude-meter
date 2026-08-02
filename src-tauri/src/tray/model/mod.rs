@@ -403,6 +403,12 @@ fn status_line(state: &MeterState, now: Timestamp) -> String {
         (Phase::AwaitingConsent, Some(age)) => {
             format!("Paused — showing data from {age} ago")
         }
+        // Not a fault either: Claude Code simply has not reported yet, which
+        // is every setup's first minute and every idle stretch afterwards.
+        (Phase::AwaitingStatusline, None) => "Waiting for Claude Code to report usage".to_owned(),
+        (Phase::AwaitingStatusline, Some(age)) => {
+            format!("Claude Code last reported {age} ago")
+        }
         (Phase::AwaitingSession, None) => "No session key — choose Open to set one".to_owned(),
         (Phase::AwaitingSession, Some(age)) => {
             format!("No session key — showing data from {age} ago")

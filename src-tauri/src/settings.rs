@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::io_util::atomic_write;
 use crate::scheduler::RefreshInterval;
+use crate::source::UsageSource;
 
 /// File name inside the app data dir.
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -149,6 +150,14 @@ pub struct AppSettings {
     /// — the warning is worth nothing if the app is already making the
     /// requests it warns about.
     pub tos_acknowledged: bool,
+    /// Which source the scheduler fetches usage from (see [`UsageSource`]).
+    ///
+    /// Defaults to [`UsageSource::ClaudeAi`] — what every install did before
+    /// this field existed — so the struct-level `#[serde(default)]` leaves an
+    /// upgrading install on exactly the source it was already using. Unlike
+    /// `tos_acknowledged`, defaulting this one is uneventful: it selects the
+    /// path that is *already* gated rather than opening anything.
+    pub usage_source: UsageSource,
 }
 
 impl Default for AppSettings {
@@ -169,6 +178,7 @@ impl Default for AppSettings {
             pace_tracking_enabled: true,
             debug_logging: false,
             tos_acknowledged: false,
+            usage_source: UsageSource::default(),
         }
     }
 }
@@ -306,6 +316,7 @@ mod tests {
             pace_tracking_enabled: false,
             debug_logging: true,
             tos_acknowledged: true,
+            usage_source: UsageSource::ClaudeCodeStatusline,
         }
     }
 
@@ -564,6 +575,21 @@ mod tests {
         // leave `tos_acknowledged` false — for the wrong reason.)
         assert_eq!(loaded.popover_layout, PopoverLayout::Cards);
         assert_eq!(loaded.refresh_interval, RefreshInterval::FiveMinutes);
+        // Unlike consent, defaulting the source is uneventful — it selects
+        // the path the install was already on rather than opening anything.
+        assert_eq!(loaded.usage_source, UsageSource::ClaudeAi);
+    }
+
+    #[test]
+    fn the_usage_source_round_trips_through_the_settings_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = settings_path(&dir);
+        let settings = AppSettings {
+            usage_source: UsageSource::ClaudeCodeStatusline,
+            ..AppSettings::default()
+        };
+        save(&path, &settings).unwrap();
+        assert_eq!(load(&path).usage_source, UsageSource::ClaudeCodeStatusline);
     }
 
     #[test]

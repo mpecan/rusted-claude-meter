@@ -177,7 +177,14 @@ body {
 
 /* `awaiting_consent` shares the warning treatment: consent withheld is a
    state the user chose, not a fault, so it reads like "stale" rather than
-   like "degraded". */
+   like "degraded". `awaiting_statusline` is milder still — the numbers are
+   simply waiting on Claude Code to run — so it reads as muted information
+   rather than a warning. */
+.status-line[data-banner="awaiting_statusline"] {
+  background: rgb(128 128 128 / 12%);
+  color: var(--text-muted);
+}
+
 .status-line[data-banner="stale"],
 .status-line[data-banner="awaiting_consent"] {
   background: rgb(232 133 12 / 14%);
@@ -1006,4 +1013,34 @@ input[type="checkbox"] {
 
 #critical-threshold {
   accent-color: var(--color-critical);
+}
+
+/* The Claude Code status-line setup block: a generated shell command the user
+   copies into `~/.claude/settings.json`. It wraps rather than scrolls — the
+   command is one line but a long one, and a horizontal scrollbar inside a
+   settings panel is easy to miss entirely. */
+.statusline-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.statusline-command {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-sunken, rgb(128 128 128 / 10%));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* Dimmed, never hidden: on the status-line source the Terms-of-Service
+   question does not apply, but removing it outright would make switching back
+   feel like the risk had quietly gone away. */
+.settings-section.not-applicable {
+  opacity: 0.55;
 }

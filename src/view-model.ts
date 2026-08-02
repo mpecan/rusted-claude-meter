@@ -71,6 +71,7 @@ export type BannerKind =
   | "awaiting_session"
   | "session_expired"
   | "awaiting_consent"
+  | "awaiting_statusline"
   | "degraded"
   | "stale"
   | "ok";
@@ -237,6 +238,8 @@ function bannerKind(state: MeterState): BannerKind {
       return "session_expired";
     case "awaiting_consent":
       return "awaiting_consent";
+    case "awaiting_statusline":
+      return "awaiting_statusline";
     case "degraded":
       return "degraded";
     case "polling":
@@ -269,6 +272,14 @@ function statusLine(state: MeterState, now: Date): string {
       return age === null
         ? "Paused — review the risk in Settings to start tracking"
         : `Paused — showing data from ${age}`;
+    // Neither a fault nor a decision the user owes: the status-line source is
+    // selected and Claude Code simply has not reported yet, which is every
+    // setup's first minute and every idle stretch after it. Mirrors
+    // `tray::model::status_line`'s `AwaitingStatusline` arms.
+    case "awaiting_statusline":
+      return age === null
+        ? "Waiting for Claude Code to report usage"
+        : `Claude Code last reported ${age}`;
     case "degraded":
       return age === null ? "Connection trouble — retrying" : `Connection trouble — data from ${age}`;
     case "polling":
