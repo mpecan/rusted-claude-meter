@@ -79,11 +79,15 @@ mod tests {
 
     use super::*;
     use crate::export::claudemeter_path;
-    use crate::scheduler::test_support::consenting;
+    use crate::scheduler::test_support::{
+        USAGE_BODY, consenting, mount_org_discovery, store_with_key,
+    };
     use crate::source::{UsageSource, selection};
     use crate::store::FakeSessionStore;
     use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
     use pretty_assertions::assert_eq;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn snapshot() -> UsageSnapshot {
         UsageSnapshot {
@@ -151,6 +155,111 @@ mod tests {
             selection: Arc::new(selection(UsageSource::ClaudeCodeStatusline)),
         };
         assert_eq!(transport.fetch().await, FetchOutcome::Success(snapshot()));
+    }
+
+    /// The load-bearing test for the whole source switch, and the mirror of
+    /// `transport.rs`'s `a_closed_consent_gate_makes_no_request_at_all`.
+    ///
+    /// Everything is set up for a successful poll — a healthy mock server, a
+    /// valid stored key, an open consent gate — so the *only* reason nothing
+    /// goes over the wire is the selected source. `received_requests` proves
+    /// that, rather than merely that an outcome was mapped.
+    #[tokio::test]
+    async fn the_statusline_source_puts_nothing_on_the_wire_at_all() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let transport = SourcedTransport {
+            live: consenting(store_with_key(), server.uri()),
+            statusline: StatuslineTransport {
+                path: Some(recorded(&dir)),
+            },
+            selection: Arc::new(selection(UsageSource::ClaudeCodeStatusline)),
+        };
+
+        assert_eq!(transport.fetch().await, FetchOutcome::Success(snapshot()));
+        assert!(
+            server
+                .received_requests()
+                .await
+                .is_some_and(|r| r.is_empty()),
+            "the Claude Code source must not touch claude.ai"
+        );
+    }
+
+    /// The same server, the same everything, with the source flipped — proof
+    /// that the test above is not passing because the mock was never
+    /// reachable in the first place.
+    #[tokio::test]
+    async fn the_claude_ai_source_does_reach_the_very_same_server() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let transport = SourcedTransport {
+            live: consenting(store_with_key(), server.uri()),
+            statusline: StatuslineTransport {
+                path: Some(recorded(&dir)),
+            },
+            selection: Arc::new(selection(UsageSource::ClaudeAi)),
+        };
+
+        assert!(matches!(transport.fetch().await, FetchOutcome::Success(_)));
+        assert!(
+            server
+                .received_requests()
+                .await
+                .is_some_and(|r| !r.is_empty()),
+            "the claude.ai source must actually poll"
+        );
+    }
+
+    /// Switching source mid-run must stop the traffic, not merely stop using
+    /// its results — the user flipping the picker expects the requests to end.
+    #[tokio::test]
+    async fn switching_to_the_statusline_source_stops_the_traffic() {
+        let server = MockServer::start().await;
+        mount_org_discovery(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/organizations/org-1/usage"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let live_selection = Arc::new(selection(UsageSource::ClaudeAi));
+        let transport = SourcedTransport {
+            live: consenting(store_with_key(), server.uri()),
+            statusline: StatuslineTransport {
+                path: Some(recorded(&dir)),
+            },
+            selection: Arc::clone(&live_selection),
+        };
+
+        transport.fetch().await;
+        let before = server.received_requests().await.map(|r| r.len());
+        assert!(before.is_some_and(|count| count > 0));
+
+        live_selection.set(true);
+        for _ in 0..5 {
+            transport.fetch().await;
+        }
+        assert_eq!(
+            server.received_requests().await.map(|r| r.len()),
+            before,
+            "no further request may reach claude.ai after switching source"
+        );
     }
 
     #[tokio::test]

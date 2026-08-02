@@ -85,7 +85,7 @@ export interface MeterState {
  * "message" }` serde representation. `Rejected` means the key parsed but
  * claude.ai refused it — the previously stored key (if any) was restored. */
 export interface SessionCommandError {
-  kind: "Validation" | "Rejected" | "Store" | "NotAcknowledged";
+  kind: "Validation" | "Rejected" | "Store" | "NotAcknowledged" | "WrongSource";
   message: string;
 }
 
@@ -141,7 +141,8 @@ export interface BrowserImportError {
     | "Invalid"
     | "Rejected"
     | "Store"
-    | "NotAcknowledged";
+    | "NotAcknowledged"
+    | "WrongSource";
   message: string;
 }
 

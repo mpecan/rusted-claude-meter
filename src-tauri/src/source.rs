@@ -47,6 +47,14 @@ impl UsageSource {
     }
 }
 
+/// What every sign-in path returns while the Claude Code status line is the
+/// source. Defined once so the pasted-key path and the browser-import path
+/// cannot drift into telling the user two different stories — the same
+/// discipline as `commands::consent::WITHHELD_MESSAGE`.
+pub const WRONG_SOURCE_MESSAGE: &str = "Rusted Claude Meter is reading usage from Claude Code, so it needs no session key and \
+     contacts claude.ai on no path at all. Switch Usage source to \"Poll claude.ai\" in \
+     Settings first if you want to poll directly.";
+
 /// Runtime mirror of [`UsageSource`], shared between the Settings command that
 /// flips it and the transport that reads it on every tick — the same
 /// arrangement as [`crate::consent::ConsentGate`].

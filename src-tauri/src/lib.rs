@@ -93,9 +93,9 @@ pub fn run() -> tauri::Result<()> {
     builder
         .manage(SessionStoreState(session_store))
         .invoke_handler(tauri::generate_handler![
-            commands::set_session_key,
-            commands::session_status,
-            commands::clear_session_key,
+            commands::session::set_session_key,
+            commands::session::session_status,
+            commands::session::clear_session_key,
             commands::browser::list_browser_sessions,
             commands::browser::import_browser_session,
             commands::usage_state,

@@ -96,10 +96,10 @@ On first launch a **setup wizard** walks you through the Terms-of-Service warnin
 
 ### 1. Choose where your usage comes from
 
-**Settings → Usage source**, or the wizard's first steps. Two options, and the choice decides whether steps 2 and 3 apply to you at all:
+**Settings → Usage source.** Two options, and the choice decides whether steps 2 and 3 apply to you at all:
 
 - **Poll claude.ai** *(default)* — the complete picture: model-scoped limits, the spend view, and updates on your refresh interval. Needs a session key and the Terms-of-Service acknowledgement below.
-- **Read from Claude Code** — reads the usage Claude Code already receives, via its status line. **No claude.ai requests, no session key, nothing to acknowledge.** Reports the 5-hour and 7-day windows only, and only updates while Claude Code is running. Setup is one `/statusline` command in Claude Code; see [docs/claude-code-statusline.md](docs/claude-code-statusline.md). **If you pick this, skip to step 4.**
+- **Read from Claude Code** — reads the usage Claude Code already receives, via its status line. **No claude.ai requests, no session key, nothing to acknowledge.** Reports the 5-hour and 7-day windows only, and only updates while Claude Code is running. Setup is one `/statusline` command in Claude Code; see [docs/claude-code-statusline.md](docs/claude-code-statusline.md). **If you pick this, skip to step 4** — on this source the app refuses to contact claude.ai on every path, including validating a session key you paste.
 
 ### 2. Accept the Terms-of-Service risk
 

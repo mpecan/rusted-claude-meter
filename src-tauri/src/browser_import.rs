@@ -88,6 +88,9 @@ pub enum BrowserImportError {
     /// Terms-of-Service consent is withheld, so nothing was read or contacted at all
     /// (`crate::consent`).
     NotAcknowledged(String),
+    /// The Claude Code status line is the selected source, so no key is needed
+    /// and nothing was read or contacted at all (`crate::source`).
+    WrongSource(String),
 }
 
 /// Confirms a session key with claude.ai. The seam the import flow is generic
@@ -238,6 +241,9 @@ pub async fn import_impl<V: SessionValidator>(
             StoreAndValidateError::NotAcknowledged => BrowserImportError::NotAcknowledged(
                 crate::commands::consent::WITHHELD_MESSAGE.to_owned(),
             ),
+            StoreAndValidateError::WrongSource => {
+                BrowserImportError::WrongSource(crate::source::WRONG_SOURCE_MESSAGE.to_owned())
+            }
             StoreAndValidateError::Rejected => BrowserImportError::Rejected(format!(
                 "claude.ai rejected the session imported from {display_name} — it may have \
                  expired. Sign in again there and retry."
@@ -315,6 +321,12 @@ mod tests {
     /// `static`, so a `&'static` reference fits any `SessionSink` lifetime.
     static OPEN_GATE: ConsentGate = ConsentGate::new(true);
     static CLOSED_GATE: ConsentGate = ConsentGate::new(false);
+    use crate::source::SourceSelection;
+
+    /// The claude.ai source. Named rather than a bare `false` so every sink
+    /// in these tests states which source it is standing in for.
+    static POLLING_CLAUDE_AI: SourceSelection = SourceSelection::new(false);
+    static READING_CLAUDE_CODE: SourceSelection = SourceSelection::new(true);
 
     fn sink<'a>(
         store: &'a Arc<dyn SessionStore>,
@@ -324,7 +336,34 @@ mod tests {
             store,
             validator,
             consent: &OPEN_GATE,
+            source: &POLLING_CLAUDE_AI,
         }
+    }
+
+    /// The import path's half of the guarantee: on the Claude Code source
+    /// the refusal lands before the cookie store is read, so the user gets
+    /// neither claude.ai traffic nor a keychain prompt.
+    #[tokio::test]
+    async fn the_claude_code_source_refuses_before_the_cookie_store_is_read() {
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
+        let validator = ok_validator();
+        let reader = FakeReader::with_session();
+        let error = import_impl(
+            reader,
+            &SessionSink {
+                store: &store,
+                validator: &validator,
+                consent: &OPEN_GATE,
+                source: &READING_CLAUDE_CODE,
+            },
+            Os::MacOs,
+            Browser::Chrome,
+        )
+        .await
+        .err();
+
+        assert!(matches!(error, Some(BrowserImportError::WrongSource(_))));
+        assert_eq!(store.load().unwrap(), None);
     }
 
     #[tokio::test]
@@ -434,6 +473,7 @@ mod tests {
                 store: &store,
                 validator: &validator,
                 consent: &CLOSED_GATE,
+                source: &POLLING_CLAUDE_AI,
             },
             Os::MacOs,
             Browser::Chrome,

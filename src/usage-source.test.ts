@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   STATUSLINE_MIN_CLAUDE_CODE,
   STATUSLINE_NO_SCOPED_MODELS,
+  STATUSLINE_NO_SESSION_KEY,
   STATUSLINE_SETUP_INTRO,
   STATUSLINE_SETUP_MANUAL,
   STATUSLINE_SLASH_COMMAND,
@@ -96,6 +97,13 @@ describe("the status-line setup copy", () => {
   it("offers the easy route before the manual one", () => {
     expect(STATUSLINE_SETUP_INTRO).toMatch(/easiest/i);
     expect(STATUSLINE_SETUP_MANUAL).toMatch(/^Or add it by hand/);
+  });
+
+  it("explains why the session field is dimmed instead of just disabling it", () => {
+    // The backend refuses a paste on this source (`WrongSource`), so the copy
+    // has to say why rather than leave a field that looks usable.
+    expect(STATUSLINE_NO_SESSION_KEY).toMatch(/Not needed/i);
+    expect(STATUSLINE_NO_SESSION_KEY).toMatch(/no claude\.ai request/);
   });
 
   it("explains the empty scoped-models list rather than leaving it bare", () => {

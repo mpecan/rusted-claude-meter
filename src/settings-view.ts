@@ -45,6 +45,7 @@ import {
 } from "./types";
 import {
   STATUSLINE_NO_SCOPED_MODELS,
+  STATUSLINE_NO_SESSION_KEY,
   STATUSLINE_SETUP_INTRO,
   STATUSLINE_SETUP_MANUAL,
   USAGE_SOURCE_OPTIONS,
@@ -104,6 +105,8 @@ export function initSettingsView(backend: UsageBackend): void {
   const usageSourceHintEl = requireElement<HTMLElement>("usage-source-hint");
   const scopedSourceHint = requireElement<HTMLElement>("scoped-source-hint");
   const tosSection = requireElement<HTMLElement>("settings-tos-section");
+  const sessionSection = requireElement<HTMLElement>("settings-session-section");
+  const sessionSourceHint = requireElement<HTMLElement>("settings-session-source-hint");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
   const warningInput = requireElement<HTMLInputElement>("warning-threshold");
   const warningValue = requireElement<HTMLElement>("warning-threshold-value");
@@ -143,6 +146,7 @@ export function initSettingsView(backend: UsageBackend): void {
   requireElement<HTMLElement>("statusline-setup-intro").textContent = STATUSLINE_SETUP_INTRO;
   requireElement<HTMLElement>("statusline-setup-manual").textContent = STATUSLINE_SETUP_MANUAL;
   scopedSourceHint.textContent = STATUSLINE_NO_SCOPED_MODELS;
+  sessionSourceHint.textContent = STATUSLINE_NO_SESSION_KEY;
   const statuslineSetup = createStatuslineSetup(backend);
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
 
@@ -268,6 +272,11 @@ export function initSettingsView(backend: UsageBackend): void {
     // source there is none, so the warning is dimmed rather than removed —
     // switching back must not feel like the risk quietly disappeared.
     tosSection.classList.toggle("not-applicable", !tosAppliesTo(source));
+    // The session field would be refused outright on this source (the backend
+    // returns `WrongSource`), so it is dimmed and explained rather than left
+    // looking usable.
+    sessionSection.classList.toggle("not-applicable", statusline);
+    sessionSourceHint.hidden = !statusline;
   }
 
   function refreshSessionStatus(): void {

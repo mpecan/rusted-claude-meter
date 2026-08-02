@@ -110,6 +110,20 @@ cat ~/.claudemeter/statusline.json
 
 ---
 
+## What "no claude.ai requests" means, exactly
+
+While this source is selected, **every** path that could reach claude.ai refuses:
+
+- The scheduler reads the recorded file and never builds an HTTP client.
+- Pasting a session key is refused before the key is stored — validating one is itself a claude.ai request.
+- Importing a session from a browser is refused before the cookie store is read, so you get no keychain prompt either.
+
+That is asserted rather than assumed: the test suite stands up a healthy mock claude.ai server, points the app at it with a valid stored key and consent granted, polls repeatedly, and requires that the server received **zero** requests — with a sibling test proving the same server *is* reached when the source is claude.ai, so the first cannot pass by accident.
+
+Settings dims the Session section on this source and says why, so you are not invited to paste a key that would be refused.
+
+---
+
 ## What this source reports
 
 **It gives you** the 5-hour and 7-day headline windows: percentage used, reset time, and everything the app derives from those — pace, projections, notifications, tray icon and popover cards.
