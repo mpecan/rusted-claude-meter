@@ -36,7 +36,7 @@ use std::path::Path;
 
 use jiff::Timestamp;
 use meter_core::{UsageSnapshot, UsageWindow};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::io_util::atomic_write;
 
@@ -49,7 +49,11 @@ pub const EXPORT_FILE: &str = "usage.json";
 /// none of this app's internal `LimitWindow`/status types — the export
 /// contract is deliberately narrower than the domain model so it can stay
 /// stable while the domain model evolves.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+///
+/// `Deserialize` as well as `Serialize` because `statusline.rs` reuses this
+/// shape for a file that is *read* back (`~/.claudemeter/statusline.json`),
+/// not only written.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportLimit {
     pub utilization: f64,
     pub reset_at: Timestamp,

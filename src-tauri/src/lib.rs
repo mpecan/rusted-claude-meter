@@ -23,6 +23,7 @@ mod scheduler;
 mod settings;
 mod settings_window;
 mod signin;
+mod statusline;
 mod store;
 mod sync;
 mod tray;
@@ -44,6 +45,22 @@ use store::{KeyringSessionStore, SessionStore};
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::Notify;
+
+/// Handle `args` (argv **without** the program name) as a command-line
+/// invocation, returning whether it was one.
+///
+/// `false` means "nothing CLI-shaped here" and the caller should launch the
+/// GUI, so an ordinary double-click is unaffected. This is the crate's whole
+/// CLI surface — deliberately one function rather than a public `statusline`
+/// module, so the app shell's internals stay private.
+#[must_use]
+pub fn run_cli(args: &[String]) -> bool {
+    let Some(invocation) = statusline::parse_args(args) else {
+        return false;
+    };
+    statusline::execute(invocation);
+    true
+}
 
 /// Build and run the app. Errors bubble to `main` instead of panicking so
 /// the workspace-wide `clippy::expect_used` deny holds here too.
