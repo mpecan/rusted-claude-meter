@@ -395,6 +395,37 @@ mod tests {
         assert!(snapshot.seven_day.is_some());
     }
 
+    /// Captured from Claude Code 2.1.220 (paths and ids genericised, the
+    /// `rate_limits` block verbatim) — the fixture to check shape questions
+    /// against, mirroring `meter-api`'s `usage_response_live.json`.
+    ///
+    /// It pins two things the hand-written fixture above cannot: that the
+    /// unrelated two thirds of the blob really are ignorable, and that
+    /// `used_percentage` arrives as a JSON **integer** for a window sitting
+    /// on a round number (`seven_day` was `3`, not `3.0`) while its sibling
+    /// carries `float`-noise from Claude Code's `utilization * 100`.
+    #[test]
+    fn the_live_captured_payload_maps_cleanly() {
+        let raw = include_str!("../tests/fixtures/statusline_payload_live.json");
+        let snapshot = snapshot(raw, now()).unwrap();
+        assert_eq!(
+            snapshot.five_hour.unwrap().utilization,
+            14.000_000_000_000_002
+        );
+        let seven_day = snapshot.seven_day.unwrap();
+        assert_eq!(seven_day.utilization, 3.0);
+        assert_eq!(
+            seven_day.resets_at,
+            "2026-08-09T11:00:00Z".parse::<Timestamp>().unwrap()
+        );
+    }
+
+    #[test]
+    fn the_live_payload_renders_without_float_noise() {
+        let raw = include_str!("../tests/fixtures/statusline_payload_live.json");
+        assert_eq!(render(&snapshot(raw, now()).unwrap()), "5h 14% · 7d 3%");
+    }
+
     #[test]
     fn malformed_input_is_ignored_rather_than_fatal() {
         assert_eq!(snapshot("", now()), None);
