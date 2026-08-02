@@ -90,6 +90,22 @@ The bridge prints one short segment — `5h 14% · 7d 3%` — and records the re
 printf '%s' "$input" | '<path>' statusline --quiet
 ```
 
+### Optional: show pace
+
+Add `--pace` and the segment gains an off-pace signal — the one thing Claude Code cannot tell you itself, since it reports a percentage but has no notion of whether you are spending it faster than the window replenishes:
+
+```
+5h 95% · 7d 40% · 🔥1.6×      burning ~1.6× sustainable pace
+5h 14% · 7d 3%  · ❄️0.6×      on track to leave quota unspent
+5h 37% · 7d 61%               nothing worth saying
+```
+
+It is **quiet by default**, and deliberately quieter than the tray: the flame needs 1.2× before it appears, not the 1.0× the tray badge uses. A status line lives in your prompt permanently and carries no context, so a ratio hovering either side of 1.0 would flicker in and out all afternoon and render as a self-contradictory `🔥1.0×`. Underuse shows below 0.8×.
+
+Pace also needs 5% of a window elapsed before it means anything, so a freshly reset 5-hour window shows nothing for its first ~15 minutes.
+
+Whether pace *shows* is this flag's business — the status line is its own surface, and the tray's own display preferences do not reach it. But the **numbers** come from the app: it mirrors your weekly pace basis and the pace master switch into `~/.claudemeter/statusline-config.json` on every settings change, and the bridge reads it fresh on each render. That matters more than it sounds: the same 75% weekly usage is `🔥1.3×` paced over 7 days and no signal at all paced over 5. Turning pace tracking off in Settings silences it here too.
+
 ### 3. Check it
 
 Prompt Claude Code once. Within your refresh interval the tray should stop saying *"Waiting for Claude Code to report usage"*. You can confirm the bridge is firing at all with:
@@ -107,6 +123,7 @@ cat ~/.claudemeter/statusline.json
 | `usage.json` | **out** | The app's public export for external scripts (see the README). |
 | `statusline.json` | **in** | The reading the bridge records; what the meter reads. |
 | `statusline-command.txt` | out | This machine's setup command, for `/statusline` and for you. Rewritten on every launch. |
+| `statusline-config.json` | out | Your pace basis and pace master switch, mirrored for the bridge. Rewritten on every settings change. |
 
 ---
 

@@ -22,6 +22,7 @@
 //! trust it?" unanswerable.
 
 mod bridge;
+pub mod config;
 pub mod setup;
 
 use std::fs;
@@ -132,13 +133,18 @@ pub fn record(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
     atomic_write(path, &body)
 }
 
-/// The recorded file's path for the current user, from `$HOME` — what both
+/// A `~/.claudemeter/` path for the current user, from `$HOME` — what both
 /// target platforms define. The GUI resolves this through Tauri's path API
 /// instead, but the bridge runs long before, and instead of, an `App`.
+///
+/// Callers name the file, exactly like [`claudemeter_path`]. That is not only
+/// tidier than one named function per file: a `default_path` here and another
+/// in [`config`] differed by a single `use`, and the bridge duly called the
+/// wrong one — reading the file it records to as if it were the config.
 #[must_use]
-pub fn default_path() -> Option<PathBuf> {
+pub fn home_path(file: &str) -> Option<PathBuf> {
     let home = PathBuf::from(std::env::var_os("HOME")?);
-    (!home.as_os_str().is_empty()).then(|| claudemeter_path(&home, STATUSLINE_FILE))
+    (!home.as_os_str().is_empty()).then(|| claudemeter_path(&home, file))
 }
 
 #[cfg(test)]

@@ -146,11 +146,19 @@ pub fn run() -> tauri::Result<()> {
             // `None` when the home dir can't be resolved — the export is a
             // best-effort convenience for external tools, never load-bearing
             // for the app itself.
-            let export_path = app
-                .path()
-                .home_dir()
-                .ok()
-                .map(|dir| export::claudemeter_path(&dir, export::EXPORT_FILE));
+            // One home lookup for every file the app keeps in
+            // `~/.claudemeter/`. All are `None` when the home directory can't
+            // be resolved; each is a best-effort convenience, never
+            // load-bearing for the app itself.
+            let home = app.path().home_dir().ok();
+            let claudemeter = |file: &str| {
+                home.as_deref()
+                    .map(|dir| export::claudemeter_path(dir, file))
+            };
+            let export_path = claudemeter(export::EXPORT_FILE);
+            let statusline_path = claudemeter(statusline::STATUSLINE_FILE);
+            let setup_path = claudemeter(statusline::setup::SETUP_FILE);
+            let statusline_config_path = claudemeter(statusline::config::CONFIG_FILE);
             let settings_path = data_dir.map(|dir| dir.join(settings::SETTINGS_FILE));
             // Captured before `settings::load` (which always returns
             // *something*, defaulted or not): "first run" per issue #11 is
@@ -221,7 +229,15 @@ pub fn run() -> tauri::Result<()> {
             // plugin is); on Linux the main window stays a regular window.
             #[cfg(target_os = "macos")]
             configure_popover_window(app);
-            app.manage(SettingsState::new(settings_path, app_settings));
+            // Captured before `app_settings` is moved into the managed state.
+            let seeded_pace = statusline::config::StatuslineConfig::new(
+                app_settings.weekly_pace_days,
+                app_settings.pace_tracking_enabled,
+            );
+            app.manage(
+                SettingsState::new(settings_path, app_settings)
+                    .mirroring_to(statusline_config_path.clone()),
+            );
             // Seeded `true` on a first run (no settings.json yet). Constructed
             // inline rather than through a `new` — see `FirstRunState`.
             app.manage(wizard::FirstRunState(sync::AtomicFlag::new(
@@ -237,23 +253,20 @@ pub fn run() -> tauri::Result<()> {
             // continuous. macOS has an NSPopover, which is always content-sized.
             #[cfg(target_os = "linux")]
             app.manage(commands::popover::ContentFit::default());
-            // The Claude Code source's two files, resolved once from one home
-            // lookup: the reading the bridge records, and the setup document
-            // `/statusline` reads to learn this machine's path to the binary.
-            // The setup document is (re)written on every launch because the
-            // executable can move between them — best-effort, exactly like
-            // `export.rs`'s write, since losing it costs a convenience and
-            // never the app.
-            let (statusline_path, setup_path) = app
-                .path()
-                .home_dir()
-                .ok()
-                .map(|dir| statusline::setup::paths(&dir))
-                .unzip();
+            // The setup document `/statusline` reads to learn this machine's
+            // path to the binary, (re)written on every launch because the
+            // executable can move between them. Best-effort, exactly like
+            // `export.rs`'s write: losing it costs a convenience, never the
+            // app. The pace mirror beside it is seeded here too, so a status
+            // line set up before any setting is ever changed still paces
+            // against the user's real configuration.
             if let Some(path) = setup_path.as_deref()
                 && let Err(error) = statusline::setup::write(path)
             {
                 eprintln!("could not write the status-line setup file: {error}");
+            }
+            if let Some(path) = statusline_config_path.as_deref() {
+                let _ = statusline::config::write(path, seeded_pace);
             }
             spawn_scheduler(
                 app,

@@ -9,6 +9,21 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use serde::de::DeserializeOwned;
+
+/// Decode a JSON document from `path`, or `None` for any failure — absent,
+/// unreadable, or not the shape `T` expects.
+///
+/// The read half of the idiom [`atomic_write`] is the write half of. Every
+/// on-disk file this app owns is optional by design: a missing or damaged one
+/// falls back to a default rather than failing the operation that wanted it,
+/// so the distinction between "no file" and "bad file" is never acted on and
+/// collapsing both to `None` here keeps four call sites from spelling that
+/// out individually.
+pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
+    serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
 /// Write `body` to `path` atomically: `create_dir_all` the parent, write to
 /// `path` with a `.tmp`-suffixed extension, then rename over `path`.
 ///

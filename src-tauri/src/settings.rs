@@ -15,7 +15,6 @@
 //! popover/tray menu until the user switches it on (see
 //! `tray::model::menu_model` and `src/view-model.ts`).
 
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -24,9 +23,10 @@ use meter_core::UsageMode;
 use meter_render::IconStyle;
 use serde::{Deserialize, Serialize};
 
-use crate::io_util::atomic_write;
+use crate::io_util::{atomic_write, read_json};
 use crate::scheduler::RefreshInterval;
 use crate::source::UsageSource;
+use crate::statusline;
 
 /// File name inside the app data dir.
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -222,9 +222,7 @@ struct DiskSettingsRef<'a> {
 /// optimization over sane defaults, not a source of truth the app cannot
 /// run without.
 pub fn load(path: &Path) -> AppSettings {
-    let mut settings = fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<DiskSettings>(&raw).ok())
+    let mut settings = read_json::<DiskSettings>(path)
         .filter(|decoded| decoded.version == SETTINGS_VERSION)
         .map_or_else(AppSettings::default, |decoded| decoded.settings);
     settings.normalize();
@@ -249,6 +247,11 @@ pub fn save(path: &Path, settings: &AppSettings) -> io::Result<()> {
 pub struct SettingsState {
     path: Option<PathBuf>,
     settings: Mutex<AppSettings>,
+    /// Where to mirror the handful of values the status-line bridge needs
+    /// (`crate::statusline::config`). `None` in tests and when the home
+    /// directory could not be resolved, in which case the bridge falls back
+    /// to its own defaults.
+    statusline_config: Option<PathBuf>,
 }
 
 impl SettingsState {
@@ -256,7 +259,20 @@ impl SettingsState {
         Self {
             path,
             settings: Mutex::new(settings),
+            statusline_config: None,
         }
+    }
+
+    /// Also mirror pace settings to `path` on every write, so the status-line
+    /// bridge — a separate process that cannot read the app data directory —
+    /// paces against what the user actually chose rather than the default.
+    ///
+    /// A builder rather than a `new` parameter because only `lib.rs` has one;
+    /// every test constructs a `SettingsState` that mirrors nowhere.
+    #[must_use]
+    pub fn mirroring_to(mut self, path: Option<PathBuf>) -> Self {
+        self.statusline_config = path;
+        self
     }
 
     /// The current settings.
@@ -278,6 +294,17 @@ impl SettingsState {
         if let Some(path) = &self.path {
             let _ = save(path, &snapshot);
         }
+        // Best-effort, like the settings write itself: a failed mirror costs
+        // the status line an accurate pace basis, never the setting change.
+        if let Some(path) = &self.statusline_config {
+            let _ = statusline::config::write(
+                path,
+                statusline::config::StatuslineConfig::new(
+                    snapshot.weekly_pace_days,
+                    snapshot.pace_tracking_enabled,
+                ),
+            );
+        }
         snapshot
     }
 
@@ -293,6 +320,7 @@ mod tests {
 
     use super::*;
     use pretty_assertions::assert_eq;
+    use std::fs;
     use std::path::PathBuf;
 
     fn settings_path(dir: &tempfile::TempDir) -> PathBuf {

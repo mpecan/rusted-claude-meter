@@ -17,11 +17,10 @@
 //! trap for anyone who opened it.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::export::claudemeter_path;
 use crate::io_util::atomic_write;
-use crate::statusline::{STATUSLINE_FILE, SUBCOMMAND};
+use crate::statusline::SUBCOMMAND;
 
 /// File name inside [`EXPORT_DIR`], beside `usage.json` and `statusline.json`.
 ///
@@ -112,8 +111,11 @@ Notes:
   * The meter prints nothing when Claude Code reports no usage: a cold
     session, or an API-key/Bedrock/Vertex login, which carry no plan limits.
     The rest of the status line is unaffected.
-  * Add \" --quiet\" after \"{subcommand}\" to record the reading without
-    printing a segment.
+  * Add \" --pace\" after \"{subcommand}\" to append an off-pace signal when
+    one is worth showing, e.g. \"5h 95% \u{b7} 7d 40% \u{b7} \u{1f525}1.6\u{d7}\" for burning
+    quota faster than the window replenishes it, or \u{2744}\u{fe0f} for leaving it
+    unspent. Silent when the burn rate is unremarkable.
+  * Add \" --quiet\" to record the reading without printing a segment.
   * Requires Claude Code 2.1.216 or newer; older versions send no rate limits.
 
 This file is rewritten by Rusted Claude Meter on every launch. Edit the
@@ -132,21 +134,12 @@ pub fn write(path: &Path) -> io::Result<()> {
     atomic_write(path, &document(&current_exe()))
 }
 
-/// Both files this module and its parent write, for one home directory.
-/// Returned together so `lib.rs` resolves the home directory once.
-#[must_use]
-pub fn paths(home: &Path) -> (PathBuf, PathBuf) {
-    (
-        claudemeter_path(home, STATUSLINE_FILE),
-        claudemeter_path(home, SETUP_FILE),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+    use crate::export::claudemeter_path;
     use pretty_assertions::assert_eq;
 
     /// Pins the name `src/usage-source.ts` hardcodes into the `/statusline`
@@ -240,18 +233,5 @@ mod tests {
         write(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
         assert!(!path.with_extension("json.tmp").exists());
-    }
-
-    #[test]
-    fn paths_resolves_both_files_from_one_home_directory() {
-        let (recorded, setup) = paths(Path::new("/home/example"));
-        assert_eq!(
-            recorded,
-            PathBuf::from("/home/example/.claudemeter/statusline.json")
-        );
-        assert_eq!(
-            setup,
-            PathBuf::from("/home/example/.claudemeter/statusline-command.txt")
-        );
     }
 }
