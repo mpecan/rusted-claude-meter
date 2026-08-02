@@ -51,39 +51,12 @@ fn store_usage_source(settings: &SettingsState, source: UsageSource) -> AppSetti
 /// A ready-to-paste `statusLine.command` for this exact install.
 ///
 /// Generated rather than documented because the path is not guessable: on
-/// macOS the binary lives inside the app bundle, at a path containing spaces.
-///
-/// The shape is deliberately the *component* one — capture stdin once, pipe a
-/// copy through the bridge, keep the result in `$meter` — so a user who
-/// already has a status line replaces only the final `printf` with their own
-/// and drops `$meter` into it. Claude Code hands the same blob to one command
-/// and one command only, so composing is the normal case, not the advanced
-/// one.
+/// macOS the binary lives inside the app bundle. See `statusline::setup` for
+/// the shape and for the file `/statusline` reads.
 #[must_use]
 #[tauri::command]
 pub fn statusline_command() -> String {
-    // Falling back to the bare name is right where it works — a packaged
-    // Linux install puts the binary on `PATH` — and is at least a legible
-    // placeholder where it does not.
-    let exe = std::env::current_exe().map_or_else(
-        |_| FALLBACK_EXE.to_owned(),
-        |path| path.display().to_string(),
-    );
-    format!(
-        "input=$(cat); meter=$(printf '%s' \"$input\" | {} {}); printf '%s' \"$meter\"",
-        shell_quote(&exe),
-        statusline::SUBCOMMAND
-    )
-}
-
-/// Used only when the running executable's own path cannot be resolved.
-const FALLBACK_EXE: &str = "rusted-claude-meter";
-
-/// Single-quote `value` for POSIX `sh`, so a path containing spaces — every
-/// macOS install — survives being pasted into a shell command. An embedded
-/// single quote is closed, escaped and reopened, the standard idiom.
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
+    statusline::current_command()
 }
 
 #[cfg(test)]
@@ -130,29 +103,5 @@ mod tests {
         assert_eq!(after.tos_acknowledged, before.tos_acknowledged);
         assert_eq!(after.refresh_interval, before.refresh_interval);
         assert_eq!(after.shown_scoped_models, before.shown_scoped_models);
-    }
-
-    #[test]
-    fn the_generated_command_pipes_stdin_through_the_bridge() {
-        let command = statusline_command();
-        assert!(command.starts_with("input=$(cat);"), "{command}");
-        assert!(command.contains("statusline"), "{command}");
-        assert!(command.contains("$meter"), "{command}");
-    }
-
-    /// Every macOS install has spaces in its path ("Rusted Claude
-    /// Meter.app"), so an unquoted path would be a broken paste for the
-    /// majority of users.
-    #[test]
-    fn a_path_with_spaces_is_quoted() {
-        assert_eq!(
-            shell_quote("/Applications/Rusted Claude Meter.app/Contents/MacOS/rcm"),
-            "'/Applications/Rusted Claude Meter.app/Contents/MacOS/rcm'"
-        );
-    }
-
-    #[test]
-    fn an_embedded_single_quote_is_escaped_rather_than_ending_the_string() {
-        assert_eq!(shell_quote("/home/o'brien/rcm"), r"'/home/o'\''brien/rcm'");
     }
 }

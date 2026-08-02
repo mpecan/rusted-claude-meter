@@ -49,6 +49,20 @@ The setup block that appears contains the exact command for your install, with t
 
 Claude Code gives its status-line data to **exactly one command**, so this is designed to be added to whatever you already have rather than to replace it.
 
+#### The easy way: let Claude Code do it
+
+In any Claude Code session, run:
+
+```
+/statusline add the Rusted Claude Meter usage segment exactly as described in ~/.claudemeter/statusline-command.txt
+```
+
+That file is written by the app on every launch and holds this machine's exact command plus instructions for merging it into an existing status line. Naming it is the whole trick: the agent behind `/statusline` can read files and edit them and *nothing else*, so it cannot run the binary to discover where the binary is — but it can read a file that already says.
+
+Settings has a **Copy /statusline command** button for the line above.
+
+#### By hand
+
 Open `~/.claude/settings.json` and find (or create) the `statusLine` block. If you have nothing yet, the copied command works as-is:
 
 ```json
@@ -83,6 +97,16 @@ Prompt Claude Code once. Within your refresh interval the tray should stop sayin
 ```sh
 cat ~/.claudemeter/statusline.json
 ```
+
+---
+
+## The files in `~/.claudemeter/`
+
+| File | Direction | What it is |
+|---|---|---|
+| `usage.json` | **out** | The app's public export for external scripts (see the README). |
+| `statusline.json` | **in** | The reading the bridge records; what the meter reads. |
+| `statusline-command.txt` | out | This machine's setup command, for `/statusline` and for you. Rewritten on every launch. |
 
 ---
 

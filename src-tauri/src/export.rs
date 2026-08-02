@@ -125,10 +125,14 @@ impl From<&UsageSnapshot> for UsageExportPayload {
     }
 }
 
-/// The full export path (`~/.claudemeter/usage.json`) given the user's home
-/// directory.
-pub fn export_path(home: &Path) -> std::path::PathBuf {
-    home.join(EXPORT_DIR).join(EXPORT_FILE)
+/// A path inside `~/.claudemeter/`, given the user's home directory.
+///
+/// One helper rather than a named function per file: the app keeps three
+/// there now (`usage.json` out, `statusline.json` in, `statusline-command.txt`
+/// for `/statusline`), and three one-line wrappers that differ only in a
+/// constant are the same code three times. Callers name the file.
+pub fn claudemeter_path(home: &Path, file: &str) -> std::path::PathBuf {
+    home.join(EXPORT_DIR).join(file)
 }
 
 /// Persist `snapshot` as the public export, replacing any previous file.
@@ -184,7 +188,7 @@ mod tests {
     }
 
     fn export_file(dir: &tempfile::TempDir) -> PathBuf {
-        export_path(dir.path())
+        claudemeter_path(dir.path(), EXPORT_FILE)
     }
 
     /// Golden-file test: pins the exact shape/field names of the schema.
@@ -304,10 +308,10 @@ mod tests {
     }
 
     #[test]
-    fn export_path_joins_home_dir_dot_dir_and_file() {
+    fn the_path_helper_joins_home_dir_dot_dir_and_file() {
         let home = PathBuf::from("/home/example");
         assert_eq!(
-            export_path(&home),
+            claudemeter_path(&home, EXPORT_FILE),
             PathBuf::from("/home/example/.claudemeter/usage.json")
         );
     }

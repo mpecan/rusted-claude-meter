@@ -4,7 +4,8 @@ import {
   STATUSLINE_MIN_CLAUDE_CODE,
   STATUSLINE_NO_SCOPED_MODELS,
   STATUSLINE_SETUP_INTRO,
-  STATUSLINE_SETUP_TARGET,
+  STATUSLINE_SETUP_MANUAL,
+  STATUSLINE_SLASH_COMMAND,
   USAGE_SOURCE_OPTIONS,
   tosAppliesTo,
   usageSourceHint,
@@ -62,24 +63,39 @@ describe("whether the ToS question applies", () => {
 describe("the status-line setup copy", () => {
   it("explains why the command is added to an existing one rather than replacing it", () => {
     expect(STATUSLINE_SETUP_INTRO).toMatch(/exactly one command/);
-    expect(STATUSLINE_SETUP_INTRO).toMatch(/add this to whatever you already have/);
+    expect(STATUSLINE_SETUP_INTRO).toMatch(/rather than replacing it/);
   });
 
   it("names the variable the user has to put in their own line", () => {
     // Without this the pasted command records usage but shows nothing, and
     // the user has no way to know why.
-    expect(STATUSLINE_SETUP_INTRO).toMatch(/\$meter/);
+    expect(STATUSLINE_SETUP_MANUAL).toMatch(/\$meter/);
   });
 
-  it("says which file the command goes in", () => {
-    expect(STATUSLINE_SETUP_TARGET).toMatch(/~\/\.claude\/settings\.json/);
-    expect(STATUSLINE_SETUP_TARGET).toMatch(/statusLine/);
+  it("says which file the manual route edits", () => {
+    expect(STATUSLINE_SETUP_MANUAL).toMatch(/~\/\.claude\/settings\.json/);
+    expect(STATUSLINE_SETUP_MANUAL).toMatch(/statusLine/);
   });
 
   it("pins the Claude Code version floor", () => {
     // Below this the payload has no `rate_limits` at all, and older builds
     // treat `statusline` as an unknown argument and launch the GUI.
     expect(STATUSLINE_MIN_CLAUDE_CODE).toBe("2.1.216");
+  });
+
+  it("hands /statusline the file that names this machine's binary path", () => {
+    // The agent behind /statusline can read and edit files and nothing else,
+    // so it cannot run the binary to find out where the binary is. Pointing
+    // it at the written file is the entire mechanism.
+    expect(STATUSLINE_SLASH_COMMAND).toMatch(/^\/statusline /);
+    // Mirrors `statusline::setup::SETUP_FILE` — renaming one without the
+    // other points the agent at a file that is not there.
+    expect(STATUSLINE_SLASH_COMMAND).toContain("~/.claudemeter/statusline-command.txt");
+  });
+
+  it("offers the easy route before the manual one", () => {
+    expect(STATUSLINE_SETUP_INTRO).toMatch(/easiest/i);
+    expect(STATUSLINE_SETUP_MANUAL).toMatch(/^Or add it by hand/);
   });
 
   it("explains the empty scoped-models list rather than leaving it bare", () => {

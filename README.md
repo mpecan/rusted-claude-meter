@@ -99,7 +99,7 @@ On first launch a **setup wizard** walks you through the Terms-of-Service warnin
 **Settings → Usage source**, or the wizard's first steps. Two options, and the choice decides whether steps 2 and 3 apply to you at all:
 
 - **Poll claude.ai** *(default)* — the complete picture: model-scoped limits, the spend view, and updates on your refresh interval. Needs a session key and the Terms-of-Service acknowledgement below.
-- **Read from Claude Code** — reads the usage Claude Code already receives, via its status line. **No claude.ai requests, no session key, nothing to acknowledge.** Reports the 5-hour and 7-day windows only, and only updates while Claude Code is running. Setup and limits: [docs/claude-code-statusline.md](docs/claude-code-statusline.md). **If you pick this, skip to step 4.**
+- **Read from Claude Code** — reads the usage Claude Code already receives, via its status line. **No claude.ai requests, no session key, nothing to acknowledge.** Reports the 5-hour and 7-day windows only, and only updates while Claude Code is running. Setup is one `/statusline` command in Claude Code; see [docs/claude-code-statusline.md](docs/claude-code-statusline.md). **If you pick this, skip to step 4.**
 
 ### 2. Accept the Terms-of-Service risk
 
@@ -159,7 +159,7 @@ Interaction model is platform-idiomatic:
 
 ## External integrations
 
-Two files live in `~/.claudemeter/`, and they flow in opposite directions. `usage.json` is the app's **output**, described below. `statusline.json` is its **input** — written by the `rusted-claude-meter statusline` bridge and read by the scheduler when you pick the Claude Code source; see [docs/claude-code-statusline.md](docs/claude-code-statusline.md).
+Three files live in `~/.claudemeter/`, and they do not all flow the same way. `usage.json` is the app's **output**, described below. `statusline.json` is its **input** — written by the `rusted-claude-meter statusline` bridge and read by the scheduler when you pick the Claude Code source. `statusline-command.txt` holds that bridge's setup command for this machine, which is what `/statusline` reads to wire it up. Both are covered in [docs/claude-code-statusline.md](docs/claude-code-statusline.md).
 
 After every successful fetch, the app writes `~/.claudemeter/usage.json` — a public, typed export of current usage for statusline scripts and other external tools. The write is atomic (temp file + rename), so a script never observes a truncated file, and a failed write is logged but never fails the refresh itself.
 

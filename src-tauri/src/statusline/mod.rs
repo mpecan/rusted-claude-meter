@@ -22,6 +22,7 @@
 //! trust it?" unanswerable.
 
 mod bridge;
+pub mod setup;
 
 use std::fs;
 use std::io;
@@ -31,12 +32,14 @@ use jiff::Timestamp;
 use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
 use serde::{Deserialize, Serialize};
 
-use crate::export::{EXPORT_DIR, ExportLimit};
+use crate::export::{ExportLimit, claudemeter_path};
 use crate::io_util::atomic_write;
 
 pub use bridge::{SUBCOMMAND, execute, parse_args};
+pub use setup::current_command;
 
-/// File name inside [`EXPORT_DIR`], beside `export.rs`'s `usage.json`.
+/// File name inside `~/.claudemeter/`, beside `export.rs`'s `usage.json`.
+/// Join it with [`crate::export::claudemeter_path`].
 pub const STATUSLINE_FILE: &str = "statusline.json";
 /// Bumped whenever [`StatusLinePayload`] changes shape incompatibly.
 ///
@@ -84,12 +87,6 @@ const fn window(limit: &ExportLimit, kind: LimitWindow) -> UsageWindow {
         resets_at: limit.reset_at,
         window: kind,
     }
-}
-
-/// `~/.claudemeter/statusline.json` given the user's home directory.
-#[must_use]
-pub fn statusline_path(home: &Path) -> PathBuf {
-    home.join(EXPORT_DIR).join(STATUSLINE_FILE)
 }
 
 /// The recorded reading, or `None` when there is nothing usable to report.
@@ -141,7 +138,7 @@ pub fn record(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
 #[must_use]
 pub fn default_path() -> Option<PathBuf> {
     let home = PathBuf::from(std::env::var_os("HOME")?);
-    (!home.as_os_str().is_empty()).then(|| statusline_path(&home))
+    (!home.as_os_str().is_empty()).then(|| claudemeter_path(&home, STATUSLINE_FILE))
 }
 
 #[cfg(test)]
@@ -175,7 +172,7 @@ mod tests {
     }
 
     fn write(dir: &tempfile::TempDir, payload: &StatusLinePayload) -> PathBuf {
-        let path = statusline_path(dir.path());
+        let path = claudemeter_path(dir.path(), STATUSLINE_FILE);
         atomic_write(&path, &serde_json::to_string(payload).unwrap()).unwrap();
         path
     }
@@ -198,7 +195,7 @@ mod tests {
     #[test]
     fn a_recorded_snapshot_reads_back_unchanged() {
         let dir = tempfile::tempdir().unwrap();
-        let path = statusline_path(dir.path());
+        let path = claudemeter_path(dir.path(), STATUSLINE_FILE);
         let written = read(&write(&dir, &payload())).unwrap();
         record(&path, &written).unwrap();
         assert_eq!(read(&path).unwrap(), written);
@@ -259,17 +256,9 @@ mod tests {
     #[test]
     fn an_absent_or_corrupt_file_reads_as_nothing_rather_than_failing() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(read(&statusline_path(dir.path())), None);
+        assert_eq!(read(&claudemeter_path(dir.path(), STATUSLINE_FILE)), None);
         let path = dir.path().join("corrupt.json");
         atomic_write(&path, "{ truncated").unwrap();
         assert_eq!(read(&path), None);
-    }
-
-    #[test]
-    fn the_recorded_file_sits_beside_the_usage_export() {
-        assert_eq!(
-            statusline_path(Path::new("/home/example")),
-            PathBuf::from("/home/example/.claudemeter/statusline.json")
-        );
     }
 }

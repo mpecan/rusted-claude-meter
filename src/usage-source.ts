@@ -33,16 +33,28 @@ export function tosAppliesTo(source: UsageSource): boolean {
   return source !== "claude_code_statusline";
 }
 
+/** What the user types into Claude Code to have `/statusline` do the editing.
+ *
+ * Naming the file is the whole point: the agent behind `/statusline` can read
+ * files and edit them and nothing else, so it cannot run the binary to learn
+ * where the binary is. The app writes that file on every launch — see
+ * `statusline::setup`.
+ *
+ * **The file name is mirrored in `src-tauri/src/statusline/setup.rs`**
+ * (`SETUP_FILE`); rename them together or this points at nothing. */
+export const STATUSLINE_SLASH_COMMAND =
+  "/statusline add the Rusted Claude Meter usage segment exactly as described in ~/.claudemeter/statusline-command.txt";
+
 /** Shown above the generated command. Names the constraint that forces the
  * component shape — one slot, one command — so "add this to yours" reads as
  * the design it is rather than a workaround. */
 export const STATUSLINE_SETUP_INTRO =
-  "Claude Code gives its status-line data to exactly one command, so add this to whatever you already have. It reads the input once, pipes a copy to the meter, and leaves the reading in $meter for your own line to print.";
+  "Claude Code gives its status-line data to exactly one command, so this has to be added to whatever you already have rather than replacing it. The easiest way is to let Claude Code do the editing — run this in any session:";
 
-/** Where the command goes. Separate from the intro so the UI can style the
- * path differently, and so the docs can reuse the sentence verbatim. */
-export const STATUSLINE_SETUP_TARGET =
-  'Paste it into "statusLine": { "type": "command", "command": … } in ~/.claude/settings.json.';
+/** Introduces the manual route, for anyone who would rather edit the file
+ * themselves — or whose Claude Code predates `/statusline`. */
+export const STATUSLINE_SETUP_MANUAL =
+  'Or add it by hand: this command reads the input once, pipes a copy to the meter, and leaves the reading in $meter for your own line to print. It goes in "statusLine": { "type": "command", "command": … } in ~/.claude/settings.json.';
 
 /** The floor below which `rate_limits` is simply absent from the payload —
  * and, worse, an older build treats `statusline` as an unknown argument and

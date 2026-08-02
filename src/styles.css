@@ -1038,6 +1038,15 @@ input[type="checkbox"] {
   user-select: all;
 }
 
+/* Button and its status message on one row, so a two-route setup block does
+   not become four stacked lines. */
+.statusline-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 /* Dimmed, never hidden: on the status-line source the Terms-of-Service
    question does not apply, but removing it outright would make switching back
    feel like the risk had quietly gone away. */

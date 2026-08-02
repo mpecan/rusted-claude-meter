@@ -150,7 +150,7 @@ pub fn run() -> tauri::Result<()> {
                 .path()
                 .home_dir()
                 .ok()
-                .map(|dir| export::export_path(&dir));
+                .map(|dir| export::claudemeter_path(&dir, export::EXPORT_FILE));
             let settings_path = data_dir.map(|dir| dir.join(settings::SETTINGS_FILE));
             // Captured before `settings::load` (which always returns
             // *something*, defaulted or not): "first run" per issue #11 is
@@ -234,14 +234,24 @@ pub fn run() -> tauri::Result<()> {
             // continuous. macOS has an NSPopover, which is always content-sized.
             #[cfg(target_os = "linux")]
             app.manage(commands::popover::ContentFit::default());
-            // Read target for the Claude Code source, resolved once here for
-            // the same reason `export_path` is: the bridge writes it under
-            // `$HOME`, and the GUI has Tauri's path API to find it with.
-            let statusline_path = app
+            // The Claude Code source's two files, resolved once from one home
+            // lookup: the reading the bridge records, and the setup document
+            // `/statusline` reads to learn this machine's path to the binary.
+            // The setup document is (re)written on every launch because the
+            // executable can move between them — best-effort, exactly like
+            // `export.rs`'s write, since losing it costs a convenience and
+            // never the app.
+            let (statusline_path, setup_path) = app
                 .path()
                 .home_dir()
                 .ok()
-                .map(|dir| statusline::statusline_path(&dir));
+                .map(|dir| statusline::setup::paths(&dir))
+                .unzip();
+            if let Some(path) = setup_path.as_deref()
+                && let Err(error) = statusline::setup::write(path)
+            {
+                eprintln!("could not write the status-line setup file: {error}");
+            }
             spawn_scheduler(
                 app,
                 SourcedTransport {

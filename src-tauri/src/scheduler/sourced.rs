@@ -78,12 +78,12 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+    use crate::export::claudemeter_path;
     use crate::scheduler::test_support::consenting;
     use crate::source::{UsageSource, selection};
     use crate::store::FakeSessionStore;
     use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
     use pretty_assertions::assert_eq;
-    use std::path::Path;
 
     fn snapshot() -> UsageSnapshot {
         UsageSnapshot {
@@ -100,7 +100,7 @@ mod tests {
     }
 
     fn recorded(dir: &tempfile::TempDir) -> PathBuf {
-        let path = statusline::statusline_path(dir.path());
+        let path = claudemeter_path(dir.path(), statusline::STATUSLINE_FILE);
         statusline::record(&path, &snapshot()).unwrap();
         path
     }
@@ -118,7 +118,7 @@ mod tests {
     async fn an_absent_file_waits_rather_than_backing_off() {
         let dir = tempfile::tempdir().unwrap();
         let transport = StatuslineTransport {
-            path: Some(statusline::statusline_path(dir.path())),
+            path: Some(claudemeter_path(dir.path(), statusline::STATUSLINE_FILE)),
         };
         assert_eq!(transport.fetch().await, FetchOutcome::AwaitingStatusline);
     }
@@ -184,13 +184,5 @@ mod tests {
         assert_eq!(transport.fetch().await, FetchOutcome::Success(snapshot()));
         live_selection.set(false);
         assert_eq!(transport.fetch().await, FetchOutcome::NoSession);
-    }
-
-    #[test]
-    fn the_transport_reads_the_path_beside_the_usage_export() {
-        assert_eq!(
-            statusline::statusline_path(Path::new("/home/example")),
-            PathBuf::from("/home/example/.claudemeter/statusline.json")
-        );
     }
 }
