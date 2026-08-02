@@ -26,10 +26,19 @@ use serde::{Deserialize, Serialize};
 use crate::io_util::{atomic_write, read_json};
 use crate::scheduler::RefreshInterval;
 use crate::source::UsageSource;
-use crate::statusline;
 
 /// File name inside the app data dir.
 pub const SETTINGS_FILE: &str = "settings.json";
+
+/// The span [`AppSettings::weekly_pace_days`] is clamped to, and the default
+/// within it (the full week, matching upstream's `ClaudeMeter`).
+///
+/// Public because the status-line bridge mirrors this setting and must clamp
+/// the mirror to the same range — a copied invariant there would fail as a
+/// quietly wrong pace ratio rather than as a compile error.
+pub const WEEKLY_PACE_DAYS: std::ops::RangeInclusive<u8> = 5..=7;
+/// See [`WEEKLY_PACE_DAYS`].
+pub const DEFAULT_WEEKLY_PACE_DAYS: u8 = 7;
 
 /// Bumped whenever the persisted shape changes incompatibly; readers treat
 /// any other version as absent (falling back to defaults) instead of
@@ -173,7 +182,7 @@ impl Default for AppSettings {
             show_reset_time: true,
             popover_layout: PopoverLayout::Rows,
             usage_mode: UsageMode::Auto,
-            weekly_pace_days: 7,
+            weekly_pace_days: DEFAULT_WEEKLY_PACE_DAYS,
             pace_first_display: false,
             pace_tracking_enabled: true,
             debug_logging: false,
@@ -199,7 +208,9 @@ impl AppSettings {
         if self.critical_threshold < self.warning_threshold {
             self.critical_threshold = self.warning_threshold;
         }
-        self.weekly_pace_days = self.weekly_pace_days.clamp(5, 7);
+        self.weekly_pace_days = self
+            .weekly_pace_days
+            .clamp(*WEEKLY_PACE_DAYS.start(), *WEEKLY_PACE_DAYS.end());
     }
 }
 
@@ -240,6 +251,10 @@ pub fn save(path: &Path, settings: &AppSettings) -> io::Result<()> {
     atomic_write(path, &body)
 }
 
+/// A consumer published to after every settings write — see
+/// [`SettingsState::mirroring_with`].
+type SettingsMirror = Box<dyn Fn(&AppSettings) + Send + Sync>;
+
 /// Managed Tauri state: the in-memory settings plus where to persist them.
 /// `path` is `None` when the app data dir couldn't be resolved (mirrors
 /// `cache_path` in `lib.rs`) — settings still work for the running session,
@@ -247,11 +262,15 @@ pub fn save(path: &Path, settings: &AppSettings) -> io::Result<()> {
 pub struct SettingsState {
     path: Option<PathBuf>,
     settings: Mutex<AppSettings>,
-    /// Where to mirror the handful of values the status-line bridge needs
-    /// (`crate::statusline::config`). `None` in tests and when the home
-    /// directory could not be resolved, in which case the bridge falls back
-    /// to its own defaults.
-    statusline_config: Option<PathBuf>,
+    /// Called with the settings as they now stand after every write, and once
+    /// when installed.
+    ///
+    /// A callback rather than a path because this module has no business
+    /// knowing any particular consumer's file format: the status-line bridge
+    /// needs a mirror today, a second external consumer would otherwise mean
+    /// a second `if let Some(path)` here and a second import. `lib.rs` owns
+    /// the knowledge of *what* is mirrored; this owns *when*.
+    mirror: Option<SettingsMirror>,
 }
 
 impl SettingsState {
@@ -259,19 +278,20 @@ impl SettingsState {
         Self {
             path,
             settings: Mutex::new(settings),
-            statusline_config: None,
+            mirror: None,
         }
     }
 
-    /// Also mirror pace settings to `path` on every write, so the status-line
-    /// bridge — a separate process that cannot read the app data directory —
-    /// paces against what the user actually chose rather than the default.
+    /// Publish the settings to `mirror` after every write — and immediately,
+    /// so the mirror exists before the user changes anything rather than only
+    /// after they change something.
     ///
     /// A builder rather than a `new` parameter because only `lib.rs` has one;
     /// every test constructs a `SettingsState` that mirrors nowhere.
     #[must_use]
-    pub fn mirroring_to(mut self, path: Option<PathBuf>) -> Self {
-        self.statusline_config = path;
+    pub fn mirroring_with(mut self, mirror: impl Fn(&AppSettings) + Send + Sync + 'static) -> Self {
+        mirror(&self.get());
+        self.mirror = Some(Box::new(mirror));
         self
     }
 
@@ -294,16 +314,8 @@ impl SettingsState {
         if let Some(path) = &self.path {
             let _ = save(path, &snapshot);
         }
-        // Best-effort, like the settings write itself: a failed mirror costs
-        // the status line an accurate pace basis, never the setting change.
-        if let Some(path) = &self.statusline_config {
-            let _ = statusline::config::write(
-                path,
-                statusline::config::StatuslineConfig::new(
-                    snapshot.weekly_pace_days,
-                    snapshot.pace_tracking_enabled,
-                ),
-            );
+        if let Some(mirror) = &self.mirror {
+            mirror(&snapshot);
         }
         snapshot
     }
@@ -346,6 +358,27 @@ mod tests {
             tos_acknowledged: true,
             usage_source: UsageSource::ClaudeCodeStatusline,
         }
+    }
+
+    /// The mirror exists so a separate process sees the user's real
+    /// configuration. Publishing on install as well as on write is what makes
+    /// that true before the user has changed anything.
+    #[test]
+    fn the_mirror_is_published_on_install_and_after_every_write() {
+        let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let recorder = std::sync::Arc::clone(&seen);
+        let state =
+            SettingsState::new(None, AppSettings::default()).mirroring_with(move |settings| {
+                recorder
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(settings.weekly_pace_days);
+            });
+        let published = || seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        assert_eq!(published(), vec![DEFAULT_WEEKLY_PACE_DAYS]);
+
+        state.update(|settings| settings.weekly_pace_days = 5);
+        assert_eq!(published(), vec![DEFAULT_WEEKLY_PACE_DAYS, 5]);
     }
 
     #[test]

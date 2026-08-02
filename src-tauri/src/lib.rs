@@ -192,13 +192,13 @@ pub fn run() -> tauri::Result<()> {
             // that flips it and the transport that dispatches on it.
             let selection = Arc::new(source::selection(app_settings.usage_source));
             app.manage(Arc::clone(&selection));
+            // The core paces itself to what a fetch costs, so it reads the
+            // same selection the transport dispatches on.
             let mut core = SchedulerCore::new(
                 app_settings.refresh_interval,
                 cache_path.as_deref().and_then(cache::load),
-            );
-            // The core paces itself to what a fetch costs, so it needs the
-            // source as well as the transport does.
-            core.source = app_settings.usage_source;
+            )
+            .with_selection(Arc::clone(&selection));
             // Start parked when consent is withheld, so the tray's very first
             // render already says "waiting for you to accept" instead of
             // showing a hopeful "polling" that the first tick immediately
@@ -206,7 +206,7 @@ pub fn run() -> tauri::Result<()> {
             // source originates no request, so consent has no bearing on it
             // and parking there would strand a user who chose it *because*
             // they declined.
-            if !consent.get() && !app_settings.usage_source.is_statusline() {
+            if !consent.get() && app_settings.usage_source.reaches_claude_ai() {
                 core.record(scheduler::FetchOutcome::NotAcknowledged);
             }
             let shown: HashSet<String> = app_settings.shown_scoped_models.iter().cloned().collect();
@@ -229,15 +229,22 @@ pub fn run() -> tauri::Result<()> {
             // plugin is); on Linux the main window stays a regular window.
             #[cfg(target_os = "macos")]
             configure_popover_window(app);
-            // Captured before `app_settings` is moved into the managed state.
-            let seeded_pace = statusline::config::StatuslineConfig::new(
-                app_settings.weekly_pace_days,
-                app_settings.pace_tracking_enabled,
-            );
-            app.manage(
-                SettingsState::new(settings_path, app_settings)
-                    .mirroring_to(statusline_config_path.clone()),
-            );
+            // The bridge is a separate process that cannot read the app data
+            // directory, so the two settings that change its pace maths are
+            // mirrored into `~/.claudemeter/` — on every write, and once now.
+            let mut settings_state = SettingsState::new(settings_path, app_settings);
+            if let Some(path) = statusline_config_path {
+                settings_state = settings_state.mirroring_with(move |settings| {
+                    let _ = statusline::config::write(
+                        &path,
+                        statusline::config::StatuslineConfig::new(
+                            settings.weekly_pace_days,
+                            settings.pace_tracking_enabled,
+                        ),
+                    );
+                });
+            }
+            app.manage(settings_state);
             // Seeded `true` on a first run (no settings.json yet). Constructed
             // inline rather than through a `new` — see `FirstRunState`.
             app.manage(wizard::FirstRunState(sync::AtomicFlag::new(
@@ -256,17 +263,11 @@ pub fn run() -> tauri::Result<()> {
             // The setup document `/statusline` reads to learn this machine's
             // path to the binary, (re)written on every launch because the
             // executable can move between them. Best-effort, exactly like
-            // `export.rs`'s write: losing it costs a convenience, never the
-            // app. The pace mirror beside it is seeded here too, so a status
-            // line set up before any setting is ever changed still paces
-            // against the user's real configuration.
+            // `export.rs`'s write: losing it costs a convenience, never the app.
             if let Some(path) = setup_path.as_deref()
                 && let Err(error) = statusline::setup::write(path)
             {
                 eprintln!("could not write the status-line setup file: {error}");
-            }
-            if let Some(path) = statusline_config_path.as_deref() {
-                let _ = statusline::config::write(path, seeded_pace);
             }
             spawn_scheduler(
                 app,

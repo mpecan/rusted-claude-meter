@@ -1,19 +1,10 @@
-//! Tauri commands for session-key management.
+//! Tauri commands: the thin adapters between the frontend and the app shell.
 //!
-//! Each `#[tauri::command]` is a thin adapter over a directly unit-testable
-//! function that talks to a `dyn SessionStore` — no `tauri::State`
-//! construction required in tests — so parse-error and store-error mapping
-//! is covered without spinning up the Tauri runtime.
-//!
-//! Two invariants every session command honors:
-//!
-//! * A pasted key is **validated against claude.ai** before it is allowed to
-//!   stick, with rollback on rejection (`browser_import::store_and_validate`
-//!   — the same guarantee browser import and the wizard give).
-//! * Credential-store I/O never runs on the UI thread: the commands are
-//!   `async` and route Keychain / Secret-Service calls through
-//!   [`run_store_op`]'s blocking pool, so a slow or stuck credential daemon
-//!   can never freeze tray or window redraws.
+//! Each `#[tauri::command]` here wraps a directly unit-testable function, so
+//! settings and icon-preview logic is covered without spinning up the Tauri
+//! runtime. Command families large enough to have their own invariants live
+//! in submodules — session keys in [`session`], the Terms-of-Service gate in
+//! [`consent`], the usage source in [`source`].
 
 pub mod browser;
 pub mod consent;

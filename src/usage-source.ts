@@ -56,11 +56,6 @@ export const STATUSLINE_SETUP_INTRO =
 export const STATUSLINE_SETUP_MANUAL =
   'Or add it by hand: this command reads the input once, pipes a copy to the meter, and leaves the reading in $meter for your own line to print. It goes in "statusLine": { "type": "command", "command": … } in ~/.claude/settings.json.';
 
-/** The floor below which `rate_limits` is simply absent from the payload —
- * and, worse, an older build treats `statusline` as an unknown argument and
- * launches the GUI instead. Worth stating precisely for that reason. */
-export const STATUSLINE_MIN_CLAUDE_CODE = "2.1.216";
-
 /** Said once, where a user will meet it: the source cannot report scoped
  * models, so the Model-scoped limits section has nothing to show. Better than
  * an empty list they would read as "no models found". */

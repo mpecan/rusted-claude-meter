@@ -27,19 +27,14 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::io_util::{atomic_write, read_json};
+use crate::io_util::{read_json, write_json_pretty};
+use crate::settings::{DEFAULT_WEEKLY_PACE_DAYS, WEEKLY_PACE_DAYS};
 
 /// File name inside `~/.claudemeter/`.
 pub const CONFIG_FILE: &str = "statusline-config.json";
 /// Bumped when this shape changes incompatibly; a higher number is refused
 /// rather than guessed at, exactly like the recorded reading's schema.
 pub const SCHEMA_VERSION: u32 = 1;
-
-/// The default weekly pacing basis, matching `AppSettings::weekly_pace_days`.
-const DEFAULT_WEEKLY_PACE_DAYS: u8 = 7;
-/// The range `AppSettings::normalize` clamps to, re-applied on read so a
-/// hand-edited mirror cannot feed an out-of-range span into the pace maths.
-const WEEKLY_PACE_DAYS: std::ops::RangeInclusive<u8> = 5..=7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatuslineConfig {
@@ -94,7 +89,7 @@ pub fn read(path: &Path) -> StatuslineConfig {
 
 /// Persist the mirror, replacing any previous one.
 pub fn write(path: &Path, config: StatuslineConfig) -> io::Result<()> {
-    atomic_write(path, &serde_json::to_string_pretty(&config)?)
+    write_json_pretty(path, &config)
 }
 
 #[cfg(test)]
@@ -103,6 +98,8 @@ mod tests {
 
     use super::*;
     use crate::export::claudemeter_path;
+    use crate::io_util::atomic_write;
+    use crate::settings::AppSettings;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
 
@@ -120,13 +117,20 @@ mod tests {
         );
     }
 
-    /// The default has to match `AppSettings`, or a status line set up before
-    /// the app ever wrote the mirror would pace against a different week.
+    /// The mirror's default is `AppSettings`' own constant, so a status line
+    /// set up before the app ever wrote a mirror paces against the same week
+    /// the app does.
     #[test]
     fn the_default_matches_the_apps_own_defaults() {
         let config = StatuslineConfig::default();
-        assert_eq!(config.weekly_pace_days, 7);
-        assert!(config.pace_tracking_enabled);
+        assert_eq!(
+            config.weekly_pace_days,
+            AppSettings::default().weekly_pace_days
+        );
+        assert_eq!(
+            config.pace_tracking_enabled,
+            AppSettings::default().pace_tracking_enabled
+        );
     }
 
     #[test]

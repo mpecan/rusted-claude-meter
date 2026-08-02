@@ -13,7 +13,7 @@ use tauri::State;
 
 use crate::scheduler::SchedulerHandle;
 use crate::settings::{AppSettings, SettingsState};
-use crate::source::{SourceSelection, UsageSource};
+use crate::source::{SourceSelection, UsageSource, select};
 use crate::statusline;
 
 /// Switch the scheduler between claude.ai and the Claude Code status line.
@@ -36,15 +36,10 @@ pub fn set_usage_source(
     scheduler: State<'_, SchedulerHandle>,
     source: UsageSource,
 ) -> AppSettings {
-    selection.set(source.is_statusline());
-    // Both of the scheduler's mirrors in one lock: the core paces polling to
-    // what a fetch costs (a local file read is not worth a five-minute
-    // interval), and the resume makes the switch take effect on the next tick
-    // rather than at the end of the old source's wait.
-    scheduler.update(|core| {
-        core.source = source;
-        core.resume();
-    });
+    // One runtime write: the scheduler core and the transport share this
+    // selection, so neither can be left holding the old source.
+    select(&selection, source);
+    scheduler.resume_polling();
     store_usage_source(&settings, source)
 }
 

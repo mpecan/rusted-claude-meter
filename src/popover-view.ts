@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS } from "./settings-view-model";
 import type { AppSettings, MeterState, UsageMode } from "./types";
 import { buildViewModel } from "./view-model";
 import { describeWizardValidation } from "./wizard-view-model";
+import { requireElement } from "./dom";
 
 /** How often the reset countdowns re-render. A minute-granularity display
  * only needs to tick once a minute, but a second is cheap and keeps
@@ -66,14 +67,6 @@ function markCostHintSeen(): void {
  * and the hint stays pending until the popover is first opened. */
 function popoverIsVisible(): boolean {
   return document.visibilityState === "visible" || document.hasFocus();
-}
-
-function requireElement<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) {
-    throw new Error(`missing #${id} in index.html`);
-  }
-  return el as T;
 }
 
 export function initPopoverView(backend: UsageBackend): void {

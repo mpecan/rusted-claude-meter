@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUSLINE_MIN_CLAUDE_CODE,
   STATUSLINE_NO_SCOPED_MODELS,
   STATUSLINE_NO_SESSION_KEY,
   STATUSLINE_SETUP_INTRO,
@@ -76,12 +75,6 @@ describe("the status-line setup copy", () => {
   it("says which file the manual route edits", () => {
     expect(STATUSLINE_SETUP_MANUAL).toMatch(/~\/\.claude\/settings\.json/);
     expect(STATUSLINE_SETUP_MANUAL).toMatch(/statusLine/);
-  });
-
-  it("pins the Claude Code version floor", () => {
-    // Below this the payload has no `rate_limits` at all, and older builds
-    // treat `statusline` as an unknown argument and launch the GUI.
-    expect(STATUSLINE_MIN_CLAUDE_CODE).toBe("2.1.216");
   });
 
   it("hands /statusline the file that names this machine's binary path", () => {

@@ -14,19 +14,12 @@
 
 import type { UsageBackend } from "./ipc";
 import { STATUSLINE_SLASH_COMMAND } from "./usage-source";
+import { requireElement } from "./dom";
 
 /** What the block exposes to the settings view. */
 export interface StatuslineSetup {
   /** Show or hide the whole block; showing it fetches the command once. */
   setVisible(visible: boolean): void;
-}
-
-function requireElement<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) {
-    throw new Error(`missing element #${id}`);
-  }
-  return el as T;
 }
 
 /** Wire a copy button to a source of text, reporting success or failure in

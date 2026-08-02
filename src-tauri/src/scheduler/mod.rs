@@ -30,6 +30,7 @@ use self::transport::UsageTransport;
 
 use crate::cache;
 use crate::export;
+use crate::io_util::write_json_pretty;
 use crate::sync::lock;
 
 /// Tauri event carrying a [`MeterState`] payload on every change.
@@ -179,7 +180,9 @@ pub async fn run_loop<T: UsageTransport, C: Clock>(
                 if let Some(path) = &persist.export {
                     // Same discipline: logged, never fatal to the refresh
                     // (issue #8's acceptance criterion).
-                    if let Err(error) = export::write(path, snapshot) {
+                    if let Err(error) =
+                        write_json_pretty(path, &export::UsageExportPayload::from(snapshot))
+                    {
                         eprintln!("usage.json export failed: {error}");
                     }
                 }

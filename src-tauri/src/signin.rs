@@ -16,7 +16,7 @@ use meter_core::SessionKey;
 
 use crate::browser_import::{SessionValidator, ValidationError};
 use crate::consent::ConsentGate;
-use crate::source::SourceSelection;
+use crate::source::{self, SourceSelection};
 use crate::store::{SessionStore, run_store_op};
 
 /// What every sign-in path needs: where the key is kept, what confirms it
@@ -110,7 +110,7 @@ pub async fn store_and_validate<V: SessionValidator>(
     // Source first: to someone reading from Claude Code, "you do not need a
     // key" is the useful answer, and whether they ever accepted the
     // claude.ai risk is beside the point.
-    if source.get() {
+    if !source::selected(source).reaches_claude_ai() {
         return Err(StoreAndValidateError::WrongSource);
     }
     if !consent.get() {
@@ -165,12 +165,10 @@ mod tests {
 
     static OPEN_GATE: ConsentGate = ConsentGate::new(true);
     static CLOSED_GATE: ConsentGate = ConsentGate::new(false);
-    use crate::source::SourceSelection;
+    use crate::source::{SourceSelection, UsageSource, selection};
 
-    /// The claude.ai source. Named rather than a bare `false` so every sink
-    /// in these tests states which source it is standing in for.
-    static POLLING_CLAUDE_AI: SourceSelection = SourceSelection::new(false);
-    static READING_CLAUDE_CODE: SourceSelection = SourceSelection::new(true);
+    static POLLING_CLAUDE_AI: SourceSelection = selection(UsageSource::ClaudeAi);
+    static READING_CLAUDE_CODE: SourceSelection = selection(UsageSource::ClaudeCodeStatusline);
 
     fn key() -> SessionKey {
         SessionKey::parse(VALID).unwrap()

@@ -48,7 +48,7 @@ use meter_core::{HEAVY_OVERUSE_THRESHOLD, LimitWindow, PaceKind, UsageSnapshot, 
 use serde::Deserialize;
 
 use super::config::{self, StatuslineConfig};
-use super::{STATUSLINE_FILE, home_path, record};
+use super::{STATUSLINE_FILE, headline_snapshot, home_path, record};
 
 /// `argv[1]` that selects this mode instead of launching the GUI.
 pub const SUBCOMMAND: &str = "statusline";
@@ -137,14 +137,10 @@ pub fn parse_args(args: &[String]) -> Option<Invocation> {
 
 /// Map one raw status-line blob to a snapshot taken at `now`.
 ///
-/// `None` when the blob is unparseable **or** carries no usable window. Both
-/// are ordinary, expected states (a cold session has no `rate_limits` key at
-/// all), and both must leave any previously recorded reading untouched — a
-/// blank file would look to a reader like "0% used" rather than "nothing new
-/// to say".
-///
-/// `scoped` is always empty and `spend` always `None`: the payload carries
-/// neither, and inventing either would be worse than reporting less.
+/// `None` when the blob is unparseable **or** carries no usable window — see
+/// [`headline_snapshot`] for the second rule. Both are ordinary, expected
+/// states (a cold session has no `rate_limits` key at all), and both must
+/// leave any previously recorded reading untouched.
 #[must_use]
 pub fn snapshot(input: &str, now: Timestamp) -> Option<UsageSnapshot> {
     let parsed: StatusLineInput = serde_json::from_str(input).ok()?;
@@ -156,16 +152,7 @@ pub fn snapshot(input: &str, now: Timestamp) -> Option<UsageSnapshot> {
         .rate_limits
         .seven_day
         .and_then(|window| window.into_domain(LimitWindow::SevenDay));
-    if five_hour.is_none() && seven_day.is_none() {
-        return None;
-    }
-    Some(UsageSnapshot {
-        five_hour,
-        seven_day,
-        scoped: Vec::new(),
-        spend: None,
-        fetched_at: now,
-    })
+    headline_snapshot(five_hour, seven_day, now)
 }
 
 /// The one-line status-line segment, e.g. `5h 37% · 7d 61%`, with the

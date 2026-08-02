@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::scheduler::core::FetchOutcome;
 use crate::scheduler::transport::{LiveTransport, UsageTransport};
-use crate::source::SourceSelection;
+use crate::source::{self, SourceSelection, UsageSource};
 use crate::statusline;
 
 /// Reads `~/.claudemeter/statusline.json` — see [`crate::statusline`].
@@ -65,10 +65,9 @@ pub struct SourcedTransport {
 
 impl UsageTransport for SourcedTransport {
     async fn fetch(&self) -> FetchOutcome {
-        if self.selection.get() {
-            self.statusline.fetch().await
-        } else {
-            self.live.fetch().await
+        match source::selected(&self.selection) {
+            UsageSource::ClaudeAi => self.live.fetch().await,
+            UsageSource::ClaudeCodeStatusline => self.statusline.fetch().await,
         }
     }
 }
@@ -79,15 +78,11 @@ mod tests {
 
     use super::*;
     use crate::export::claudemeter_path;
-    use crate::scheduler::test_support::{
-        USAGE_BODY, consenting, mount_org_discovery, store_with_key,
-    };
+    use crate::scheduler::test_support::{consenting, healthy_server, store_with_key};
     use crate::source::{UsageSource, selection};
     use crate::store::FakeSessionStore;
     use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
     use pretty_assertions::assert_eq;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn snapshot() -> UsageSnapshot {
         UsageSnapshot {
@@ -166,13 +161,7 @@ mod tests {
     /// that, rather than merely that an outcome was mapped.
     #[tokio::test]
     async fn the_statusline_source_puts_nothing_on_the_wire_at_all() {
-        let server = MockServer::start().await;
-        mount_org_discovery(&server).await;
-        Mock::given(method("GET"))
-            .and(path("/organizations/org-1/usage"))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
-            .mount(&server)
-            .await;
+        let server = healthy_server().await;
 
         let dir = tempfile::tempdir().unwrap();
         let transport = SourcedTransport {
@@ -198,13 +187,7 @@ mod tests {
     /// reachable in the first place.
     #[tokio::test]
     async fn the_claude_ai_source_does_reach_the_very_same_server() {
-        let server = MockServer::start().await;
-        mount_org_discovery(&server).await;
-        Mock::given(method("GET"))
-            .and(path("/organizations/org-1/usage"))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
-            .mount(&server)
-            .await;
+        let server = healthy_server().await;
 
         let dir = tempfile::tempdir().unwrap();
         let transport = SourcedTransport {
@@ -229,13 +212,7 @@ mod tests {
     /// its results — the user flipping the picker expects the requests to end.
     #[tokio::test]
     async fn switching_to_the_statusline_source_stops_the_traffic() {
-        let server = MockServer::start().await;
-        mount_org_discovery(&server).await;
-        Mock::given(method("GET"))
-            .and(path("/organizations/org-1/usage"))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
-            .mount(&server)
-            .await;
+        let server = healthy_server().await;
 
         let dir = tempfile::tempdir().unwrap();
         let live_selection = Arc::new(selection(UsageSource::ClaudeAi));

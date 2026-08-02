@@ -31,14 +31,11 @@
 //! that fetched real data successfully must not be treated as failed just
 //! because the optional external export couldn't be written.
 
-use std::io;
 use std::path::Path;
 
 use jiff::Timestamp;
 use meter_core::{UsageSnapshot, UsageWindow};
 use serde::{Deserialize, Serialize};
-
-use crate::io_util::atomic_write;
 
 /// Directory name inside the user's home directory.
 pub const EXPORT_DIR: &str = ".claudemeter";
@@ -140,12 +137,6 @@ pub fn claudemeter_path(home: &Path, file: &str) -> std::path::PathBuf {
 /// concurrent read by an external script) can never observe a truncated
 /// file, and so the Swift app's own atomic writer never races a partial read
 /// from this one either.
-pub fn write(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
-    let payload = UsageExportPayload::from(snapshot);
-    let body = serde_json::to_string_pretty(&payload)?;
-    atomic_write(path, &body)
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -185,6 +176,11 @@ mod tests {
             spend: None,
             fetched_at: "2026-07-17T12:00:00Z".parse().unwrap(),
         }
+    }
+
+    /// What `run_loop` does, named so these tests read as "export this".
+    fn write_export(path: &Path, snapshot: &UsageSnapshot) -> std::io::Result<()> {
+        crate::io_util::write_json_pretty(path, &UsageExportPayload::from(snapshot))
     }
 
     fn export_file(dir: &tempfile::TempDir) -> PathBuf {
@@ -278,7 +274,7 @@ mod tests {
             .join("nested/home")
             .join(EXPORT_DIR)
             .join(EXPORT_FILE);
-        write(&path, &snapshot()).unwrap();
+        write_export(&path, &snapshot()).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         let decoded: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(decoded["scoped_usage"][0]["name"], "Fable");
@@ -289,7 +285,7 @@ mod tests {
     fn write_never_leaves_a_temp_file_behind() {
         let dir = tempfile::tempdir().unwrap();
         let path = export_file(&dir);
-        write(&path, &snapshot()).unwrap();
+        write_export(&path, &snapshot()).unwrap();
         assert!(path.exists());
         assert!(!path.with_extension("json.tmp").exists());
     }
@@ -298,10 +294,10 @@ mod tests {
     fn write_replaces_a_previous_export_atomically() {
         let dir = tempfile::tempdir().unwrap();
         let path = export_file(&dir);
-        write(&path, &snapshot()).unwrap();
+        write_export(&path, &snapshot()).unwrap();
         let mut newer = snapshot();
         newer.fetched_at = "2026-07-17T13:00:00Z".parse().unwrap();
-        write(&path, &newer).unwrap();
+        write_export(&path, &newer).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         let decoded: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(decoded["last_updated"], "2026-07-17T13:00:00Z");

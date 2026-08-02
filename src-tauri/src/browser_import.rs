@@ -321,12 +321,10 @@ mod tests {
     /// `static`, so a `&'static` reference fits any `SessionSink` lifetime.
     static OPEN_GATE: ConsentGate = ConsentGate::new(true);
     static CLOSED_GATE: ConsentGate = ConsentGate::new(false);
-    use crate::source::SourceSelection;
+    use crate::source::{SourceSelection, UsageSource, selection};
 
-    /// The claude.ai source. Named rather than a bare `false` so every sink
-    /// in these tests states which source it is standing in for.
-    static POLLING_CLAUDE_AI: SourceSelection = SourceSelection::new(false);
-    static READING_CLAUDE_CODE: SourceSelection = SourceSelection::new(true);
+    static POLLING_CLAUDE_AI: SourceSelection = selection(UsageSource::ClaudeAi);
+    static READING_CLAUDE_CODE: SourceSelection = selection(UsageSource::ClaudeCodeStatusline);
 
     fn sink<'a>(
         store: &'a Arc<dyn SessionStore>,

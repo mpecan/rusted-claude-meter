@@ -45,6 +45,22 @@ pub(super) fn consenting(
     })
 }
 
+/// A mock claude.ai that answers every request a successful poll makes.
+///
+/// Used where the *point* of the test is that something else stopped the
+/// fetch — a closed consent gate, a source pointed elsewhere — so the server
+/// being healthy is what makes "no requests arrived" mean anything.
+pub(super) async fn healthy_server() -> MockServer {
+    let server = MockServer::start().await;
+    mount_org_discovery(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/organizations/org-1/usage"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(USAGE_BODY, "application/json"))
+        .mount(&server)
+        .await;
+    server
+}
+
 pub(super) async fn mount_org_discovery(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/organizations"))

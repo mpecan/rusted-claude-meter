@@ -12,27 +12,20 @@ use jiff::Timestamp;
 use meter_core::UsageSnapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::source::UsageSource;
+use std::sync::Arc;
+
+use crate::source::{self, SourceSelection, UsageSource};
 
 /// In-memory freshness window: a forced refresh (wake, manual, new key)
 /// within this age is served from the cached snapshot instead of the
 /// network. Slightly below the shortest polling interval so scheduled ticks
 /// are never suppressed.
 const MEMORY_TTL: Duration = Duration::from_secs(55);
-/// How often the recorded status-line file is re-read
-/// ([`UsageSource::ClaudeCodeStatusline`]).
-///
-/// Fixed, and deliberately not the user's [`RefreshInterval`]: that setting
-/// exists to pace *requests to claude.ai*, and there are none here — this is a
-/// sub-kilobyte local file the bridge rewrites on every Claude Code render.
-/// Pacing a file read at five minutes would leave the tray five minutes behind
-/// data that is seconds old.
-///
-/// The refresh interval still governs [`SchedulerCore::staleness`] on this
-/// source, which is the question that does still matter there: not "how often
-/// do we look" but "how old may a reading get before it stops being worth
-/// trusting".
-const STATUSLINE_POLL: Duration = Duration::from_secs(15);
+// The status-line cadence itself lives on `UsageSource` — it is a property of
+// the source, not of the scheduler. The user's `RefreshInterval` still governs
+// `SchedulerCore::staleness` on every source, which is the question that does
+// still matter there: not "how often do we look" but "how old may a reading
+// get before it stops being worth trusting".
 
 /// First backoff step after a transient failure.
 const BACKOFF_BASE_SECS: u32 = 10;
@@ -144,17 +137,18 @@ pub struct SchedulerCore {
     snapshot: Option<UsageSnapshot>,
     last_wall: Option<Timestamp>,
     last_monotonic: Option<Duration>,
-    /// Which source is live. Not a copy of the persisted setting for its own
-    /// sake — the core needs it because what a fetch *costs* differs by
-    /// source, and both the poll cadence and the forced-refresh TTL follow
-    /// from that. Public for the same reason as [`Self::interval`].
-    pub source: UsageSource,
+    /// The *shared* live selection, not a second copy of it. The core needs
+    /// to know the source because what a fetch costs differs by source, but
+    /// a field it had to be told about separately from the transport's own
+    /// handle was two runtime mirrors of one value, kept in step by hand and
+    /// with nothing to catch a writer that updated only one.
+    selection: Arc<SourceSelection>,
 }
 
 impl SchedulerCore {
     /// `initial` is the snapshot restored from the disk cache, if any, so a
     /// restart renders instantly.
-    pub const fn new(interval: RefreshInterval, initial: Option<UsageSnapshot>) -> Self {
+    pub fn new(interval: RefreshInterval, initial: Option<UsageSnapshot>) -> Self {
         Self {
             interval,
             failures: 0,
@@ -163,19 +157,26 @@ impl SchedulerCore {
             last_wall: None,
             last_monotonic: None,
             // Defaulted rather than a constructor argument: every existing
-            // caller and test means claude.ai, and only `lib.rs` and the
-            // source command have an opinion, and they assign `source`.
-            source: UsageSource::ClaudeAi,
+            // caller and test means claude.ai. Only `lib.rs` has the shared
+            // handle, and it attaches it with `with_selection`.
+            selection: Arc::new(source::selection(UsageSource::ClaudeAi)),
         }
     }
 
-    /// How long to wait between scheduled fetches from the live source.
-    const fn poll_interval(&self) -> Duration {
-        if self.source.is_statusline() {
-            STATUSLINE_POLL
-        } else {
-            self.interval.duration()
-        }
+    /// Share the live source selection with the transport, so both read one
+    /// value rather than two that must be updated together.
+    #[must_use]
+    pub fn with_selection(mut self, selection: Arc<SourceSelection>) -> Self {
+        self.selection = selection;
+        self
+    }
+
+    /// How long to wait between scheduled fetches from the live source: what
+    /// the source dictates, else the user's setting.
+    fn poll_interval(&self) -> Duration {
+        source::selected(&self.selection)
+            .fixed_poll_interval()
+            .unwrap_or_else(|| self.interval.duration())
     }
 
     /// Whether `candidate` says anything the held snapshot does not.
@@ -204,7 +205,7 @@ impl SchedulerCore {
     /// swallowing a manual "Refresh Now" for up to 55 seconds there would be
     /// a delay with no purpose behind it.
     pub fn should_fetch(&self, now: Timestamp, forced: bool) -> bool {
-        if !forced || self.source.is_statusline() {
+        if !forced || !source::selected(&self.selection).reaches_claude_ai() {
             return true;
         }
         !self.snapshot.as_ref().is_some_and(|snapshot| {
@@ -350,6 +351,15 @@ mod tests {
         }
     }
 
+    /// A core sharing `selection` with its (notional) transport, so a test
+    /// flips one value exactly as production does.
+    fn core_reading(source: UsageSource) -> (SchedulerCore, Arc<SourceSelection>) {
+        let selection = Arc::new(source::selection(source));
+        let core = SchedulerCore::new(RefreshInterval::FiveMinutes, None)
+            .with_selection(Arc::clone(&selection));
+        (core, selection)
+    }
+
     fn core_with_snapshot(age_secs: i64) -> SchedulerCore {
         SchedulerCore::new(
             RefreshInterval::OneMinute,
@@ -465,9 +475,11 @@ mod tests {
     /// schedule, or the tray sits five minutes behind data that is current.
     #[test]
     fn the_statusline_source_polls_far_faster_than_the_api_interval() {
-        let mut core = SchedulerCore::new(RefreshInterval::FiveMinutes, None);
+        let (core, selection) = core_reading(UsageSource::ClaudeAi);
         assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(5)));
-        core.source = UsageSource::ClaudeCodeStatusline;
+        // Flipping the *shared* selection is all production does — the core
+        // has no second copy to update.
+        source::select(&selection, UsageSource::ClaudeCodeStatusline);
         assert_eq!(core.next_delay(0.5), Some(Duration::from_secs(15)));
     }
 
@@ -475,8 +487,7 @@ mod tests {
     /// exactly when a user is watching for the numbers to appear.
     #[test]
     fn waiting_for_the_status_line_also_polls_at_the_fast_cadence() {
-        let mut core = SchedulerCore::new(RefreshInterval::TenMinutes, None);
-        core.source = UsageSource::ClaudeCodeStatusline;
+        let (mut core, _selection) = core_reading(UsageSource::ClaudeCodeStatusline);
         core.record(FetchOutcome::AwaitingStatusline);
         assert_eq!(core.next_delay(0.5), Some(Duration::from_secs(15)));
     }
@@ -485,10 +496,9 @@ mod tests {
     /// claude.ai is exactly what the refresh interval exists to prevent.
     #[test]
     fn switching_back_to_claude_ai_restores_the_users_interval() {
-        let mut core = SchedulerCore::new(RefreshInterval::TenMinutes, None);
-        core.source = UsageSource::ClaudeCodeStatusline;
-        core.source = UsageSource::ClaudeAi;
-        assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(10)));
+        let (core, selection) = core_reading(UsageSource::ClaudeCodeStatusline);
+        source::select(&selection, UsageSource::ClaudeAi);
+        assert_eq!(core.next_delay(0.5), Some(Duration::from_mins(5)));
     }
 
     /// The memory TTL exists to protect claude.ai from a burst of manual
@@ -496,12 +506,13 @@ mod tests {
     /// for most of a minute for no reason at all.
     #[test]
     fn a_forced_refresh_is_never_served_from_memory_on_the_statusline_source() {
-        let mut core = core_with_snapshot(0);
+        let selection = Arc::new(source::selection(UsageSource::ClaudeAi));
+        let core = core_with_snapshot(0).with_selection(Arc::clone(&selection));
         assert!(
             !core.should_fetch(now(), true),
             "claude.ai keeps its TTL on a fresh snapshot"
         );
-        core.source = UsageSource::ClaudeCodeStatusline;
+        source::select(&selection, UsageSource::ClaudeCodeStatusline);
         assert!(core.should_fetch(now(), true));
     }
 

@@ -149,6 +149,7 @@ Settings dims the Session section on this source and says why, so you are not in
 
 - **Model-scoped limits.** The payload has no per-model breakdown, so the Model-scoped limits section has nothing to show.
 - **Spend / cost view.** Not in the payload either.
+- **Anything before Claude Code's first API call.** `rate_limits` is absent until then, even on a supported version.
 - **Updates while Claude Code is closed.** The file only changes when Claude Code redraws its status line. Leave it for an afternoon and your numbers are an afternoon old — the app says so rather than presenting them as current (*"Claude Code last reported 3h ago"*, and the usual stale styling).
 
 ---
@@ -160,7 +161,6 @@ On this source the meter re-reads the file **every 15 seconds**, regardless of y
 Your refresh interval still decides when a reading is called **stale** — at 2× the interval — which is the question that still matters here: not "how often do we look" but "how old may this get before it stops being worth trusting". Leave Claude Code closed for long enough and the tray says so.
 
 Polling this fast does not churn the disk: the cache and the public `usage.json` export are only rewritten when the reading actually changed.
-- **Anything before Claude Code's first API call.** `rate_limits` is absent until then, even on a supported version.
 
 Nothing here can be fixed in this app; they are properties of what Claude Code exposes.
 

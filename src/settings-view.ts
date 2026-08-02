@@ -55,14 +55,7 @@ import {
 import { createStatuslineSetup } from "./statusline-setup";
 import { describeWizardValidation } from "./wizard-view-model";
 import { createWizard } from "./wizard";
-
-function requireElement<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) {
-    throw new Error(`missing #${id} in index.html`);
-  }
-  return el as T;
-}
+import { requireElement } from "./dom";
 
 /** Reflect the selected option of a `.segmented` radio group by `data-value`. */
 function setSegmentedValue(container: HTMLElement, value: string): void {
@@ -265,13 +258,15 @@ export function initSettingsView(backend: UsageBackend): void {
     const source = settings.usage_source;
     usageSourceSelect.value = source;
     usageSourceHintEl.textContent = usageSourceHint(source);
-    const statusline = source === "claude_code_statusline";
+    // One spelling of the predicate, from the module that owns source
+    // semantics — four UI decisions below key off it.
+    const statusline = !tosAppliesTo(source);
     statuslineSetup.setVisible(statusline);
     scopedSourceHint.hidden = !statusline;
     // The consent question is about claude.ai traffic. On the status-line
     // source there is none, so the warning is dimmed rather than removed —
     // switching back must not feel like the risk quietly disappeared.
-    tosSection.classList.toggle("not-applicable", !tosAppliesTo(source));
+    tosSection.classList.toggle("not-applicable", statusline);
     // The session field would be refused outright on this source (the backend
     // returns `WrongSource`), so it is dimmed and explained rather than left
     // looking usable.

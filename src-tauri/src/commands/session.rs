@@ -188,7 +188,7 @@ mod tests {
 
     use super::*;
     use crate::browser_import::ValidationError;
-    use crate::source::SourceSelection;
+    use crate::source::{SourceSelection, UsageSource, selection};
     use crate::store::FakeSessionStore;
     use pretty_assertions::assert_eq;
 
@@ -196,10 +196,8 @@ mod tests {
 
     static OPEN_GATE: ConsentGate = ConsentGate::new(true);
 
-    /// The claude.ai source. Named rather than a bare `false` so every sink
-    /// in these tests states which source it is standing in for.
-    static POLLING_CLAUDE_AI: SourceSelection = SourceSelection::new(false);
-    static READING_CLAUDE_CODE: SourceSelection = SourceSelection::new(true);
+    static POLLING_CLAUDE_AI: SourceSelection = selection(UsageSource::ClaudeAi);
+    static READING_CLAUDE_CODE: SourceSelection = selection(UsageSource::ClaudeCodeStatusline);
 
     struct FakeValidator(Result<(), ValidationError>);
 

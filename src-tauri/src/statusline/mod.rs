@@ -25,7 +25,6 @@ mod bridge;
 pub mod config;
 pub mod setup;
 
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -34,7 +33,7 @@ use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
 use serde::{Deserialize, Serialize};
 
 use crate::export::{ExportLimit, claudemeter_path};
-use crate::io_util::atomic_write;
+use crate::io_util::{read_json, write_json_pretty};
 
 pub use bridge::{SUBCOMMAND, execute, parse_args};
 pub use setup::current_command;
@@ -82,8 +81,8 @@ impl From<&UsageSnapshot> for StatusLinePayload {
 
 /// Rebuild a domain window from the narrower on-disk shape, which carries no
 /// window length of its own — the field it was read from names it.
-const fn window(limit: &ExportLimit, kind: LimitWindow) -> UsageWindow {
-    UsageWindow {
+fn window_from(kind: LimitWindow) -> impl Fn(&ExportLimit) -> UsageWindow {
+    move |limit| UsageWindow {
         utilization: limit.utilization,
         resets_at: limit.reset_at,
         window: kind,
@@ -101,18 +100,41 @@ const fn window(limit: &ExportLimit, kind: LimitWindow) -> UsageWindow {
 /// staleness rule decides what counts as old.
 #[must_use]
 pub fn read(path: &Path) -> Option<UsageSnapshot> {
-    let payload: StatusLinePayload = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
+    let payload: StatusLinePayload = read_json(path)?;
     if payload.schema > SCHEMA_VERSION {
         return None;
     }
-    let five_hour = payload
-        .session_usage
-        .as_ref()
-        .map(|limit| window(limit, LimitWindow::FiveHour));
-    let seven_day = payload
-        .weekly_usage
-        .as_ref()
-        .map(|limit| window(limit, LimitWindow::SevenDay));
+    headline_snapshot(
+        payload
+            .session_usage
+            .as_ref()
+            .map(window_from(LimitWindow::FiveHour)),
+        payload
+            .weekly_usage
+            .as_ref()
+            .map(window_from(LimitWindow::SevenDay)),
+        payload.recorded_at,
+    )
+}
+
+/// Assemble the only shape this source can ever produce: the two headline
+/// windows and nothing else.
+///
+/// `None` when neither window is present — a reading with no window is
+/// nothing to report, and recording or returning it would read to a consumer
+/// as "0% used" rather than "nothing new to say". `scoped` and `spend` are
+/// always empty because the status-line payload carries neither, and
+/// inventing either would be worse than reporting less.
+///
+/// Shared by both halves of this module: [`read`] rebuilds it from our own
+/// file, [`bridge::snapshot`] builds it from Claude Code's payload, and the
+/// rule they share belongs in one place.
+#[must_use]
+pub const fn headline_snapshot(
+    five_hour: Option<UsageWindow>,
+    seven_day: Option<UsageWindow>,
+    at: Timestamp,
+) -> Option<UsageSnapshot> {
     if five_hour.is_none() && seven_day.is_none() {
         return None;
     }
@@ -121,7 +143,7 @@ pub fn read(path: &Path) -> Option<UsageSnapshot> {
         seven_day,
         scoped: Vec::new(),
         spend: None,
-        fetched_at: payload.recorded_at,
+        fetched_at: at,
     })
 }
 
@@ -129,8 +151,7 @@ pub fn read(path: &Path) -> Option<UsageSnapshot> {
 /// scheduler can read the file at any moment without seeing a half-written
 /// document.
 pub fn record(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
-    let body = serde_json::to_string_pretty(&StatusLinePayload::from(snapshot))?;
-    atomic_write(path, &body)
+    write_json_pretty(path, &StatusLinePayload::from(snapshot))
 }
 
 /// A `~/.claudemeter/` path for the current user, from `$HOME` — what both
@@ -155,6 +176,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use crate::io_util::atomic_write;
     use pretty_assertions::assert_eq;
 
     fn now() -> Timestamp {

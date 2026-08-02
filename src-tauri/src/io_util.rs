@@ -9,6 +9,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 /// Decode a JSON document from `path`, or `None` for any failure — absent,
@@ -22,6 +23,18 @@ use serde::de::DeserializeOwned;
 /// out individually.
 pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
+/// Serialize `value` as pretty JSON and [`atomic_write`] it to `path`.
+///
+/// The three files this app publishes for something else to read
+/// (`usage.json`, the recorded status-line reading, and the bridge's config
+/// mirror) are all pretty-printed, because a human opening one is a supported
+/// way to answer "what does it think my usage is?". The compact writers
+/// (`cache`, `settings`) wrap their payload in a version envelope and stay as
+/// they are.
+pub fn write_json_pretty<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
+    atomic_write(path, &serde_json::to_string_pretty(value)?)
 }
 
 /// Write `body` to `path` atomically: `create_dir_all` the parent, write to
