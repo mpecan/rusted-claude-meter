@@ -40,6 +40,20 @@ export const TOS_MITIGATION =
 export const TOS_CONSENT_LABEL =
   "I understand the risk to my Claude account and want to track my usage anyway.";
 
+/** Why the wizard's consent step has an inert Continue button (issue #78).
+ *
+ * A disabled button conveys *that* it is unavailable and never *why*; worse, a
+ * disabled button is not focusable, so a reason attached to the button itself
+ * (a `title`, or a description only reachable by tabbing to it) is announced to
+ * nobody. This is therefore a visible paragraph in the reading order, shown and
+ * referenced by `aria-describedby` only while it is true.
+ *
+ * Distinct from `usage-source.ts::TOS_DECLINE_ALTERNATIVE`, which is the way
+ * *out* for someone unwilling to tick the box: this one names what unblocks the
+ * step for someone who is willing but cannot see what the button wants. */
+export const TOS_CONSENT_REQUIRED_HINT =
+  "Continue stays unavailable until you tick the box above — there is no way on from here without it.";
+
 /** What Settings shows under the checkbox once it is off — the state the app
  * is actually in, not a nag. */
 export const TOS_PAUSED_HINT =
