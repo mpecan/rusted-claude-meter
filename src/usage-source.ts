@@ -40,7 +40,7 @@ export function tosAppliesTo(source: UsageSource): boolean {
  * where the binary is. The app writes that file on every launch — see
  * `statusline::setup`.
  *
- * **The file name is mirrored in `src-tauri/src/statusline/setup.rs`**
+ * **The file name is mirrored in `crates/meter-files/src/statusline/setup.rs`**
  * (`SETUP_FILE`); rename them together or this points at nothing. */
 export const STATUSLINE_SLASH_COMMAND =
   "/statusline add the Rusted Claude Meter usage segment exactly as described in ~/.claudemeter/statusline-command.txt";

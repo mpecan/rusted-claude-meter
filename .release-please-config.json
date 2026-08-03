@@ -27,6 +27,7 @@
         { "type": "json", "path": "package-lock.json", "jsonpath": "$.packages[''].version" },
         { "type": "toml", "path": "Cargo.lock", "jsonpath": "$.package[?(@.name.value=='meter-api')].version" },
         { "type": "toml", "path": "Cargo.lock", "jsonpath": "$.package[?(@.name.value=='meter-core')].version" },
+        { "type": "toml", "path": "Cargo.lock", "jsonpath": "$.package[?(@.name.value=='meter-files')].version" },
         { "type": "toml", "path": "Cargo.lock", "jsonpath": "$.package[?(@.name.value=='meter-render')].version" },
         { "type": "toml", "path": "Cargo.lock", "jsonpath": "$.package[?(@.name.value=='rusted-claude-meter')].version" }
       ]

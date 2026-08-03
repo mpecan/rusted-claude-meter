@@ -1,0 +1,27 @@
+[package]
+name = "meter-files"
+description = "On-disk contracts: ~/.claudemeter/ and the Claude Code status-line bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Deliberately thin, and the reason this is a crate rather than a module of
+# `src-tauri`: `rusted-claude-meter-statusline` is built from this and nothing
+# else, so it links none of AppKit/WebKit/Carbon and a status-line render
+# costs process spawn and little more. Adding a dependency here is adding it
+# to a binary Claude Code spawns several times a second — weigh it that way.
+[dependencies]
+meter-core = { path = "../meter-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jiff = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

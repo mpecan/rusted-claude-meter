@@ -43,7 +43,7 @@ pub enum UsageSource {
     #[default]
     ClaudeAi,
     /// Read `~/.claudemeter/statusline.json`, written by Claude Code through
-    /// the `rusted-claude-meter statusline` bridge. See [`crate::statusline`].
+    /// the `rusted-claude-meter-statusline` bridge. See [`meter_files::statusline`].
     ClaudeCodeStatusline,
 }
 

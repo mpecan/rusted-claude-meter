@@ -17,12 +17,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use meter_files::statusline;
+
 use crate::scheduler::core::FetchOutcome;
 use crate::scheduler::transport::{LiveTransport, UsageTransport};
 use crate::source::{self, SourceSelection, UsageSource};
-use crate::statusline;
 
-/// Reads `~/.claudemeter/statusline.json` — see [`crate::statusline`].
+/// Reads `~/.claudemeter/statusline.json` — see [`meter_files::statusline`].
 pub struct StatuslineTransport {
     /// `None` when the home directory could not be resolved at startup, which
     /// is indistinguishable to the user from "nothing recorded yet" and is
@@ -77,11 +78,11 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
-    use crate::export::claudemeter_path;
     use crate::scheduler::test_support::{consenting, healthy_server, store_with_key};
     use crate::source::{UsageSource, selection};
     use crate::store::FakeSessionStore;
     use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
+    use meter_files::export::claudemeter_path;
     use pretty_assertions::assert_eq;
 
     fn snapshot() -> UsageSnapshot {

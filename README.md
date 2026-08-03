@@ -159,7 +159,7 @@ Interaction model is platform-idiomatic:
 
 ## External integrations
 
-Three files live in `~/.claudemeter/`, and they do not all flow the same way. `usage.json` is the app's **output**, described below. `statusline.json` is its **input** — written by the `rusted-claude-meter statusline` bridge and read by the scheduler when you pick the Claude Code source. `statusline-command.txt` holds that bridge's setup command for this machine, which is what `/statusline` reads to wire it up. Both are covered in [docs/claude-code-statusline.md](docs/claude-code-statusline.md).
+Three files live in `~/.claudemeter/`, and they do not all flow the same way. `usage.json` is the app's **output**, described below. `statusline.json` is its **input** — written by the `rusted-claude-meter-statusline` bridge and read by the scheduler when you pick the Claude Code source. `statusline-command.txt` holds that bridge's setup command for this machine, which is what `/statusline` reads to wire it up. Both are covered in [docs/claude-code-statusline.md](docs/claude-code-statusline.md).
 
 After every successful fetch, the app writes `~/.claudemeter/usage.json` — a public, typed export of current usage for statusline scripts and other external tools. The write is atomic (temp file + rename), so a script never observes a truncated file, and a failed write is logged but never fails the refresh itself.
 

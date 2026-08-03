@@ -257,7 +257,7 @@ export interface AppSettings {
   tos_acknowledged: boolean;
   /** Where usage numbers come from. `claude_ai` (the default) polls claude.ai
    * and needs `tos_acknowledged`; `claude_code_statusline` reads what Claude
-   * Code recorded through the `rusted-claude-meter statusline` bridge, which
+   * Code recorded through the `rusted-claude-meter-statusline` bridge, which
    * makes no claude.ai request and so needs no acknowledgement — but reports
    * only the two headline windows, and only while Claude Code is running.
    * Mirrors `source::UsageSource`. */

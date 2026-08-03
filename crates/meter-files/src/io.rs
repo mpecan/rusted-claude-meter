@@ -1,9 +1,10 @@
-//! Shared atomic-write idiom used by every on-disk contract (`cache.rs`,
-//! `settings.rs`, `export.rs`): create the parent directory, write to a
-//! sibling `.tmp` file, then rename over the destination. The rename is
-//! atomic on the platforms this app targets, so a crash mid-write (or a
-//! concurrent read by an external script) can never observe a truncated
-//! file.
+//! The atomic-write idiom every on-disk contract in this app shares.
+//!
+//! Used by `cache.rs`, `settings.rs` and [`crate::export`] alike: create the
+//! parent directory, write to a sibling `.tmp` file, then rename over the
+//! destination. The rename is atomic on the platforms this app targets, so a
+//! crash mid-write (or a concurrent read by an external script) can never
+//! observe a truncated file.
 
 use std::fs;
 use std::io;

@@ -19,26 +19,18 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use meter_core::UsageMode;
+use meter_core::{
+    DEFAULT_PACE_TRACKING_ENABLED, DEFAULT_WEEKLY_PACE_DAYS, UsageMode, clamp_weekly_pace_days,
+};
+use meter_files::io::{atomic_write, read_json};
 use meter_render::IconStyle;
 use serde::{Deserialize, Serialize};
 
-use crate::io_util::{atomic_write, read_json};
 use crate::scheduler::RefreshInterval;
 use crate::source::UsageSource;
 
 /// File name inside the app data dir.
 pub const SETTINGS_FILE: &str = "settings.json";
-
-/// The span [`AppSettings::weekly_pace_days`] is clamped to, and the default
-/// within it (the full week, matching upstream's `ClaudeMeter`).
-///
-/// Public because the status-line bridge mirrors this setting and must clamp
-/// the mirror to the same range — a copied invariant there would fail as a
-/// quietly wrong pace ratio rather than as a compile error.
-pub const WEEKLY_PACE_DAYS: std::ops::RangeInclusive<u8> = 5..=7;
-/// See [`WEEKLY_PACE_DAYS`].
-pub const DEFAULT_WEEKLY_PACE_DAYS: u8 = 7;
 
 /// Bumped whenever the persisted shape changes incompatibly; readers treat
 /// any other version as absent (falling back to defaults) instead of
@@ -123,7 +115,9 @@ pub struct AppSettings {
     /// `5..=7` by [`Self::normalize`] on every write and load, so a
     /// hand-edited or pre-issue-#16 settings file can never feed an
     /// out-of-range span into `UsageSnapshot::pace_signal`. Defaults to 7
-    /// (the full week), matching upstream's `ClaudeMeter` default.
+    /// (the full week), matching upstream's `ClaudeMeter` default. Range and
+    /// default are [`meter_core`]'s, shared with the status-line bridge's
+    /// config mirror — which clamps the same span and cannot see this crate.
     pub weekly_pace_days: u8,
     /// Whether the tray/popover lead with the pace ratio instead of the raw
     /// quota percentage (upstream's `DisplayModePicker`). Off by default: a
@@ -184,7 +178,7 @@ impl Default for AppSettings {
             usage_mode: UsageMode::Auto,
             weekly_pace_days: DEFAULT_WEEKLY_PACE_DAYS,
             pace_first_display: false,
-            pace_tracking_enabled: true,
+            pace_tracking_enabled: DEFAULT_PACE_TRACKING_ENABLED,
             debug_logging: false,
             tos_acknowledged: false,
             usage_source: UsageSource::default(),
@@ -208,9 +202,7 @@ impl AppSettings {
         if self.critical_threshold < self.warning_threshold {
             self.critical_threshold = self.warning_threshold;
         }
-        self.weekly_pace_days = self
-            .weekly_pace_days
-            .clamp(*WEEKLY_PACE_DAYS.start(), *WEEKLY_PACE_DAYS.end());
+        self.weekly_pace_days = clamp_weekly_pace_days(self.weekly_pace_days);
     }
 }
 
@@ -242,7 +234,7 @@ pub fn load(path: &Path) -> AppSettings {
 
 /// Persist `settings`, replacing any previous file. Writes to a sibling temp
 /// file and renames so a crash mid-write cannot leave a truncated file
-/// behind (`io_util::atomic_write`, same discipline as `cache::save`).
+/// behind (`meter_files::io::atomic_write`, same discipline as `cache::save`).
 pub fn save(path: &Path, settings: &AppSettings) -> io::Result<()> {
     let body = serde_json::to_string(&DiskSettingsRef {
         version: SETTINGS_VERSION,

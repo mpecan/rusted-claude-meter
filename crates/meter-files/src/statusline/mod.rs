@@ -9,7 +9,7 @@
 //! `anthropic-ratelimit-unified-*` response headers on the user's *own* API
 //! traffic. So the whole path originates no claude.ai request, which makes it
 //! the one usage source that sidesteps the Terms-of-Service problem in
-//! `docs/terms-of-service.md` and needs no [`crate::consent`] gate.
+//! `docs/terms-of-service.md` and needs no `consent::ConsentGate` (`src-tauri`) check.
 //!
 //! **The two files in `~/.claudemeter/` flow opposite ways**, which is why
 //! this is not merged into `export.rs`:
@@ -33,9 +33,9 @@ use meter_core::{LimitWindow, UsageSnapshot, UsageWindow};
 use serde::{Deserialize, Serialize};
 
 use crate::export::{ExportLimit, claudemeter_path};
-use crate::io_util::{read_json, write_json_pretty};
+use crate::io::{read_json, write_json_pretty};
 
-pub use bridge::{SUBCOMMAND, execute, parse_args};
+pub use bridge::{SUBCOMMAND, execute, parse_args, parse_flags};
 pub use setup::current_command;
 
 /// File name inside `~/.claudemeter/`, beside `export.rs`'s `usage.json`.
@@ -154,9 +154,11 @@ pub fn record(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
     write_json_pretty(path, &StatusLinePayload::from(snapshot))
 }
 
-/// A `~/.claudemeter/` path for the current user, from `$HOME` — what both
-/// target platforms define. The GUI resolves this through Tauri's path API
-/// instead, but the bridge runs long before, and instead of, an `App`.
+/// A `~/.claudemeter/` path for the current user, from `$HOME`.
+///
+/// `$HOME` is what both target platforms define. The GUI resolves this
+/// through Tauri's path API instead, but the bridge runs long before, and
+/// instead of, an `App`.
 ///
 /// Callers name the file, exactly like [`claudemeter_path`]. That is not only
 /// tidier than one named function per file: a `default_path` here and another
@@ -176,7 +178,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-    use crate::io_util::atomic_write;
+    use crate::io::atomic_write;
     use pretty_assertions::assert_eq;
 
     fn now() -> Timestamp {

@@ -21,7 +21,11 @@ Claude Code hands a JSON blob to whatever command you name in `statusLine.comman
 
 Claude Code derives those from the `anthropic-ratelimit-unified-5h-*` and `-7d-*` response headers on **your own** API traffic. It is already making those requests, as itself, for its own reasons. All this app does is read what it hands over.
 
-The bridge (`rusted-claude-meter statusline`) records each reading to `~/.claudemeter/statusline.json`, and the meter reads that file on its normal refresh interval.
+The bridge (`rusted-claude-meter-statusline`) records each reading to `~/.claudemeter/statusline.json`, and the meter reads that file on its normal refresh interval.
+
+It ships as its own small binary, beside the app's, for one reason: Claude Code respawns your status-line command on every redraw, several times a second. Running the meter's *GUI* binary for that made the operating system load AppKit, WebKit and friends first — around half of a 5.3ms invocation, for frameworks the bridge never touches. The separate binary does the same work in 2.8ms, against 2.1ms for a program that does nothing at all.
+
+`rusted-claude-meter statusline` — the app binary with a subcommand — still works and always will, so a status line set up against it keeps running untouched. It is just the slower way round.
 
 > **Not to be confused with `~/.claudemeter/usage.json`.** That file is the app's *output*, for external scripts (see the README's External integrations). `statusline.json` flows the other way — into the app.
 
@@ -32,7 +36,7 @@ The bridge (`rusted-claude-meter statusline`) records each reading to `~/.claude
 | | |
 |---|---|
 | **Claude Code** | **2.1.216 or newer.** Older versions omit `rate_limits` entirely. |
-| **Rusted Claude Meter** | 0.1.7 or newer — earlier builds have no `statusline` subcommand and will **launch the GUI** if you point a status line at them. |
+| **Rusted Claude Meter** | 0.1.7 or newer — earlier builds have no status-line bridge at all and will **launch the GUI** if you point a status line at them. |
 | **Claude Code auth** | A Claude subscription (Pro/Max/Team). Claude Code reports no rate limits at all on API-key, Bedrock or Vertex sessions. |
 
 ---
@@ -69,7 +73,7 @@ Open `~/.claude/settings.json` and find (or create) the `statusLine` block. If y
 {
   "statusLine": {
     "type": "command",
-    "command": "input=$(cat); meter=$(printf '%s' \"$input\" | '/Applications/Rusted Claude Meter.app/Contents/MacOS/rusted-claude-meter' statusline); printf '%s' \"$meter\""
+    "command": "input=$(cat); meter=$(printf '%s' \"$input\" | '/Applications/Rusted Claude Meter.app/Contents/MacOS/rusted-claude-meter-statusline'); printf '%s' \"$meter\""
   }
 }
 ```
@@ -78,7 +82,7 @@ If you already have a status line, keep it and splice in the middle piece. Your 
 
 ```sh
 input=$(cat)
-meter=$(printf '%s' "$input" | '<path>' statusline)
+meter=$(printf '%s' "$input" | '<path>/rusted-claude-meter-statusline')
 printf "%s@%s %s" "$(whoami)" "$(hostname -s)" "$meter"
 ```
 
@@ -87,7 +91,7 @@ The bridge prints one short segment — `5h 14% · 7d 3%` — and records the re
 **Want the recording but not the text?** Add `--quiet` and the bridge prints nothing:
 
 ```sh
-printf '%s' "$input" | '<path>' statusline --quiet
+printf '%s' "$input" | '<path>/rusted-claude-meter-statusline' --quiet
 ```
 
 ### Optional: show pace
@@ -178,17 +182,17 @@ Check `~/.claudemeter/statusline.json` exists. If it does not, the bridge is not
 
 ```sh
 echo '{"rate_limits":{"five_hour":{"used_percentage":50,"resets_at":1785689400}}}' \
-  | '<path>' statusline
+  | '<path>/rusted-claude-meter-statusline'
 ```
 
 **Claude Code freezes, or a window opens, when the status line renders.**
-You are on a Rusted Claude Meter older than 0.1.7. It does not recognise `statusline` as a subcommand, so it treats it as a normal launch and starts the app. Upgrade.
+You are on a Rusted Claude Meter older than 0.1.7, and your command names the *app* binary. It does not recognise `statusline` as a subcommand, so it treats it as a normal launch and starts the app. Upgrade.
 
 **The file exists but the numbers never change.**
 Claude Code is probably on an unsupported auth mode (API key, Bedrock, Vertex) or a version below 2.1.216 — in both cases it emits no `rate_limits`, and the bridge deliberately records nothing rather than overwriting a good reading with an empty one. Check `claude --version`.
 
 **The percentages show but the pace signal never does.**
-Most likely you are on pace: the signal only appears outside 0.8×–1.2×. Check the ratio the tray or popover shows for the same window — if it sits near 1.0×, silence is correct. Otherwise confirm `~/.claudemeter/statusline-config.json` has `"pace_tracking_enabled": true` (Settings' pace master switch turns it off everywhere), and that your command really has `--pace` on the `statusline` call.
+Most likely you are on pace: the signal only appears outside 0.8×–1.2×. Check the ratio the tray or popover shows for the same window — if it sits near 1.0×, silence is correct. Otherwise confirm `~/.claudemeter/statusline-config.json` has `"pace_tracking_enabled": true` (Settings' pace master switch turns it off everywhere), and that your command really has `--pace` on the bridge call.
 
 **My status line went blank.**
 The bridge prints nothing when it has nothing to report, which is normal on a cold session. If your own segments vanished too, `$input` is likely being consumed twice — capture stdin once into `input` and pipe a copy, as above.

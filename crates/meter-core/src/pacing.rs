@@ -28,6 +28,35 @@ pub const MIN_USAGE_FOR_PROJECTION: f64 = 2.0;
 /// against a nearly-empty denominator are noise, not signal.
 const MIN_ELAPSED_FRACTION: f64 = 0.05;
 
+/// The pace feature's user-facing defaults, and the span its weekly ratio is
+/// computed over.
+///
+/// These live in the domain rather than in `AppSettings` because **two crates
+/// that cannot see each other have to agree on them**: the app's settings on
+/// one side, and the status-line bridge's config mirror on the other. The
+/// mirror is what the bridge falls back to before the app has ever written
+/// one, so a second opinion here is not a style difference — it is the tray
+/// and the status line quoting different pace ratios for the same usage.
+/// Sharing the values makes that a compile-time impossibility instead of
+/// something a test has to keep watching.
+const WEEKLY_PACE_DAYS: std::ops::RangeInclusive<u8> = 5..=7;
+/// The full week, matching upstream's `ClaudeMeter`. See [`WEEKLY_PACE_DAYS`].
+pub const DEFAULT_WEEKLY_PACE_DAYS: u8 = 7;
+/// Pace tracking is on for a fresh install, so the feature is discoverable.
+pub const DEFAULT_PACE_TRACKING_ENABLED: bool = true;
+
+/// `days` clamped to [`WEEKLY_PACE_DAYS`] (5–7).
+///
+/// Both sides clamp on every read and write, because both can be handed a
+/// number they did not choose: a hand-edited `settings.json` on the app's
+/// side, and on the bridge's a mirror file that is plain JSON in the user's
+/// home directory. An out-of-range span would be a quietly wrong ratio rather
+/// than an obvious failure.
+#[must_use]
+pub fn clamp_weekly_pace_days(days: u8) -> u8 {
+    days.clamp(*WEEKLY_PACE_DAYS.start(), *WEEKLY_PACE_DAYS.end())
+}
+
 /// The span a weekly quota is expected to be consumed over.
 ///
 /// Given a pace-days setting (5–7), returns it as a [`SignedDuration`].

@@ -1,4 +1,11 @@
-//! `rusted-claude-meter statusline` — the Claude Code side of the bridge.
+//! The Claude Code side of the bridge: argv, the stdin blob, the segment.
+//!
+//! Reached two ways, and this module is deliberately blind to which. The
+//! `rusted-claude-meter-statusline` binary calls [`parse_flags`] straight off
+//! its own argv; the GUI binary's `statusline` subcommand calls [`parse_args`],
+//! which strips the subcommand word and hands the rest to the same function.
+//! Everything downstream of that is shared, so the fast path and the
+//! compatibility alias cannot render differently.
 //!
 //! Claude Code spawns the command named by `statusLine.command` and writes a
 //! JSON blob to its **stdin** on every status-line render. Since Claude Code
@@ -32,7 +39,7 @@
 //!
 //! ```sh
 //! input=$(cat)
-//! meter=$(printf '%s' "$input" | rusted-claude-meter statusline)
+//! meter=$(printf '%s' "$input" | rusted-claude-meter-statusline)
 //! printf '%s' "…the user's own line… $meter"
 //! ```
 //!
@@ -115,24 +122,33 @@ pub struct Invocation {
     pub pace: bool,
 }
 
-/// Classify `args` (argv **without** the program name).
+/// Classify the standalone bridge's argv (**without** the program name).
+///
+/// Unrecognized arguments are ignored rather than rejected: this runs on
+/// every status-line render, and failing loudly there would break the user's
+/// prompt over a typo.
+#[must_use]
+pub fn parse_flags(args: &[String]) -> Invocation {
+    Invocation {
+        quiet: args.iter().any(|arg| arg == QUIET_FLAG),
+        pace: args.iter().any(|arg| arg == PACE_FLAG),
+    }
+}
+
+/// Classify the GUI binary's argv (**without** the program name).
 ///
 /// `None` means "not a status-line invocation" — the caller falls through to
-/// launching the GUI, so an ordinary launch is unaffected.
+/// launching the GUI, so an ordinary launch is unaffected. Everything after
+/// the subcommand is [`parse_flags`], so the two entry points cannot drift.
 ///
-/// Unrecognized extra arguments are ignored rather than rejected: this runs
-/// on every status-line render, and failing loudly there would break the
-/// user's prompt over a typo.
+/// This form is kept indefinitely even though new setups are pointed at
+/// `rusted-claude-meter-statusline`: a status line written against it is a
+/// line in the user's `~/.claude/settings.json` that this app never gets to
+/// edit, so dropping the alias would silently break it.
 #[must_use]
 pub fn parse_args(args: &[String]) -> Option<Invocation> {
     let (subcommand, rest) = args.split_first()?;
-    if subcommand != SUBCOMMAND {
-        return None;
-    }
-    Some(Invocation {
-        quiet: rest.iter().any(|arg| arg == QUIET_FLAG),
-        pace: rest.iter().any(|arg| arg == PACE_FLAG),
-    })
+    (subcommand == SUBCOMMAND).then(|| parse_flags(rest))
 }
 
 /// Map one raw status-line blob to a snapshot taken at `now`.

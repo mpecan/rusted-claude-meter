@@ -24,8 +24,9 @@ pub use desktop::LinuxDesktop;
 pub use mode::UsageMode;
 pub use pace_signal::{PaceKind, PaceSignal};
 pub use pacing::{
-    HEAVY_OVERUSE_THRESHOLD, MIN_USAGE_FOR_PROJECTION, PaceBand, PacingAssessment, RISK_THRESHOLD,
-    UNDERUSE_THRESHOLD, weekly_pacing_duration,
+    DEFAULT_PACE_TRACKING_ENABLED, DEFAULT_WEEKLY_PACE_DAYS, HEAVY_OVERUSE_THRESHOLD,
+    MIN_USAGE_FOR_PROJECTION, PaceBand, PacingAssessment, RISK_THRESHOLD, UNDERUSE_THRESHOLD,
+    clamp_weekly_pace_days, weekly_pacing_duration,
 };
 pub use session::{SessionKey, SessionKeyError};
 pub use snapshot::{ScopedLimit, UsageSnapshot};

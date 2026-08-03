@@ -16,19 +16,24 @@
 //! feature's master switch, and "off" there means pacing does not exist
 //! anywhere, including here.
 //!
-//! Written by [`crate::settings::SettingsState::update`], so it tracks every
-//! settings change rather than only what was true at launch, and read fresh on
-//! every render. Every failure falls back to [`StatuslineConfig::default`]: a
-//! missing or damaged mirror must cost a slightly-wrong pace basis, never the
-//! status line itself.
+//! Written by `settings::SettingsState::update` in `src-tauri`, so it tracks
+//! every settings change rather than only what was true at launch, and read
+//! fresh on every render. Every failure falls back to
+//! [`StatuslineConfig::default`]: a missing or damaged mirror must cost a
+//! slightly-wrong pace basis, never the status line itself.
+//!
+//! The defaults are [`meter_core`]'s, not `AppSettings`' own — the app cannot
+//! be reached from here, and two crates agreeing by coincidence is what the
+//! shared constant exists to prevent. `settings.rs` asserts the two still
+//! line up.
 
 use std::io;
 use std::path::Path;
 
+use meter_core::{DEFAULT_PACE_TRACKING_ENABLED, DEFAULT_WEEKLY_PACE_DAYS, clamp_weekly_pace_days};
 use serde::{Deserialize, Serialize};
 
-use crate::io_util::{read_json, write_json_pretty};
-use crate::settings::{DEFAULT_WEEKLY_PACE_DAYS, WEEKLY_PACE_DAYS};
+use crate::io::{read_json, write_json_pretty};
 
 /// File name inside `~/.claudemeter/`.
 pub const CONFIG_FILE: &str = "statusline-config.json";
@@ -54,7 +59,7 @@ impl Default for StatuslineConfig {
         Self {
             schema: SCHEMA_VERSION,
             weekly_pace_days: DEFAULT_WEEKLY_PACE_DAYS,
-            pace_tracking_enabled: true,
+            pace_tracking_enabled: DEFAULT_PACE_TRACKING_ENABLED,
         }
     }
 }
@@ -80,9 +85,7 @@ pub fn read(path: &Path) -> StatuslineConfig {
     let parsed =
         read_json::<StatuslineConfig>(path).filter(|config| config.schema <= SCHEMA_VERSION);
     parsed.map_or_else(StatuslineConfig::default, |config| StatuslineConfig {
-        weekly_pace_days: config
-            .weekly_pace_days
-            .clamp(*WEEKLY_PACE_DAYS.start(), *WEEKLY_PACE_DAYS.end()),
+        weekly_pace_days: clamp_weekly_pace_days(config.weekly_pace_days),
         ..config
     })
 }
@@ -98,8 +101,7 @@ mod tests {
 
     use super::*;
     use crate::export::claudemeter_path;
-    use crate::io_util::atomic_write;
-    use crate::settings::AppSettings;
+    use crate::io::atomic_write;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
 
@@ -114,22 +116,6 @@ mod tests {
         assert_eq!(
             claudemeter_path(Path::new("/home/example"), CONFIG_FILE),
             PathBuf::from("/home/example/.claudemeter/statusline-config.json")
-        );
-    }
-
-    /// The mirror's default is `AppSettings`' own constant, so a status line
-    /// set up before the app ever wrote a mirror paces against the same week
-    /// the app does.
-    #[test]
-    fn the_default_matches_the_apps_own_defaults() {
-        let config = StatuslineConfig::default();
-        assert_eq!(
-            config.weekly_pace_days,
-            AppSettings::default().weekly_pace_days
-        );
-        assert_eq!(
-            config.pace_tracking_enabled,
-            AppSettings::default().pace_tracking_enabled
         );
     }
 

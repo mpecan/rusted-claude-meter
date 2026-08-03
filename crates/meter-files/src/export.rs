@@ -42,8 +42,9 @@ pub const EXPORT_DIR: &str = ".claudemeter";
 /// File name inside [`EXPORT_DIR`].
 pub const EXPORT_FILE: &str = "usage.json";
 
-/// One usage limit in the exported shape: just utilization and reset time,
-/// none of this app's internal `LimitWindow`/status types — the export
+/// One usage limit in the exported shape: utilization and reset time.
+///
+/// None of this app's internal `LimitWindow`/status types — the export
 /// contract is deliberately narrower than the domain model so it can stay
 /// stable while the domain model evolves.
 ///
@@ -180,7 +181,7 @@ mod tests {
 
     /// What `run_loop` does, named so these tests read as "export this".
     fn write_export(path: &Path, snapshot: &UsageSnapshot) -> std::io::Result<()> {
-        crate::io_util::write_json_pretty(path, &UsageExportPayload::from(snapshot))
+        crate::io::write_json_pretty(path, &UsageExportPayload::from(snapshot))
     }
 
     fn export_file(dir: &tempfile::TempDir) -> PathBuf {
