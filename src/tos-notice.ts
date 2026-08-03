@@ -49,9 +49,28 @@ export const TOS_PAUSED_HINT =
 export const TOS_ACTIVE_HINT =
   "Tracking is on. Untick this at any time to stop all claude.ai requests immediately.";
 
+/** What Settings shows when the question does not bear on the chosen source
+ * at all (issue #71).
+ *
+ * A third state rather than a fork of the two above, because the two above
+ * are both *wrong* here and in opposite directions: "Tracking is paused"
+ * describes a dead meter to someone whose meter is working, and "Tracking is
+ * on" would read as consent granted by someone who never gave it. The section
+ * is dimmed rather than hidden, so it also has to say why it is still on
+ * screen and when it will matter again. */
+export const TOS_NOT_APPLICABLE_HINT =
+  "Doesn't apply while you're reading from Claude Code — the app makes no claude.ai requests at all on that source. This question comes back if you switch to polling claude.ai.";
+
 /** The hint under the consent row, keyed to the current state. Exported as a
- * function so the two Settings/wizard call sites cannot disagree about which
- * string goes with which state. */
-export function tosStateHint(acknowledged: boolean): string {
+ * function so the Settings/wizard call sites cannot disagree about which
+ * string goes with which state.
+ *
+ * `applies` is `usage-source.ts::tosAppliesTo` — passed in rather than read
+ * here so this module keeps knowing nothing about sources, and so there stays
+ * exactly one spelling of that predicate. */
+export function tosStateHint(acknowledged: boolean, applies: boolean): string {
+  if (!applies) {
+    return TOS_NOT_APPLICABLE_HINT;
+  }
   return acknowledged ? TOS_ACTIVE_HINT : TOS_PAUSED_HINT;
 }

@@ -1,5 +1,8 @@
-//! First-run setup wizard (issue #11): welcome → session (import or paste) →
-//! validate → pick icon style + interval → done.
+//! First-run setup wizard (issue #11), source-branched since issue #71:
+//! welcome → source → then either consent → session (import or paste) →
+//! validate, for claude.ai, or a status-line setup step, for Claude Code →
+//! pick icon style + interval → done. `src/wizard-view-model.ts` owns which
+//! path a source walks; nothing here needs to know.
 //!
 //! Most of the wizard's steps are just the existing commands
 //! (`commands::set_icon_style`, `commands::set_refresh_interval`,

@@ -18,3 +18,13 @@ it("neutralises the hidden attribute globally", () => {
   expect(hidden).toHaveLength(1);
   expect(hidden[0][2]).toMatch(/display:\s*none\s*!important/);
 });
+
+it("styles selects in the wizard, not only in Settings", () => {
+  // The source picker (issue #71) is the first select placed directly in a
+  // wizard step rather than inside a `.settings-section` wrapper. Before this
+  // selector it rendered with browser defaults — a regression invisible to
+  // every other test, since nothing else reads the stylesheet.
+  const rules = CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g);
+  const selectRules = [...rules].filter(([, selector]) => /select\s*$/.test(selector.trim()));
+  expect(selectRules.some(([, selector]) => selector.includes(".wizard-step select"))).toBe(true);
+});

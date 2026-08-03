@@ -7,6 +7,7 @@ import {
   TOS_CONSENT_LABEL,
   TOS_HEADLINE,
   TOS_MITIGATION,
+  TOS_NOT_APPLICABLE_HINT,
   TOS_PAUSED_HINT,
   tosStateHint,
 } from "./tos-notice";
@@ -51,12 +52,26 @@ describe("the ToS warning copy", () => {
   });
 
   it("describes the state the app is actually in", () => {
-    expect(tosStateHint(false)).toBe(TOS_PAUSED_HINT);
-    expect(tosStateHint(true)).toBe(TOS_ACTIVE_HINT);
+    expect(tosStateHint(false, true)).toBe(TOS_PAUSED_HINT);
+    expect(tosStateHint(true, true)).toBe(TOS_ACTIVE_HINT);
     // The off state must claim no traffic, because that is what the gate
     // actually enforces (`consent.rs` / `transport.rs`) — the copy and the
     // behaviour are one promise.
     expect(TOS_PAUSED_HINT).toMatch(/no requests/i);
     expect(TOS_ACTIVE_HINT).toMatch(/immediately/);
+  });
+
+  it("says the question does not apply, rather than that tracking is paused", () => {
+    // The bug issue #71 names: on the Claude Code source the meter is working
+    // and no consent was given, so both of the other two hints are wrong —
+    // one describes a dead meter, the other implies an answer never given.
+    expect(tosStateHint(false, false)).toBe(TOS_NOT_APPLICABLE_HINT);
+    expect(tosStateHint(true, false)).toBe(TOS_NOT_APPLICABLE_HINT);
+    expect(TOS_NOT_APPLICABLE_HINT).not.toMatch(/paused/i);
+  });
+
+  it("tells the user when the question will matter again, since the row stays on screen", () => {
+    expect(TOS_NOT_APPLICABLE_HINT).toMatch(/switch/i);
+    expect(TOS_NOT_APPLICABLE_HINT).toMatch(/claude\.ai/);
   });
 });
