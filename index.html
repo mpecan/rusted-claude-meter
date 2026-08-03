@@ -398,10 +398,21 @@
                 <button id="wizard-consent-back-button" class="ghost-button" type="button">
                   Back
                 </button>
-                <button id="wizard-consent-continue-button" class="primary-button" type="button" disabled>
+                <button
+                  id="wizard-consent-continue-button"
+                  class="primary-button"
+                  type="button"
+                  aria-describedby="wizard-consent-blocked-reason"
+                  disabled
+                >
                   Continue
                 </button>
               </div>
+              <!-- Why Continue is inert, not merely that it is. Filled and
+                   shown/hidden by `wizard.ts::syncConsent` in step with the
+                   button's `disabled` flag; a disabled button is not focusable,
+                   so this has to be text on the page rather than a tooltip. -->
+              <p id="wizard-consent-blocked-reason" class="settings-hint"></p>
             </div>
 
             <div id="wizard-step-session" class="wizard-step" hidden>

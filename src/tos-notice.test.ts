@@ -5,6 +5,7 @@ import {
   TOS_ACTIVE_HINT,
   TOS_BODY,
   TOS_CONSENT_LABEL,
+  TOS_CONSENT_REQUIRED_HINT,
   TOS_HEADLINE,
   TOS_MITIGATION,
   TOS_NOT_APPLICABLE_HINT,
@@ -44,6 +45,17 @@ describe("the ToS warning copy", () => {
   it("phrases consent as the user's own statement", () => {
     expect(TOS_CONSENT_LABEL).toMatch(/^I understand/);
     expect(TOS_CONSENT_LABEL).toMatch(/risk/);
+  });
+
+  it("names the control that unblocks the consent step, not merely that Continue is off", () => {
+    // Issue #78: the disabled button already conveys *that* it is unavailable.
+    // The only thing worth saying is what to do about it, so the sentence has
+    // to name the checkbox and the button it releases — and must not imply
+    // there is some other way onward, because there is not.
+    expect(TOS_CONSENT_REQUIRED_HINT).toMatch(/tick/i);
+    expect(TOS_CONSENT_REQUIRED_HINT).toMatch(/box/i);
+    expect(TOS_CONSENT_REQUIRED_HINT).toMatch(/Continue/);
+    expect(TOS_CONSENT_REQUIRED_HINT).not.toMatch(/skip/i);
   });
 
   it("links to the full write-up", () => {

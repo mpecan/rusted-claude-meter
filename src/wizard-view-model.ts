@@ -100,6 +100,40 @@ export function previousStep(step: WizardStep, source: UsageSource): WizardStep 
   return index <= 0 ? undefined : steps[index - 1];
 }
 
+/** The three DOM flags the consent step's Continue and its reason paragraph
+ * carry, all of which move together (issue #78). */
+export interface ConsentGateState {
+  /** `disabled` on Continue. */
+  readonly continueDisabled: boolean;
+  /** `hidden` on the paragraph saying *why* Continue is inert. */
+  readonly reasonHidden: boolean;
+  /** Whether Continue should point `aria-describedby` at that paragraph. */
+  readonly reasonDescribesContinue: boolean;
+}
+
+/** What the consent step should look like for a given state of the checkbox.
+ *
+ * A pure function of one boolean rather than three assignments inline in
+ * `wizard.ts::syncConsent`, because the interesting part is that the three
+ * never disagree: a visible reason under an enabled Continue contradicts
+ * itself on screen, and an `aria-describedby` left pointing at it announces
+ * "Continue stays unavailable…" for a button that is now pressable — worse
+ * than no description at all. Fields are named for the attributes they become
+ * and carry the attributes' own polarity (`hidden`, not "visible"), since
+ * flipping one of those on the way to the DOM is exactly the mistake this
+ * exists to make hard.
+ *
+ * The paragraph's id stays in `wizard.ts` — the element knows its own id, and a
+ * literal re-spelled here could dangle silently. */
+export function consentGateState(consentChecked: boolean): ConsentGateState {
+  const blocked = !consentChecked;
+  return {
+    continueDisabled: blocked,
+    reasonHidden: !blocked,
+    reasonDescribesContinue: blocked,
+  };
+}
+
 /** Human confirmation for the validate step's outcome. Mirrors
  * `browser-import.ts::describeImportSummary`: a key claude.ai has confirmed
  * reads differently from one stored but not yet verified (claude.ai was
