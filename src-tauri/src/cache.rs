@@ -6,14 +6,13 @@
 //! foreign or older-format file yields `None`, never an error — the cache
 //! is an optimization, not a source of truth.
 
-use std::fs;
 use std::io;
 use std::path::Path;
 
 use meter_core::UsageSnapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::io_util::atomic_write;
+use crate::io_util::{atomic_write, read_json};
 
 /// File name inside the app data dir.
 pub const CACHE_FILE: &str = "usage_cache.json";
@@ -36,8 +35,7 @@ struct DiskCacheRef<'a> {
 
 /// Load the cached snapshot, or `None` when there is nothing usable.
 pub fn load(path: &Path) -> Option<UsageSnapshot> {
-    let raw = fs::read_to_string(path).ok()?;
-    let decoded: DiskCache = serde_json::from_str(&raw).ok()?;
+    let decoded: DiskCache = read_json(path)?;
     (decoded.version == CACHE_VERSION).then_some(decoded.snapshot)
 }
 
@@ -60,6 +58,7 @@ mod tests {
     use jiff::Timestamp;
     use meter_core::{LimitWindow, ScopedLimit, UsageWindow};
     use pretty_assertions::assert_eq;
+    use std::fs;
     use std::path::PathBuf;
 
     fn snapshot() -> UsageSnapshot {

@@ -293,6 +293,22 @@ describe("buildViewModel — banner and status line", () => {
     expect(viewModel.cards.length).toBeGreaterThan(0);
   });
 
+  it("reports waiting, not broken, while Claude Code has yet to report", () => {
+    const viewModel = buildViewModel(state({ phase: "awaiting_statusline" }), NOW, ALL_SHOWN);
+    expect(viewModel.bannerKind).toBe("awaiting_statusline");
+    expect(viewModel.statusLine).toBe("Waiting for Claude Code to report usage");
+    // No session CTA: this source needs no key, so offering the field would
+    // ask for a credential that has nothing to authenticate.
+    expect(viewModel.showSessionForm).toBe(false);
+  });
+
+  it("dates the last Claude Code reading rather than implying it is current", () => {
+    const idle: MeterState = { ...DEMO_STATE, phase: "awaiting_statusline" };
+    const viewModel = buildViewModel(idle, NOW, ALL_SHOWN);
+    expect(viewModel.statusLine).toBe("Claude Code last reported under 1m ago");
+    expect(viewModel.cards.length).toBeGreaterThan(0);
+  });
+
   it("surfaces cached data age alongside the session-expired CTA", () => {
     const aged: MeterState = { ...DEMO_STATE, phase: "session_expired" };
     const viewModel = buildViewModel(aged, NOW, ALL_SHOWN);

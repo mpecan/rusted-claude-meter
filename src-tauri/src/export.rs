@@ -31,14 +31,11 @@
 //! that fetched real data successfully must not be treated as failed just
 //! because the optional external export couldn't be written.
 
-use std::io;
 use std::path::Path;
 
 use jiff::Timestamp;
 use meter_core::{UsageSnapshot, UsageWindow};
-use serde::Serialize;
-
-use crate::io_util::atomic_write;
+use serde::{Deserialize, Serialize};
 
 /// Directory name inside the user's home directory.
 pub const EXPORT_DIR: &str = ".claudemeter";
@@ -49,7 +46,11 @@ pub const EXPORT_FILE: &str = "usage.json";
 /// none of this app's internal `LimitWindow`/status types — the export
 /// contract is deliberately narrower than the domain model so it can stay
 /// stable while the domain model evolves.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+///
+/// `Deserialize` as well as `Serialize` because `statusline.rs` reuses this
+/// shape for a file that is *read* back (`~/.claudemeter/statusline.json`),
+/// not only written.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportLimit {
     pub utilization: f64,
     pub reset_at: Timestamp,
@@ -121,10 +122,14 @@ impl From<&UsageSnapshot> for UsageExportPayload {
     }
 }
 
-/// The full export path (`~/.claudemeter/usage.json`) given the user's home
-/// directory.
-pub fn export_path(home: &Path) -> std::path::PathBuf {
-    home.join(EXPORT_DIR).join(EXPORT_FILE)
+/// A path inside `~/.claudemeter/`, given the user's home directory.
+///
+/// One helper rather than a named function per file: the app keeps three
+/// there now (`usage.json` out, `statusline.json` in, `statusline-command.txt`
+/// for `/statusline`), and three one-line wrappers that differ only in a
+/// constant are the same code three times. Callers name the file.
+pub fn claudemeter_path(home: &Path, file: &str) -> std::path::PathBuf {
+    home.join(EXPORT_DIR).join(file)
 }
 
 /// Persist `snapshot` as the public export, replacing any previous file.
@@ -132,12 +137,6 @@ pub fn export_path(home: &Path) -> std::path::PathBuf {
 /// concurrent read by an external script) can never observe a truncated
 /// file, and so the Swift app's own atomic writer never races a partial read
 /// from this one either.
-pub fn write(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
-    let payload = UsageExportPayload::from(snapshot);
-    let body = serde_json::to_string_pretty(&payload)?;
-    atomic_write(path, &body)
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -179,8 +178,13 @@ mod tests {
         }
     }
 
+    /// What `run_loop` does, named so these tests read as "export this".
+    fn write_export(path: &Path, snapshot: &UsageSnapshot) -> std::io::Result<()> {
+        crate::io_util::write_json_pretty(path, &UsageExportPayload::from(snapshot))
+    }
+
     fn export_file(dir: &tempfile::TempDir) -> PathBuf {
-        export_path(dir.path())
+        claudemeter_path(dir.path(), EXPORT_FILE)
     }
 
     /// Golden-file test: pins the exact shape/field names of the schema.
@@ -270,7 +274,7 @@ mod tests {
             .join("nested/home")
             .join(EXPORT_DIR)
             .join(EXPORT_FILE);
-        write(&path, &snapshot()).unwrap();
+        write_export(&path, &snapshot()).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         let decoded: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(decoded["scoped_usage"][0]["name"], "Fable");
@@ -281,7 +285,7 @@ mod tests {
     fn write_never_leaves_a_temp_file_behind() {
         let dir = tempfile::tempdir().unwrap();
         let path = export_file(&dir);
-        write(&path, &snapshot()).unwrap();
+        write_export(&path, &snapshot()).unwrap();
         assert!(path.exists());
         assert!(!path.with_extension("json.tmp").exists());
     }
@@ -290,20 +294,20 @@ mod tests {
     fn write_replaces_a_previous_export_atomically() {
         let dir = tempfile::tempdir().unwrap();
         let path = export_file(&dir);
-        write(&path, &snapshot()).unwrap();
+        write_export(&path, &snapshot()).unwrap();
         let mut newer = snapshot();
         newer.fetched_at = "2026-07-17T13:00:00Z".parse().unwrap();
-        write(&path, &newer).unwrap();
+        write_export(&path, &newer).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         let decoded: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(decoded["last_updated"], "2026-07-17T13:00:00Z");
     }
 
     #[test]
-    fn export_path_joins_home_dir_dot_dir_and_file() {
+    fn the_path_helper_joins_home_dir_dot_dir_and_file() {
         let home = PathBuf::from("/home/example");
         assert_eq!(
-            export_path(&home),
+            claudemeter_path(&home, EXPORT_FILE),
             PathBuf::from("/home/example/.claudemeter/usage.json")
         );
     }

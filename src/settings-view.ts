@@ -41,17 +41,21 @@ import {
   type RefreshInterval,
   type UsageMode,
   type UsageSnapshot,
+  type UsageSource,
 } from "./types";
+import {
+  STATUSLINE_NO_SCOPED_MODELS,
+  STATUSLINE_NO_SESSION_KEY,
+  STATUSLINE_SETUP_INTRO,
+  STATUSLINE_SETUP_MANUAL,
+  USAGE_SOURCE_OPTIONS,
+  tosAppliesTo,
+  usageSourceHint,
+} from "./usage-source";
+import { createStatuslineSetup } from "./statusline-setup";
 import { describeWizardValidation } from "./wizard-view-model";
 import { createWizard } from "./wizard";
-
-function requireElement<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) {
-    throw new Error(`missing #${id} in index.html`);
-  }
-  return el as T;
-}
+import { requireElement } from "./dom";
 
 /** Reflect the selected option of a `.segmented` radio group by `data-value`. */
 function setSegmentedValue(container: HTMLElement, value: string): void {
@@ -90,6 +94,12 @@ function bindSegmented<T>(
 
 export function initSettingsView(backend: UsageBackend): void {
   const modelTogglesEl = requireElement<HTMLElement>("model-toggles");
+  const usageSourceSelect = requireElement<HTMLSelectElement>("usage-source-select");
+  const usageSourceHintEl = requireElement<HTMLElement>("usage-source-hint");
+  const scopedSourceHint = requireElement<HTMLElement>("scoped-source-hint");
+  const tosSection = requireElement<HTMLElement>("settings-tos-section");
+  const sessionSection = requireElement<HTMLElement>("settings-session-section");
+  const sessionSourceHint = requireElement<HTMLElement>("settings-session-source-hint");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
   const warningInput = requireElement<HTMLInputElement>("warning-threshold");
   const warningValue = requireElement<HTMLElement>("warning-threshold-value");
@@ -125,6 +135,12 @@ export function initSettingsView(backend: UsageBackend): void {
   const browserImportError = requireElement<HTMLElement>("browser-import-error");
   const runSetupAgainButton = requireElement<HTMLButtonElement>("run-setup-again-button");
 
+  renderSelectOptions(usageSourceSelect, USAGE_SOURCE_OPTIONS);
+  requireElement<HTMLElement>("statusline-setup-intro").textContent = STATUSLINE_SETUP_INTRO;
+  requireElement<HTMLElement>("statusline-setup-manual").textContent = STATUSLINE_SETUP_MANUAL;
+  scopedSourceHint.textContent = STATUSLINE_NO_SCOPED_MODELS;
+  sessionSourceHint.textContent = STATUSLINE_NO_SESSION_KEY;
+  const statuslineSetup = createStatuslineSetup(backend);
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
 
   let settings: AppSettings = DEFAULT_SETTINGS;
@@ -232,6 +248,30 @@ export function initSettingsView(backend: UsageBackend): void {
     setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
     tosConsent.checked = settings.tos_acknowledged;
     tosState.textContent = tosStateHint(settings.tos_acknowledged);
+    applyUsageSourceToForm();
+  }
+
+  /** Everything that keys off which source is selected. The status-line setup
+   * block and the scoped-models caveat only make sense for one source, and
+   * showing either against the other would be actively misleading. */
+  function applyUsageSourceToForm(): void {
+    const source = settings.usage_source;
+    usageSourceSelect.value = source;
+    usageSourceHintEl.textContent = usageSourceHint(source);
+    // One spelling of the predicate, from the module that owns source
+    // semantics — four UI decisions below key off it.
+    const statusline = !tosAppliesTo(source);
+    statuslineSetup.setVisible(statusline);
+    scopedSourceHint.hidden = !statusline;
+    // The consent question is about claude.ai traffic. On the status-line
+    // source there is none, so the warning is dimmed rather than removed —
+    // switching back must not feel like the risk quietly disappeared.
+    tosSection.classList.toggle("not-applicable", statusline);
+    // The session field would be refused outright on this source (the backend
+    // returns `WrongSource`), so it is dimmed and explained rather than left
+    // looking usable.
+    sessionSection.classList.toggle("not-applicable", statusline);
+    sessionSourceHint.hidden = !statusline;
   }
 
   function refreshSessionStatus(): void {
@@ -392,6 +432,15 @@ export function initSettingsView(backend: UsageBackend): void {
   refreshAutostartStatus();
   loadDebugLogPath();
   loadDemoEndpointBanner();
+
+  usageSourceSelect.addEventListener("change", () => {
+    const source = usageSourceSelect.value as UsageSource;
+    settings = { ...settings, usage_source: source };
+    applyUsageSourceToForm();
+    backend.setUsageSource(source).catch((error: unknown) => {
+      console.error("failed to persist the usage source", error);
+    });
+  });
 
   refreshIntervalSelect.addEventListener("change", () => {
     const interval = refreshIntervalSelect.value as RefreshInterval;

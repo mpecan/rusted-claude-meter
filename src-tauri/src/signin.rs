@@ -4,9 +4,11 @@
 //! Lives here rather than in `browser_import` because it is not browser
 //! specific — both user-driven sign-in paths go through it, the browser import
 //! (`commands::browser`) and a pasted key (`commands::set_session_key`) — and
-//! because that makes it the one chokepoint where the Terms-of-Service consent
-//! gate can be enforced for both at once (see [`SessionSink`] and
-//! `crate::consent`).
+//! because that makes it the one chokepoint where *both* gates on claude.ai
+//! traffic can be enforced for both paths at once (see [`SessionSink`]): the
+//! Terms-of-Service consent gate (`crate::consent`) and the selected usage
+//! source (`crate::source`). Validating a key is a claude.ai request, so it is
+//! subject to exactly the same rules as a poll.
 
 use std::sync::Arc;
 
@@ -14,21 +16,27 @@ use meter_core::SessionKey;
 
 use crate::browser_import::{SessionValidator, ValidationError};
 use crate::consent::ConsentGate;
+use crate::source::{self, SourceSelection};
 use crate::store::{SessionStore, run_store_op};
 
-/// The three collaborators every sign-in path needs: where the key is kept,
-/// what confirms it with claude.ai, and whether we are allowed to contact
-/// claude.ai at all.
+/// What every sign-in path needs: where the key is kept, what confirms it
+/// with claude.ai, and the two independent answers to "may we contact
+/// claude.ai at all?" — has the user accepted the risk, and are they even
+/// polling claude.ai.
 ///
-/// Bundled rather than passed separately so [`import_impl`] stays under the
+/// Bundled rather than passed separately so callers stay under the
 /// workspace's `too_many_arguments` limit (same move as
-/// `scheduler::PersistPaths`), and — the reason it is worth having — so
-/// `consent` is a *mandatory* part of constructing a sign-in rather than a
-/// check each caller has to remember to write.
+/// `scheduler::PersistPaths`), and — the reason it is worth having — so both
+/// gates are a *mandatory* part of constructing a sign-in rather than checks
+/// each caller has to remember to write.
 pub struct SessionSink<'a, V: SessionValidator> {
     pub store: &'a Arc<dyn SessionStore>,
     pub validator: &'a V,
     pub consent: &'a ConsentGate,
+    /// Set when the Claude Code status line is the source. A key is neither
+    /// needed nor usable then, and validating one would be the very claude.ai
+    /// request that source promises not to make.
+    pub source: &'a SourceSelection,
 }
 
 impl<'a, V: SessionValidator> SessionSink<'a, V> {
@@ -37,11 +45,13 @@ impl<'a, V: SessionValidator> SessionSink<'a, V> {
         store: &'a Arc<dyn SessionStore>,
         validator: &'a V,
         consent: &'a ConsentGate,
+        source: &'a SourceSelection,
     ) -> Self {
         Self {
             store,
             validator,
             consent,
+            source,
         }
     }
 }
@@ -57,6 +67,10 @@ pub enum StoreAndValidateError {
     /// Terms-of-Service consent is withheld, so nothing was read, stored or
     /// contacted (`crate::consent`).
     NotAcknowledged,
+    /// The Claude Code status line is the selected source, so a session key is
+    /// neither needed nor usable and nothing was read, stored or contacted
+    /// (`crate::source`).
+    WrongSource,
     /// claude.ai rejected the key (401): it is expired or otherwise invalid.
     /// The previously stored key (if any) has already been restored by the
     /// time this is returned.
@@ -74,11 +88,12 @@ pub enum StoreAndValidateError {
 /// credential store is a synchronous OS round trip that must not occupy an
 /// async worker thread.
 ///
-/// The Terms-of-Service gate lives here rather than in each caller: this is
-/// the single point both user-driven sign-in paths (pasted key, browser
-/// import) pass through before contacting claude.ai, so checking it here makes
-/// it unskippable by construction instead of a convention every future caller
-/// has to remember.
+/// Both gates live here rather than in each caller: this is the single point
+/// both user-driven sign-in paths (pasted key, browser import) pass through
+/// before contacting claude.ai, so checking them here makes them unskippable
+/// by construction instead of a convention every future caller has to
+/// remember. Together with `SourcedTransport`'s dispatch, that accounts for
+/// every line in this app that can reach claude.ai.
 pub async fn store_and_validate<V: SessionValidator>(
     sink: &SessionSink<'_, V>,
     key: &SessionKey,
@@ -87,9 +102,17 @@ pub async fn store_and_validate<V: SessionValidator>(
         store,
         validator,
         consent,
+        source,
     } = sink;
-    // Before any store I/O: a user who has not accepted the risk gets neither
-    // claude.ai traffic nor a keychain prompt out of this app.
+    // Both before any store I/O, so a refusal costs neither claude.ai traffic
+    // nor a keychain prompt.
+    //
+    // Source first: to someone reading from Claude Code, "you do not need a
+    // key" is the useful answer, and whether they ever accepted the
+    // claude.ai risk is beside the point.
+    if !source::selected(source).reaches_claude_ai() {
+        return Err(StoreAndValidateError::WrongSource);
+    }
     if !consent.get() {
         return Err(StoreAndValidateError::NotAcknowledged);
     }
@@ -142,6 +165,10 @@ mod tests {
 
     static OPEN_GATE: ConsentGate = ConsentGate::new(true);
     static CLOSED_GATE: ConsentGate = ConsentGate::new(false);
+    use crate::source::{SourceSelection, UsageSource, selection};
+
+    static POLLING_CLAUDE_AI: SourceSelection = selection(UsageSource::ClaudeAi);
+    static READING_CLAUDE_CODE: SourceSelection = selection(UsageSource::ClaudeCodeStatusline);
 
     fn key() -> SessionKey {
         SessionKey::parse(VALID).unwrap()
@@ -159,6 +186,7 @@ mod tests {
                 store: &store,
                 validator: &validator,
                 consent: &CLOSED_GATE,
+                source: &POLLING_CLAUDE_AI,
             },
             &key(),
         )
@@ -176,6 +204,55 @@ mod tests {
         );
     }
 
+    /// The same property for the other gate: reading from Claude Code means
+    /// no key is needed, so nothing is persisted and the validator — the
+    /// thing that would call claude.ai — never runs.
+    #[tokio::test]
+    async fn the_claude_code_source_refuses_before_any_store_touch() {
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
+        let validator = FakeValidator(Ok(()));
+        let error = store_and_validate(
+            &SessionSink {
+                store: &store,
+                validator: &validator,
+                consent: &OPEN_GATE,
+                source: &READING_CLAUDE_CODE,
+            },
+            &key(),
+        )
+        .await
+        .err();
+
+        assert!(matches!(error, Some(StoreAndValidateError::WrongSource)));
+        assert_eq!(
+            store.load().unwrap(),
+            None,
+            "a refused sign-in must not leave a key behind"
+        );
+    }
+
+    /// Source is checked first: to someone reading from Claude Code, "you do
+    /// not need a key" is the useful answer, and whether they ever accepted
+    /// the claude.ai risk is beside the point.
+    #[tokio::test]
+    async fn the_source_refusal_takes_precedence_over_the_consent_one() {
+        let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
+        let validator = FakeValidator(Ok(()));
+        let error = store_and_validate(
+            &SessionSink {
+                store: &store,
+                validator: &validator,
+                consent: &CLOSED_GATE,
+                source: &READING_CLAUDE_CODE,
+            },
+            &key(),
+        )
+        .await
+        .err();
+
+        assert!(matches!(error, Some(StoreAndValidateError::WrongSource)));
+    }
+
     #[tokio::test]
     async fn an_open_gate_stores_and_confirms() {
         let store: Arc<dyn SessionStore> = Arc::new(FakeSessionStore::new());
@@ -185,6 +262,7 @@ mod tests {
                 store: &store,
                 validator: &validator,
                 consent: &OPEN_GATE,
+                source: &POLLING_CLAUDE_AI,
             },
             &key(),
         )

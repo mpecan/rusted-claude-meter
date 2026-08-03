@@ -42,6 +42,7 @@ import {
   stepIndicatorLabel,
   wizardCustomizeDefaults,
 } from "./wizard-view-model";
+import { requireElement } from "./dom";
 
 /** Callbacks so the wizard's "customize" step, which drives the very same
  * live-apply-and-persist commands the Settings panel does, keeps the
@@ -66,14 +67,6 @@ export interface Wizard {
   /** Open the wizard automatically if `wizardShouldRun()` says this is a
    * first run (settings.json did not exist before this launch). */
   maybeAutoOpen(): void;
-}
-
-function requireElement<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) {
-    throw new Error(`missing #${id} in index.html`);
-  }
-  return el as T;
 }
 
 /** Wire up every element of the wizard panel and return the two entry

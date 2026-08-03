@@ -23,6 +23,8 @@ mod scheduler;
 mod settings;
 mod settings_window;
 mod signin;
+mod source;
+mod statusline;
 mod store;
 mod sync;
 mod tray;
@@ -36,14 +38,30 @@ use commands::SessionStoreState;
 use jiff::Timestamp;
 use notifier::NotifierState;
 use scheduler::{
-    LiveTransport, PersistPaths, SchedulerCore, SchedulerHandle, SystemClock, USAGE_STATE_EVENT,
-    run_loop,
+    LiveTransport, PersistPaths, SchedulerCore, SchedulerHandle, SourcedTransport,
+    StatuslineTransport, SystemClock, USAGE_STATE_EVENT, run_loop,
 };
 use settings::SettingsState;
 use store::{KeyringSessionStore, SessionStore};
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::Notify;
+
+/// Handle `args` (argv **without** the program name) as a command-line
+/// invocation, returning whether it was one.
+///
+/// `false` means "nothing CLI-shaped here" and the caller should launch the
+/// GUI, so an ordinary double-click is unaffected. This is the crate's whole
+/// CLI surface — deliberately one function rather than a public `statusline`
+/// module, so the app shell's internals stay private.
+#[must_use]
+pub fn run_cli(args: &[String]) -> bool {
+    let Some(invocation) = statusline::parse_args(args) else {
+        return false;
+    };
+    statusline::execute(invocation);
+    true
+}
 
 /// Build and run the app. Errors bubble to `main` instead of panicking so
 /// the workspace-wide `clippy::expect_used` deny holds here too.
@@ -75,9 +93,9 @@ pub fn run() -> tauri::Result<()> {
     builder
         .manage(SessionStoreState(session_store))
         .invoke_handler(tauri::generate_handler![
-            commands::set_session_key,
-            commands::session_status,
-            commands::clear_session_key,
+            commands::session::set_session_key,
+            commands::session::session_status,
+            commands::session::clear_session_key,
             commands::browser::list_browser_sessions,
             commands::browser::import_browser_session,
             commands::usage_state,
@@ -95,6 +113,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_popover_layout,
             commands::set_usage_mode,
             commands::consent::set_tos_acknowledged,
+            commands::source::set_usage_source,
+            commands::source::statusline_command,
             commands::debug::set_debug_logging,
             commands::debug::debug_log_path,
             commands::debug::reveal_debug_log,
@@ -126,11 +146,19 @@ pub fn run() -> tauri::Result<()> {
             // `None` when the home dir can't be resolved — the export is a
             // best-effort convenience for external tools, never load-bearing
             // for the app itself.
-            let export_path = app
-                .path()
-                .home_dir()
-                .ok()
-                .map(|dir| export::export_path(&dir));
+            // One home lookup for every file the app keeps in
+            // `~/.claudemeter/`. All are `None` when the home directory can't
+            // be resolved; each is a best-effort convenience, never
+            // load-bearing for the app itself.
+            let home = app.path().home_dir().ok();
+            let claudemeter = |file: &str| {
+                home.as_deref()
+                    .map(|dir| export::claudemeter_path(dir, file))
+            };
+            let export_path = claudemeter(export::EXPORT_FILE);
+            let statusline_path = claudemeter(statusline::STATUSLINE_FILE);
+            let setup_path = claudemeter(statusline::setup::SETUP_FILE);
+            let statusline_config_path = claudemeter(statusline::config::CONFIG_FILE);
             let settings_path = data_dir.map(|dir| dir.join(settings::SETTINGS_FILE));
             // Captured before `settings::load` (which always returns
             // *something*, defaulted or not): "first run" per issue #11 is
@@ -159,15 +187,26 @@ pub fn run() -> tauri::Result<()> {
             // the command that flips it and the transport that checks it.
             let consent = Arc::new(consent::ConsentGate::new(app_settings.tos_acknowledged));
             app.manage(Arc::clone(&consent));
+            // Which source the scheduler reads from (`crate::source`), seeded
+            // from the persisted choice. Shared between the Settings command
+            // that flips it and the transport that dispatches on it.
+            let selection = Arc::new(source::selection(app_settings.usage_source));
+            app.manage(Arc::clone(&selection));
+            // The core paces itself to what a fetch costs, so it reads the
+            // same selection the transport dispatches on.
             let mut core = SchedulerCore::new(
                 app_settings.refresh_interval,
                 cache_path.as_deref().and_then(cache::load),
-            );
+            )
+            .with_selection(Arc::clone(&selection));
             // Start parked when consent is withheld, so the tray's very first
             // render already says "waiting for you to accept" instead of
             // showing a hopeful "polling" that the first tick immediately
-            // contradicts.
-            if !consent.get() {
+            // contradicts. Only when claude.ai is the source: the status-line
+            // source originates no request, so consent has no bearing on it
+            // and parking there would strand a user who chose it *because*
+            // they declined.
+            if !consent.get() && app_settings.usage_source.reaches_claude_ai() {
                 core.record(scheduler::FetchOutcome::NotAcknowledged);
             }
             let shown: HashSet<String> = app_settings.shown_scoped_models.iter().cloned().collect();
@@ -190,7 +229,22 @@ pub fn run() -> tauri::Result<()> {
             // plugin is); on Linux the main window stays a regular window.
             #[cfg(target_os = "macos")]
             configure_popover_window(app);
-            app.manage(SettingsState::new(settings_path, app_settings));
+            // The bridge is a separate process that cannot read the app data
+            // directory, so the two settings that change its pace maths are
+            // mirrored into `~/.claudemeter/` — on every write, and once now.
+            let mut settings_state = SettingsState::new(settings_path, app_settings);
+            if let Some(path) = statusline_config_path {
+                settings_state = settings_state.mirroring_with(move |settings| {
+                    let _ = statusline::config::write(
+                        &path,
+                        statusline::config::StatuslineConfig::new(
+                            settings.weekly_pace_days,
+                            settings.pace_tracking_enabled,
+                        ),
+                    );
+                });
+            }
+            app.manage(settings_state);
             // Seeded `true` on a first run (no settings.json yet). Constructed
             // inline rather than through a `new` — see `FirstRunState`.
             app.manage(wizard::FirstRunState(sync::AtomicFlag::new(
@@ -206,17 +260,32 @@ pub fn run() -> tauri::Result<()> {
             // continuous. macOS has an NSPopover, which is always content-sized.
             #[cfg(target_os = "linux")]
             app.manage(commands::popover::ContentFit::default());
+            // The setup document `/statusline` reads to learn this machine's
+            // path to the binary, (re)written on every launch because the
+            // executable can move between them. Best-effort, exactly like
+            // `export.rs`'s write: losing it costs a convenience, never the app.
+            if let Some(path) = setup_path.as_deref()
+                && let Err(error) = statusline::setup::write(path)
+            {
+                eprintln!("could not write the status-line setup file: {error}");
+            }
             spawn_scheduler(
                 app,
-                scheduler_store,
+                SourcedTransport {
+                    live: LiveTransport::with_base_url(scheduler_store, api_base::api_base_url())
+                        .with_handles(scheduler::SharedHandles {
+                            response_log,
+                            consent,
+                        }),
+                    statusline: StatuslineTransport {
+                        path: statusline_path,
+                    },
+                    selection,
+                },
                 core,
                 PersistPaths {
                     cache: cache_path,
                     export: export_path,
-                },
-                scheduler::SharedHandles {
-                    response_log,
-                    consent,
                 },
             );
             Ok(())
@@ -272,13 +341,14 @@ fn configure_popover_window(app: &tauri::App) {
 
 /// Expose the already-seeded scheduler core as managed state and start the
 /// polling loop on Tauri's async runtime. The core arrives pre-loaded from
-/// the disk cache (see `setup`) so the tray could render it immediately.
+/// the disk cache (see `setup`) so the tray could render it immediately, and
+/// the transport arrives fully assembled — which source it reads is `setup`'s
+/// business, not this function's.
 fn spawn_scheduler(
     app: &tauri::App,
-    session_store: Arc<dyn SessionStore>,
+    transport: SourcedTransport,
     core: SchedulerCore,
     persist: PersistPaths,
-    handles: scheduler::SharedHandles,
 ) {
     let core = Arc::new(Mutex::new(core));
     let handle = SchedulerHandle::new(core, Arc::new(Notify::new()));
@@ -286,7 +356,7 @@ fn spawn_scheduler(
 
     let emitter = app.handle().clone();
     tauri::async_runtime::spawn(run_loop(
-        LiveTransport::with_base_url(session_store, api_base::api_base_url()).with_handles(handles),
+        transport,
         SystemClock::default(),
         handle,
         persist,

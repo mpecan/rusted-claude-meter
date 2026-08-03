@@ -16,6 +16,7 @@ use crate::browser_import::{BrowserImportError, DetectedBrowser, ImportSummary};
 use crate::commands::SessionStoreState;
 use crate::consent::ConsentGate;
 use crate::scheduler::SchedulerHandle;
+use crate::source::SourceSelection;
 
 #[cfg(feature = "browser-import")]
 use crate::browser_import::{LiveSessionValidator, current_os, detected_browsers, import_impl};
@@ -48,16 +49,18 @@ pub fn list_browser_sessions() -> Vec<DetectedBrowser> {
 /// it, and wake the polling loop so the new key takes effect immediately.
 /// Reports "unavailable" in the "lite" build (no cookie-store access).
 ///
-/// Refused outright while Terms-of-Service consent is withheld — validation is a request to
+/// Refused outright while Terms-of-Service consent is withheld, or while the
+/// Claude Code status line is the source — validation is a request to
 /// claude.ai, and the refusal happens before the cookie store is read, so a
-/// user who has not accepted the risk gets neither claude.ai traffic nor a
-/// keychain prompt out of this app.
+/// user in either state gets neither claude.ai traffic nor a keychain prompt
+/// out of this app.
 #[tauri::command]
 #[cfg_attr(not(feature = "browser-import"), allow(clippy::unused_async))]
 pub async fn import_browser_session(
     state: State<'_, SessionStoreState>,
     scheduler: State<'_, SchedulerHandle>,
     consent: State<'_, Arc<ConsentGate>>,
+    selection: State<'_, Arc<SourceSelection>>,
     browser: Browser,
 ) -> Result<ImportSummary, BrowserImportError> {
     #[cfg(feature = "browser-import")]
@@ -68,10 +71,12 @@ pub async fn import_browser_session(
         let store = Arc::clone(&state.0);
         let scheduler = (*scheduler).clone();
         let consent = Arc::clone(&consent);
+        let selection = Arc::clone(&selection);
 
+        let validator = LiveSessionValidator::new();
         let summary = import_impl(
             RookieCookieReader,
-            &SessionSink::new(&store, &LiveSessionValidator::new(), &consent),
+            &SessionSink::new(&store, &validator, &consent, &selection),
             current_os(),
             browser,
         )
@@ -84,7 +89,7 @@ pub async fn import_browser_session(
     {
         // Browser import is compiled out in this build; manual session-key
         // paste is the way in.
-        let _ = (state, scheduler, consent, browser);
+        let _ = (state, scheduler, consent, selection, browser);
         Err(BrowserImportError::Unsupported(
             "Browser import isn't available in this build — paste your session key instead."
                 .to_owned(),

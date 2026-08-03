@@ -13,6 +13,8 @@ It polls your `claude.ai` usage with your browser session and renders a colour-c
 >
 > Because of this, **the app ships switched off**: it makes no request to claude.ai at all until you tick the acknowledgement in the setup wizard or **Settings → Terms of Service**, and untick it at any time to stop immediately. Existing installs upgrade into the paused state and stay there until you decide.
 
+> **There is now a way to run the meter without any of this.** If you use Claude Code, the app can read your usage from [what Claude Code already reports](docs/claude-code-statusline.md) instead — no claude.ai requests, no session key, nothing to acknowledge. It covers the 5-hour and 7-day windows only, and only updates while Claude Code is running. **Settings → Usage source**.
+
 **Please read [docs/terms-of-service.md](docs/terms-of-service.md)** for the full analysis with quoted clauses and sources, then decide deliberately. Tracking a supported, read-only credential is [issue #40](https://github.com/mpecan/rusted-claude-meter/issues/40).
 
 <p align="center">
@@ -30,6 +32,7 @@ It polls your `claude.ai` usage with your browser session and renders a colour-c
 - **Easy sign-in** — import the `claude.ai` session straight from a browser you're already logged into (Chrome, Safari, Firefox, Edge, and more), or paste a session key by hand.
 - **Statusline export** — writes `~/.claudemeter/usage.json` after every fetch for statusline scripts and other tools (schema-compatible with the original ClaudeMeter — see [External integrations](#external-integrations)).
 - **Off until you say otherwise** — a consent gate blocks every claude.ai request until you acknowledge the Terms-of-Service risk (see the warning above); untick it to stop all traffic immediately.
+- **Or skip claude.ai entirely** — read usage from [Claude Code's status line](docs/claude-code-statusline.md) instead: no requests, no credential, no Terms-of-Service risk. Headline windows only, and only while Claude Code runs. The same bridge can print usage *into* your status line, optionally with an off-pace signal (`5h 95% · 7d 40% · 🔥1.6×`) — something Claude Code cannot show you itself, since it reports a percentage but not whether you are outrunning the window.
 - **Launch at login**, configurable refresh interval, and a first-run setup wizard.
 
 ## Install
@@ -91,13 +94,20 @@ If the AppImage aborts on an EGL error or opens a blank window, see [**Troublesh
 
 On first launch a **setup wizard** walks you through the Terms-of-Service warning, connecting your account, picking a tray-icon style, and setting the refresh interval. You can re-run it any time from **Settings → Setup → Run setup again**.
 
-### 1. Accept the Terms-of-Service risk
+### 1. Choose where your usage comes from
 
-Nothing happens until you do. The wizard's second step, and **Settings → Terms of Service**, explain how the app reads your usage and why that likely breaches Anthropic's Consumer Terms (see [the warning above](#rusted-claude-meter) and [docs/terms-of-service.md](docs/terms-of-service.md)). While the box is unticked the app contacts claude.ai on no path at all — not to poll, not to validate a pasted key, not to import from a browser — and the tray reads *"Paused — review the risk in Settings"*. Untick it later and polling stops immediately.
+**Settings → Usage source.** Two options, and the choice decides whether steps 2 and 3 apply to you at all:
 
-### 2. Connect your Claude account
+- **Poll claude.ai** *(default)* — the complete picture: model-scoped limits, the spend view, and updates on your refresh interval. Needs a session key and the Terms-of-Service acknowledgement below.
+- **Read from Claude Code** — reads the usage Claude Code already receives, via its status line. **No claude.ai requests, no session key, nothing to acknowledge.** Reports the 5-hour and 7-day windows only, and only updates while Claude Code is running. Setup is one `/statusline` command in Claude Code; see [docs/claude-code-statusline.md](docs/claude-code-statusline.md). **If you pick this, skip to step 4** — on this source the app refuses to contact claude.ai on every path, including validating a session key you paste.
 
-The app reads your usage using your existing `claude.ai` browser session — there's no separate login. Two ways to provide it, both in **Settings → Session**:
+### 2. Accept the Terms-of-Service risk
+
+*Polling claude.ai only.* Nothing happens until you do. The wizard's second step, and **Settings → Terms of Service**, explain how the app reads your usage and why that likely breaches Anthropic's Consumer Terms (see [the warning above](#rusted-claude-meter) and [docs/terms-of-service.md](docs/terms-of-service.md)). While the box is unticked the app contacts claude.ai on no path at all — not to poll, not to validate a pasted key, not to import from a browser — and the tray reads *"Paused — review the risk in Settings"*. Untick it later and polling stops immediately.
+
+### 3. Connect your Claude account
+
+*Polling claude.ai only.* The app reads your usage using your existing `claude.ai` browser session — there's no separate login. Two ways to provide it, both in **Settings → Session**:
 
 <p align="center">
   <img src="docs/screenshots/settings-session.png" alt="Session settings: import from a browser, or paste a session key" width="420">
@@ -108,11 +118,11 @@ The app reads your usage using your existing `claude.ai` browser session — the
 
 Your key is stored in the OS keychain and only ever sent to `claude.ai`. `SessionKey` redacts itself in logs.
 
-### 3. Read the meter
+### 4. Read the meter
 
 The tray icon shows your headline usage; open the popover (macOS: left-click the icon) or tray menu (Linux: click the icon) for the full breakdown — per-window cards with pace, a projection of where you'll land, reset time, and spend this period.
 
-### 4. Make it yours
+### 5. Make it yours
 
 Everything is in **Settings**:
 
@@ -125,6 +135,7 @@ Everything is in **Settings**:
 - **Pace** — turn burn-rate tracking on/off, lead with consumption or pace, and set the weekly pace basis (5/6/7 days).
 - **Notifications** — warning and critical thresholds (which also drive the icon colours) and a reset ping; send a test notification to check it works.
 - **Model-scoped limits** — flip each reported model on to show it in the popover and tray.
+- **Usage source** — claude.ai or Claude Code (see step 1), with a copy-ready status-line command for this install and a `/statusline` one-liner that wires it up for you.
 - **Refresh interval**, **usage view** (Auto / Allowance / Cost), and **Launch at login**.
 
 ## Status
@@ -147,6 +158,8 @@ Interaction model is platform-idiomatic:
 - **Linux** — StatusNotifierItem/AppIndicator delivers **no click events and no tooltip**, so the tray menu is the primary surface, and it carries the full picture: a status line, then per usage window (5-hour, 7-day, and each model-scoped limit) a percent-and-reset line with an indented pace line under it — `2.1× pace · 40% expected · hits limit ~1:59 PM` — then Open / Settings… / Refresh Now / Quit. "Open" gives you the same view as the macOS popover in an ordinary resizable window. Menu text updates in place — the tray icon is never recreated, so updates don't flicker. On GNOME the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) is required for the tray icon to appear at all; KDE Plasma shows it out of the box.
 
 ## External integrations
+
+Three files live in `~/.claudemeter/`, and they do not all flow the same way. `usage.json` is the app's **output**, described below. `statusline.json` is its **input** — written by the `rusted-claude-meter statusline` bridge and read by the scheduler when you pick the Claude Code source. `statusline-command.txt` holds that bridge's setup command for this machine, which is what `/statusline` reads to wire it up. Both are covered in [docs/claude-code-statusline.md](docs/claude-code-statusline.md).
 
 After every successful fetch, the app writes `~/.claudemeter/usage.json` — a public, typed export of current usage for statusline scripts and other external tools. The write is atomic (temp file + rename), so a script never observes a truncated file, and a failed write is logged but never fails the refresh itself.
 
