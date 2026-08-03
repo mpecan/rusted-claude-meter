@@ -16,15 +16,12 @@ mod consent;
 #[cfg(feature = "browser-import")]
 mod cookie_reader;
 mod debug_log;
-mod export;
-mod io_util;
 mod notifier;
 mod scheduler;
 mod settings;
 mod settings_window;
 mod signin;
 mod source;
-mod statusline;
 mod store;
 mod sync;
 mod tray;
@@ -36,6 +33,7 @@ use std::sync::{Arc, Mutex};
 
 use commands::SessionStoreState;
 use jiff::Timestamp;
+use meter_files::{export, statusline};
 use notifier::NotifierState;
 use scheduler::{
     LiveTransport, PersistPaths, SchedulerCore, SchedulerHandle, SourcedTransport,
@@ -51,9 +49,19 @@ use tokio::sync::Notify;
 /// invocation, returning whether it was one.
 ///
 /// `false` means "nothing CLI-shaped here" and the caller should launch the
-/// GUI, so an ordinary double-click is unaffected. This is the crate's whole
-/// CLI surface — deliberately one function rather than a public `statusline`
-/// module, so the app shell's internals stay private.
+/// GUI, so an ordinary double-click is unaffected. This is the GUI binary's
+/// whole CLI surface, and where a second subcommand would land — which is
+/// app-shell policy, and the reason it stays a function here rather than
+/// `main.rs` calling `meter_files::statusline` directly the way
+/// `src/bin/statusline.rs` does.
+///
+/// The one invocation it recognises, `statusline`, is now a **compatibility
+/// alias**: new setups are pointed at `rusted-claude-meter-statusline`, which
+/// does the same work without paying dyld for frameworks the bridge never
+/// touches (issue #72). The alias stays regardless of how long that has been
+/// true — it lives in the user's `~/.claude/settings.json`, which this app
+/// does not edit, so removing it here would break a status line that has
+/// every reason to keep working.
 #[must_use]
 pub fn run_cli(args: &[String]) -> bool {
     let Some(invocation) = statusline::parse_args(args) else {

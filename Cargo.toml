@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/meter-core",
     "crates/meter-api",
+    "crates/meter-files",
     "crates/meter-render",
     "src-tauri",
 ]

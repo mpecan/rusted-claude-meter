@@ -9,12 +9,12 @@
 
 use std::sync::Arc;
 
+use meter_files::statusline;
 use tauri::State;
 
 use crate::scheduler::SchedulerHandle;
 use crate::settings::{AppSettings, SettingsState};
 use crate::source::{SourceSelection, UsageSource, select};
-use crate::statusline;
 
 /// Switch the scheduler between claude.ai and the Claude Code status line.
 ///

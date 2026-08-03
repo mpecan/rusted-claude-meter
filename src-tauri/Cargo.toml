@@ -14,6 +14,25 @@ publish.workspace = true
 name = "rusted_claude_meter_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Both binaries are declared rather than inferred. `tauri-cli` picks the
+# bundle's *main* binary by matching a target name against the package name,
+# and its fallback ("if there is exactly one, that is the main one") does not
+# fire once there are two — with both inferred, neither would be marked main
+# and the bundler would have nothing to build the `.app` around.
+[[bin]]
+name = "rusted-claude-meter"
+path = "src/main.rs"
+
+# The Claude Code status-line bridge (issue #72). Same crate so it is
+# versioned, built, bundled and codesigned with the app — tauri-bundler copies
+# every `[[bin]]` into `Contents/MacOS/` on macOS and `/usr/bin/` in the
+# `.deb`, so it reaches the `.app`, the AppImage and the AUR package with no
+# packaging configuration at all. It links nothing from Tauri; see
+# `meter-files`' crate docs for why that is the whole point.
+[[bin]]
+name = "rusted-claude-meter-statusline"
+path = "src/bin/statusline.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -30,6 +49,7 @@ browser-import = ["dep:rookie"]
 [dependencies]
 meter-core = { path = "../crates/meter-core" }
 meter-api = { path = "../crates/meter-api" }
+meter-files = { path = "../crates/meter-files" }
 meter-render = { path = "../crates/meter-render" }
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"

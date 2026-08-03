@@ -2984,6 +2984,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "meter-files"
+version = "0.1.6"
+dependencies = [
+ "jiff",
+ "meter-core",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "meter-render"
 version = "0.1.6"
 dependencies = [
@@ -4418,6 +4430,7 @@ dependencies = [
  "keyring-core",
  "meter-api",
  "meter-core",
+ "meter-files",
  "meter-render",
  "objc2-app-kit",
  "objc2-foundation",
