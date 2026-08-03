@@ -49,6 +49,14 @@ It ships as its own small binary, beside the app's, for one reason: Claude Code 
 
 The setup block that appears contains the exact command for your install, with the binary's real path already filled in and quoted. Use **Copy command** — the path is not guessable, especially on macOS where the binary lives inside the app bundle.
 
+#### AppImage installs
+
+If you run the Linux AppImage, the command names a **copy** of the bridge kept at `~/.claudemeter/bin/rusted-claude-meter-statusline`, not a path inside the image. It has to: an AppImage is mounted at a fresh `/tmp/.mount_…` directory for the lifetime of each run, so a command naming anything inside it works until you quit the app and never again.
+
+The app refreshes that copy every time it starts, so upgrading the AppImage upgrades the bridge — but **start the app once after upgrading**, before relying on the status line. And if you move, rename or replace the `.AppImage` file itself, start the app once and re-run the `/statusline` command below: the recorded command belongs to the install it was generated from. `~/.claudemeter/statusline-command.txt` says so too.
+
+Uninstalling the AppImage does not remove the copy. It is harmless — it only reports what Claude Code hands it — but `rm -rf ~/.claudemeter/bin` if you want it gone.
+
 ### 2. Add it to your status line
 
 Claude Code gives its status-line data to **exactly one command**, so this is designed to be added to whatever you already have rather than to replace it.
@@ -133,6 +141,7 @@ cat ~/.claudemeter/statusline.json
 | `statusline.json` | **in** | The reading the bridge records; what the meter reads. |
 | `statusline-command.txt` | out | This machine's setup command, for `/statusline` and for you. Rewritten on every launch. |
 | `statusline-config.json` | out | Your pace basis and pace master switch, mirrored for the bridge. Written at launch and after every settings change. |
+| `bin/rusted-claude-meter-statusline` | — | **AppImage installs only.** The bridge, copied out of the image so your status line survives a restart. Refreshed at every launch. |
 
 ---
 
@@ -187,6 +196,9 @@ echo '{"rate_limits":{"five_hour":{"used_percentage":50,"resets_at":1785689400}}
 
 **Claude Code freezes, or a window opens, when the status line renders.**
 You are on a Rusted Claude Meter older than 0.1.7, and your command names the *app* binary. It does not recognise `statusline` as a subcommand, so it treats it as a normal launch and starts the app. Upgrade.
+
+**My status line worked until I restarted the app** (Linux AppImage).
+You are on a build predating the AppImage fix (issue #74), whose generated command named a path inside the AppImage's temporary mount — valid only while that particular run of the app was alive. Upgrade, start the app once so it writes a durable copy to `~/.claudemeter/bin/`, then re-run `/statusline` to record the new command.
 
 **The file exists but the numbers never change.**
 Claude Code is probably on an unsupported auth mode (API key, Bedrock, Vertex) or a version below 2.1.216 — in both cases it emits no `rate_limits`, and the bridge deliberately records nothing rather than overwriting a good reading with an empty one. Check `claude --version`.

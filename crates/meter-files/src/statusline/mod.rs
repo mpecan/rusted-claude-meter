@@ -21,6 +21,7 @@
 //! Mixing both directions into one path would make "who wrote this, and may I
 //! trust it?" unanswerable.
 
+mod appimage;
 mod bridge;
 pub mod config;
 pub mod setup;

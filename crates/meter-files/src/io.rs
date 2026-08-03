@@ -5,6 +5,9 @@
 //! destination. The rename is atomic on the platforms this app targets, so a
 //! crash mid-write (or a concurrent read by an external script) can never
 //! observe a truncated file.
+//!
+//! [`atomic_copy`] is the same dance for a file whose body comes from another
+//! file rather than from a string, and which has to end up executable.
 
 use std::fs;
 use std::io;
@@ -48,15 +51,47 @@ pub fn write_json_pretty<T: Serialize>(path: &Path, value: &T) -> io::Result<()>
 /// typically world-readable `0644`). Same-user consumers — the statusline
 /// scripts `export.rs`'s `usage.json` exists for — are unaffected.
 pub fn atomic_write(path: &Path, body: &str) -> io::Result<()> {
+    atomic_replace(path, 0o600, |tmp| fs::write(tmp, body))
+}
+
+/// Copy `source` over `dest` atomically, leaving it owner-executable (`0755`).
+///
+/// The third form of the idiom, for the one thing this app puts on disk that
+/// is not a document: the status-line bridge extracted out of an `AppImage`'s
+/// FUSE mount (`statusline::appimage`). Claude Code has to be able to *spawn*
+/// it, so `atomic_write`'s `0600` would not do; and because the rename is what
+/// publishes it, a launch that dies mid-copy leaves the previous bridge in
+/// place rather than a truncated binary the status line would try to execute.
+///
+/// Renaming over a file that is currently running is safe on both target
+/// platforms — the running process keeps the old inode — so an upgrade can
+/// refresh the copy while a status-line render is in flight.
+pub fn atomic_copy(source: &Path, dest: &Path) -> io::Result<()> {
+    atomic_replace(dest, 0o755, |tmp| fs::copy(source, tmp).map(drop))
+}
+
+/// The shared dance: `create_dir_all` the parent, let `fill` produce the temp
+/// file, chmod it to `mode`, then rename over `path`.
+///
+/// The `json` in the temp name is the idiom's, not a claim about the content —
+/// it is what three existing tests assert the *absence* of after a successful
+/// write, so it stays as it is even for the binary copy.
+fn atomic_replace(
+    path: &Path,
+    mode: u32,
+    fill: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    #[cfg(not(unix))]
+    let _ = mode;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, body)?;
+    fill(&tmp)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
     }
     fs::rename(&tmp, path)
 }
@@ -86,5 +121,51 @@ mod tests {
         atomic_write(&path, "{}").unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "expected 0600, got {mode:o}");
+    }
+
+    /// The extracted bridge lands in `~/.claudemeter/bin/`, a directory that
+    /// does not exist on any install until the first `AppImage` launch — so the
+    /// copy has to create it, exactly as the writer does.
+    #[test]
+    fn copies_a_file_into_place_creating_missing_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bridge");
+        fs::write(&source, "binary").unwrap();
+        let dest = dir.path().join("bin").join("bridge");
+        atomic_copy(&source, &dest).unwrap();
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "binary");
+        assert!(!dest.with_extension("json.tmp").exists());
+    }
+
+    /// The one file this app writes that something else has to *run*: Claude
+    /// Code spawns it on every status-line redraw, so `atomic_write`'s `0600`
+    /// would leave a command that cannot be executed at all.
+    #[cfg(unix)]
+    #[test]
+    fn copied_executables_are_runnable_by_their_owner() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bridge");
+        fs::write(&source, "binary").unwrap();
+        // Deliberately not executable at the source: an AppImage's payload is
+        // read through a FUSE mount whose modes are not ours to rely on.
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+        let dest = dir.path().join("bridge-copy");
+        atomic_copy(&source, &dest).unwrap();
+        let mode = fs::metadata(&dest).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755, "expected 0755, got {mode:o}");
+    }
+
+    /// Publishing by rename is what makes a half-written binary unobservable:
+    /// a copy that cannot be made must leave the previous, working bridge
+    /// exactly where it was rather than truncating it.
+    #[test]
+    fn a_copy_that_cannot_be_made_leaves_the_previous_file_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("bridge");
+        fs::write(&dest, "the bridge that works").unwrap();
+        assert!(atomic_copy(&dir.path().join("absent"), &dest).is_err());
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "the bridge that works");
     }
 }

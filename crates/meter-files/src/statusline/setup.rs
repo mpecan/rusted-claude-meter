@@ -18,13 +18,16 @@
 //!
 //! *Which* bridge it names is decided per install by [`invocation_for`],
 //! which is why the file is rewritten on every launch rather than once: an
-//! install can gain the standalone binary (or move) between two runs.
+//! install can gain the standalone binary (or move) between two runs — and on
+//! an `AppImage` it moves on *every* run, which is what
+//! [`crate::statusline::appimage`] exists to handle.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::io::atomic_write;
 use crate::statusline::SUBCOMMAND;
+use crate::statusline::appimage;
 
 /// File name inside [`crate::export::EXPORT_DIR`], beside `usage.json` and
 /// `statusline.json`.
@@ -59,20 +62,54 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
-/// Render the pipe target: the standalone bridge when `standalone` is where
-/// it was found, otherwise `exe` plus the subcommand it answers to.
+/// Everything the decision below needs to know about where this app is
+/// installed. Named fields rather than a tuple of `Option<&Path>`s, which no
+/// call site could transpose safely.
+#[derive(Debug, Clone, Copy)]
+struct Install<'a> {
+    /// The running GUI binary. Answers [`SUBCOMMAND`] indefinitely.
+    exe: &'a Path,
+    /// [`BRIDGE_BIN`] beside `exe`, when it is really there.
+    standalone: Option<&'a Path>,
+    /// The `.AppImage` file, when the app was started from one.
+    appimage: Option<&'a Path>,
+    /// The bridge copied out of that image, when the copy is really there.
+    extracted: Option<&'a Path>,
+}
+
+/// Render the pipe target: a standalone bridge where one is reachable,
+/// otherwise an executable plus the subcommand it answers to.
+///
+/// The `AppImage` case swaps **both** candidates at once rather than adding a
+/// branch to either. Inside an image, `exe` and `standalone` both point into a
+/// `/tmp/.mount_…` directory that ceases to exist the moment the app quits, so
+/// neither may be named: the durable pair — the extracted copy, and the image
+/// file itself for the alias — replaces the ephemeral one wholesale, which
+/// makes the mount path unnameable by construction. With `appimage: None` this
+/// is character-for-character the expression that shipped before issue #74.
 ///
 /// Pure, and separate from [`invocation_for`] purely so it can be tested
-/// against realistic absolute paths. The probe below is the *only* part that
+/// against realistic absolute paths. The probes below are the *only* part that
 /// touches the filesystem, and a test that both names a plausible install
 /// path and hits the real disk answers differently depending on what the
 /// developer happens to have installed — which is exactly how this split came
 /// about.
-fn invocation(exe: &Path, standalone: Option<&Path>) -> String {
-    standalone.map_or_else(
-        || format!("{} {SUBCOMMAND}", shell_quote(&exe.display().to_string())),
+fn invocation(install: Install<'_>) -> String {
+    let (bridge, alias) = install
+        .appimage
+        .map_or((install.standalone, install.exe), |image| {
+            (install.extracted, image)
+        });
+    bridge.map_or_else(
+        || format!("{} {SUBCOMMAND}", shell_quote(&alias.display().to_string())),
         |bridge| shell_quote(&bridge.display().to_string()),
     )
+}
+
+/// A candidate bridge, but only if something is actually there. A directory
+/// named like the bridge is not the bridge, hence `is_file` over `exists`.
+fn bridge_at(path: &Path) -> Option<&Path> {
+    path.is_file().then_some(path)
 }
 
 /// How to reach the bridge from an install whose GUI binary is `exe`: a
@@ -89,10 +126,20 @@ fn invocation(exe: &Path, standalone: Option<&Path>) -> String {
 /// `cargo run` target directory alike, and degrades to the subcommand — which
 /// is kept working indefinitely — anywhere it is missing, rather than writing
 /// a command that names a file that is not there.
+///
+/// `extracted` gets the same probe as the sibling, and for the same reason:
+/// naming an already-present copy is a *probe*, never a consequence of this
+/// launch's copy having succeeded, so the Settings copy button and the setup
+/// document cannot disagree about what this install can run.
 #[must_use]
-pub fn invocation_for(exe: &Path) -> String {
+pub fn invocation_for(exe: &Path, appimage: Option<&Path>, extracted: Option<&Path>) -> String {
     let standalone = exe.with_file_name(BRIDGE_BIN);
-    invocation(exe, standalone.is_file().then_some(standalone.as_path()))
+    invocation(Install {
+        exe,
+        standalone: bridge_at(&standalone),
+        appimage,
+        extracted: extracted.and_then(bridge_at),
+    })
 }
 
 /// A complete `statusLine.command` driving the bridge, given an
@@ -113,11 +160,21 @@ fn current_exe() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from(FALLBACK_EXE))
 }
 
-/// [`invocation_for`] this install — the one place the running executable and
-/// the bridge-or-alias decision are combined, so [`current_command`] and
-/// [`write`] cannot answer it differently.
+/// [`invocation_for`] this install — the one place the running executable, the
+/// environment and the bridge-or-alias decision are combined, so
+/// [`current_command`] and [`write`] cannot answer it differently.
+///
+/// Probes for the extracted copy; it never *makes* one. This is reached from
+/// an IPC handler (Settings' "Copy command"), and extracting a binary is
+/// launch work, not something a button press should trigger.
 fn current_invocation() -> String {
-    invocation_for(&current_exe())
+    let image = appimage::running_from();
+    let extracted = image
+        .is_some()
+        .then(|| super::home_path(appimage::BIN_DIR))
+        .flatten()
+        .map(|bin_dir| appimage::bridge_copy(&bin_dir));
+    invocation_for(&current_exe(), image.as_deref(), extracted.as_deref())
 }
 
 /// [`command_for`] against this install.
@@ -131,8 +188,12 @@ pub fn current_command() -> String {
 /// Written so `/statusline` cannot get the composition wrong: the two failure
 /// modes are replacing an existing status line and reading stdin twice (which
 /// hangs), so both are called out rather than left to be inferred.
+///
+/// `appimage` adds one further note, because that install has a third failure
+/// mode the others do not: the command outlives only *this* image file. With
+/// `None` the document is byte-for-byte the one that shipped before issue #74.
 #[must_use]
-pub fn document(invocation: &str) -> String {
+pub fn document(invocation: &str, appimage: Option<&Path>) -> String {
     format!(
         "Rusted Claude Meter — Claude Code status line
 ============================================
@@ -161,7 +222,7 @@ Adding it to \"statusLine\" in ~/.claude/settings.json:
 
 Notes:
 
-  * The meter prints nothing when Claude Code reports no usage: a cold
+{note}  * The meter prints nothing when Claude Code reports no usage: a cold
     session, or an API-key/Bedrock/Vertex login, which carry no plan limits.
     The rest of the status line is unaffected.
   * Add \" --pace\" to the end of the piped command to append an off-pace
@@ -176,14 +237,46 @@ This file is rewritten by Rusted Claude Meter on every launch. Edit the
 status line, not this file.
 ",
         command = command_for(invocation),
+        note = appimage.map(appimage::note).unwrap_or_default(),
     )
+}
+
+/// The document for an install, extracting the bridge from the image first
+/// when there is one to extract.
+///
+/// `claudemeter` is the `~/.claudemeter/` directory — derived by [`write`]
+/// from the setup file's own parent, which is what keeps its tests hermetic
+/// and what lets `src-tauri` go on passing a single path.
+///
+/// The extraction is best-effort on purpose: a read-only home, or an image
+/// built before the standalone bridge existed, costs the *fast* path only.
+/// [`invocation_for`] then finds no copy and names the image plus the
+/// subcommand, which is slower but durable — the point of issue #74 being that
+/// a durable slow command beats a fast dead one.
+fn document_for(exe: &Path, appimage: Option<&Path>, claudemeter: Option<&Path>) -> String {
+    let copy = appimage
+        .and(claudemeter)
+        .map(|dir| appimage::bridge_copy(&dir.join(appimage::BIN_DIR)));
+    if let Some(dest) = copy.as_deref()
+        && let Err(error) = appimage::refresh(&exe.with_file_name(BRIDGE_BIN), dest)
+    {
+        eprintln!("could not extract the status-line bridge from the AppImage: {error}");
+    }
+    document(&invocation_for(exe, appimage, copy.as_deref()), appimage)
 }
 
 /// Write the setup document for this install. Best-effort: a failure here
 /// costs a convenience, never the app, so callers log and continue — exactly
 /// how `export.rs`'s write is treated.
 pub fn write(path: &Path) -> io::Result<()> {
-    atomic_write(path, &document(&current_invocation()))
+    atomic_write(
+        path,
+        &document_for(
+            &current_exe(),
+            appimage::running_from().as_deref(),
+            path.parent(),
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -204,7 +297,26 @@ mod tests {
     /// a real sibling and answer the other way. Whether the probe finds the
     /// bridge is its own set of tests, against temp directories.
     fn aliased(exe: &str) -> String {
-        invocation(Path::new(exe), None)
+        invocation(Install {
+            exe: Path::new(exe),
+            standalone: None,
+            appimage: None,
+            extracted: None,
+        })
+    }
+
+    /// An `AppImage` install, described rather than staged: the two durable
+    /// candidates plus the two ephemeral ones inside the mount, so a test can
+    /// say which of them exist without touching this developer's disk.
+    fn from_image(image: &str, extracted: Option<&str>) -> String {
+        invocation(Install {
+            exe: Path::new("/tmp/.mount_RustedZzZ/usr/bin/rusted-claude-meter"),
+            standalone: Some(Path::new(
+                "/tmp/.mount_RustedZzZ/usr/bin/rusted-claude-meter-statusline",
+            )),
+            appimage: Path::new(image).into(),
+            extracted: extracted.map(Path::new),
+        })
     }
 
     /// A GUI binary with the standalone bridge installed next to it, as every
@@ -232,7 +344,7 @@ mod tests {
     fn the_standalone_bridge_is_used_when_it_sits_beside_the_gui_binary() {
         let dir = tempfile::tempdir().unwrap();
         let (gui, bridge) = installed(&dir);
-        let invocation = invocation_for(&gui);
+        let invocation = invocation_for(&gui, None, None);
         // The whole invocation is the quoted path and nothing else — no
         // trailing subcommand, and the GUI binary is not named at all.
         assert_eq!(invocation, shell_quote(&bridge.display().to_string()));
@@ -246,7 +358,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let gui = dir.path().join(FALLBACK_EXE);
         std::fs::write(&gui, "").unwrap();
-        let invocation = invocation_for(&gui);
+        let invocation = invocation_for(&gui, None, None);
         assert!(
             invocation.ends_with(&format!(" {SUBCOMMAND}")),
             "{invocation}"
@@ -265,7 +377,7 @@ mod tests {
         let gui = dir.path().join(FALLBACK_EXE);
         std::fs::write(&gui, "").unwrap();
         std::fs::create_dir(dir.path().join(BRIDGE_BIN)).unwrap();
-        assert!(invocation_for(&gui).contains(SUBCOMMAND));
+        assert!(invocation_for(&gui, None, None).contains(SUBCOMMAND));
     }
 
     /// Every macOS install has spaces in its path ("Rusted Claude
@@ -308,7 +420,7 @@ mod tests {
     /// would break a working status line, so both must be stated outright.
     #[test]
     fn the_document_warns_against_replacing_and_against_double_reading_stdin() {
-        let doc = document(&aliased("/usr/bin/rcm"));
+        let doc = document(&aliased("/usr/bin/rcm"), None);
         assert!(doc.contains("KEEP IT"), "{doc}");
         assert!(doc.contains("exactly one command"), "{doc}");
         assert!(doc.contains("Do not read stdin twice"), "{doc}");
@@ -317,16 +429,17 @@ mod tests {
     #[test]
     fn the_document_embeds_the_command_verbatim() {
         let invocation = aliased("/usr/bin/rcm");
-        assert!(document(&invocation).contains(&command_for(&invocation)));
+        assert!(document(&invocation, None).contains(&command_for(&invocation)));
     }
 
     /// The merge example must carry the real quoted path too, or an agent
     /// splicing it into an existing status line writes a placeholder.
     #[test]
     fn the_merge_example_carries_the_real_path_not_a_placeholder() {
-        let doc = document(&aliased(
-            "/Applications/Rusted Claude Meter.app/Contents/MacOS/rcm",
-        ));
+        let doc = document(
+            &aliased("/Applications/Rusted Claude Meter.app/Contents/MacOS/rcm"),
+            None,
+        );
         assert!(
             !doc.contains('<') || !doc.contains("path from the command"),
             "{doc}"
@@ -347,8 +460,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (gui, _) = installed(&dir);
         for doc in [
-            document(&invocation_for(&gui)),
-            document(&aliased("/x/rcm")),
+            document(&invocation_for(&gui, None, None), None),
+            document(&aliased("/x/rcm"), None),
         ] {
             assert!(doc.contains("--pace"), "{doc}");
             assert!(doc.contains("--quiet"), "{doc}");
@@ -360,7 +473,7 @@ mod tests {
     fn the_document_pins_the_claude_code_version_floor() {
         // Below this the payload carries no `rate_limits` at all, so a user
         // would wire everything up correctly and see nothing.
-        assert!(document(&aliased("/usr/bin/rcm")).contains("2.1.216"));
+        assert!(document(&aliased("/usr/bin/rcm"), None).contains("2.1.216"));
     }
 
     #[test]
@@ -373,5 +486,135 @@ mod tests {
         write(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
         assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    /// The single most important regression issue #74 must not cause. Every
+    /// macOS, `.deb`, AUR and `cargo run` install goes down this branch, and
+    /// the command it produces has to be the one that shipped before — so it
+    /// is pinned as exact bytes rather than as a `contains`.
+    #[test]
+    fn a_non_appimage_install_generates_exactly_the_command_it_always_has() {
+        assert_eq!(
+            invocation(Install {
+                exe: Path::new("/opt/rcm/rusted-claude-meter"),
+                standalone: Some(Path::new("/opt/rcm/rusted-claude-meter-statusline")),
+                appimage: None,
+                extracted: None,
+            }),
+            "'/opt/rcm/rusted-claude-meter-statusline'"
+        );
+        assert_eq!(
+            aliased("/opt/rcm/rusted-claude-meter"),
+            "'/opt/rcm/rusted-claude-meter' statusline"
+        );
+    }
+
+    /// Inside an `AppImage` the sibling bridge *is* there — at a
+    /// `/tmp/.mount_…` path that stops existing the moment the app quits. So
+    /// its presence must not tempt the decision: naming it is precisely the
+    /// bug (issue #74), and a status line that works until the next restart is
+    /// worse than one that is obviously wrong straight away.
+    #[test]
+    fn an_appimage_install_names_the_extracted_copy_and_never_the_mount_path() {
+        let invocation = from_image(
+            "/home/you/Applications/RustedClaudeMeter.AppImage",
+            Some("/home/you/.claudemeter/bin/rusted-claude-meter-statusline"),
+        );
+        assert_eq!(
+            invocation,
+            "'/home/you/.claudemeter/bin/rusted-claude-meter-statusline'"
+        );
+        assert!(!invocation.contains("/tmp/.mount_"), "{invocation}");
+        assert!(!invocation.contains(".AppImage"), "{invocation}");
+    }
+
+    /// With no copy to name — an image predating the standalone bridge, or a
+    /// home that could not be written — the durable thing left to point at is
+    /// the image file itself, driving the compatibility subcommand. Slower,
+    /// but it survives a restart, which the mount path does not.
+    #[test]
+    fn an_appimage_install_with_no_extracted_copy_runs_the_image_itself_with_the_subcommand() {
+        let invocation = from_image("/home/you/Applications/RustedClaudeMeter.AppImage", None);
+        assert_eq!(
+            invocation,
+            "'/home/you/Applications/RustedClaudeMeter.AppImage' statusline"
+        );
+        assert!(!invocation.contains("/tmp/.mount_"), "{invocation}");
+    }
+
+    /// The copy is *probed*, exactly like the sibling bridge, so one deleted
+    /// between launches falls back to a working command rather than leaving a
+    /// path to nothing in `~/.claude/settings.json`.
+    #[test]
+    fn an_extracted_copy_that_is_not_on_disk_is_not_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("RustedClaudeMeter.AppImage");
+        let gone = dir.path().join(appimage::BIN_DIR).join(BRIDGE_BIN);
+        let invocation = invocation_for(&dir.path().join(FALLBACK_EXE), Some(&image), Some(&gone));
+        assert!(
+            invocation.ends_with(&format!(" {SUBCOMMAND}")),
+            "{invocation}"
+        );
+        assert!(
+            invocation.contains(&image.display().to_string()),
+            "{invocation}"
+        );
+    }
+
+    /// End-to-end for option 3: the bridge inside the image is copied to
+    /// `~/.claudemeter/bin/`, and the document names that copy — the one file
+    /// on this machine that will still be there tomorrow.
+    #[test]
+    fn writing_on_an_appimage_install_extracts_the_bridge_and_names_the_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let mount = dir.path().join("mount/usr/bin");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(mount.join(BRIDGE_BIN), "the bridge").unwrap();
+        let image = dir.path().join("RustedClaudeMeter.AppImage");
+        std::fs::write(&image, "").unwrap();
+        let claudemeter = dir.path().join(".claudemeter");
+
+        let doc = document_for(
+            &mount.join(FALLBACK_EXE),
+            Some(&image),
+            Some(claudemeter.as_path()),
+        );
+
+        let copy = claudemeter.join(appimage::BIN_DIR).join(BRIDGE_BIN);
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), "the bridge");
+        assert!(doc.contains(&copy.display().to_string()), "{doc}");
+        assert!(!doc.contains("/mount/usr/bin"), "{doc}");
+    }
+
+    /// The other half of that: an ordinary install must gain no side effect at
+    /// all from issue #74 — no directory, no copy, no extra work per launch.
+    #[test]
+    fn nothing_is_extracted_on_an_ordinary_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let claudemeter = dir.path().join(".claudemeter");
+        document_for(
+            &dir.path().join(FALLBACK_EXE),
+            None,
+            Some(claudemeter.as_path()),
+        );
+        assert!(!claudemeter.join(appimage::BIN_DIR).exists());
+    }
+
+    /// An `AppImage` install has a failure mode the others do not — the command
+    /// belongs to *this* image file — and it is silent when it happens, so the
+    /// document has to say so before it does.
+    #[test]
+    fn the_document_warns_that_an_appimage_command_is_tied_to_this_install() {
+        let image = Path::new("/home/you/Applications/RustedClaudeMeter.AppImage");
+        let doc = document(&aliased("/x/rcm"), Some(image));
+        assert!(doc.contains(&image.display().to_string()), "{doc}");
+        assert!(doc.contains("re-run /statusline"), "{doc}");
+    }
+
+    /// And says nothing about `AppImage`s anywhere else, which is what keeps the
+    /// document every other install reads byte-identical to before.
+    #[test]
+    fn the_document_says_nothing_about_appimages_on_an_ordinary_install() {
+        assert!(!document(&aliased("/usr/bin/rcm"), None).contains("AppImage"));
     }
 }
