@@ -15,7 +15,7 @@ members = [
 exclude = ["harness/demo-server"]
 
 [workspace.package]
-version = "0.1.6" # x-release-please-version
+version = "0.1.7" # x-release-please-version
 edition = "2024"
 license = "MIT"
 authors = ["Matjaz Domen Pecan"]

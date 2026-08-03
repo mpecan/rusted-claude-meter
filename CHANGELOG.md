@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.7](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.6...v0.1.7) (2026-08-03)
+
+
+### Features
+
+* choose the usage source before asking for Terms-of-Service consent ([#76](https://github.com/mpecan/rusted-claude-meter/issues/76)) ([c56ad3b](https://github.com/mpecan/rusted-claude-meter/commit/c56ad3bf7d8f325826469f5f9dfa78180306575b))
+* read usage from Claude Code as an alternative to polling claude.ai ([#70](https://github.com/mpecan/rusted-claude-meter/issues/70)) ([ef6a7b3](https://github.com/mpecan/rusted-claude-meter/commit/ef6a7b386e60f7639e5fab5aa43db3b40f1d8355))
+
+
+### Bug Fixes
+
+* durable AppImage status-line command, visible disabled controls, and a DOM test tier ([#79](https://github.com/mpecan/rusted-claude-meter/issues/79)) ([4425970](https://github.com/mpecan/rusted-claude-meter/commit/442597060ac94989d8efffa2b43b4a14c4fd927f))
+
+
+### Performance Improvements
+
+* ship the status-line bridge as its own lightweight binary ([#75](https://github.com/mpecan/rusted-claude-meter/issues/75)) ([3573ae3](https://github.com/mpecan/rusted-claude-meter/commit/3573ae39a7a6e02fa41d16d0186c89212b4f4070))
+
 ## [0.1.6](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.5...v0.1.6) (2026-07-27)
 
 
