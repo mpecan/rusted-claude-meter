@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  consentGateState,
   describeWizardValidation,
   nextStep,
   previousStep,
@@ -110,6 +111,46 @@ describe("nextStep / previousStep", () => {
     // Rather than silently landing the user on the other branch.
     expect(nextStep("consent", "claude_code_statusline")).toBeUndefined();
     expect(previousStep("consent", "claude_code_statusline")).toBeUndefined();
+  });
+});
+
+describe("consentGateState", () => {
+  it("shows the reason and points Continue at it while the box is unticked", () => {
+    // The whole of issue #78 on this screen: a control that is inert for a
+    // reason nothing states. `hidden: false` is the paragraph on screen for
+    // everyone; the reference is how a screen reader hears it, since a
+    // disabled button is not focusable and announces nothing hung off itself.
+    expect(consentGateState(false)).toEqual({
+      continueDisabled: true,
+      reasonHidden: false,
+      reasonDescribesContinue: true,
+    });
+  });
+
+  it("withdraws the reason and the reference together the moment the box is ticked", () => {
+    // A paragraph reading "Continue stays unavailable until you tick the box
+    // above" under a Continue that is now pressable contradicts itself on
+    // screen — and left as an `aria-describedby`, it is announced as the
+    // description of an enabled button, which is worse than no description.
+    expect(consentGateState(true)).toEqual({
+      continueDisabled: false,
+      reasonHidden: true,
+      reasonDescribesContinue: false,
+    });
+  });
+
+  it("never leaves the description referencing a paragraph it has hidden", () => {
+    // The invariant behind both cases above, stated once: an
+    // `aria-describedby` pointing at a `hidden` element resolves to the empty
+    // string, so the button would be described by nothing at all — a failure
+    // with no console warning and no visible symptom.
+    for (const checked of [true, false]) {
+      const gate = consentGateState(checked);
+      expect(gate.reasonDescribesContinue).toBe(!gate.reasonHidden);
+      // And the reason is on screen exactly while there is something to
+      // explain, so neither flag can drift from `disabled`.
+      expect(gate.reasonHidden).toBe(!gate.continueDisabled);
+    }
   });
 });
 

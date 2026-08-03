@@ -50,6 +50,7 @@ import {
 } from "./usage-source";
 import {
   type WizardStep,
+  consentGateState,
   describeWizardValidation,
   nextStep,
   previousStep,
@@ -226,12 +227,17 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
    * disabled button is not focusable, so anything hung off the button itself is
    * announced to nobody, and a tooltip is invisible to keyboard and touch. Both
    * the paragraph and the reference go the moment the box is ticked — a
-   * description of a state the control is no longer in is worse than none. */
+   * description of a state the control is no longer in is worse than none.
+   *
+   * Which three flags that means is [`consentGateState`]'s decision, not this
+   * function's: the polarities are where the mistake would be, and there they
+   * are unit-testable. Applying them is all that is left here, and it is the
+   * one part no test reaches until the DOM tier of issue #77 exists. */
   function syncConsent(): void {
-    const blocked = !tosConsent.checked;
-    consentContinueButton.disabled = blocked;
-    consentBlockedReason.hidden = !blocked;
-    if (blocked) {
+    const gate = consentGateState(tosConsent.checked);
+    consentContinueButton.disabled = gate.continueDisabled;
+    consentBlockedReason.hidden = gate.reasonHidden;
+    if (gate.reasonDescribesContinue) {
       // The element's own id, never a re-spelled literal, so the reference
       // cannot dangle — which is a failure ARIA reports to no one.
       consentContinueButton.setAttribute("aria-describedby", consentBlockedReason.id);

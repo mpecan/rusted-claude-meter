@@ -1074,9 +1074,12 @@ input[type="checkbox"] {
    in flight. Element selectors rather than `.primary-button`/`.ghost-button` by
    name: `disabled` is the state the browser already knows about, so the next
    control to grow a disabled state is right without anyone remembering to add
-   its class here. The two places the app disables something today are
-   `wizard.ts::syncConsent` (plus the markup's initial `disabled`) and
-   `settings-view.ts`'s autostart toggle. */
+   its class here. The three places the app disables something today are
+   `wizard.ts::syncConsent` (plus the markup's initial `disabled`) and, in
+   `settings-view.ts`, the autostart toggle and the send-test-notification
+   button while its send is in flight. Two of the three are in Settings, one
+   under each of the rules here — so neither this rule nor the `label:has()`
+   one below can be narrowed to "only the wizard's Continue needs it". */
 button:disabled,
 input:disabled,
 select:disabled,
