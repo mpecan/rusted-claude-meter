@@ -41,6 +41,11 @@ function roleIn(containerId: string, role: string): HTMLElement {
   return requireChild(requireElement<HTMLElement>(containerId), role);
 }
 
+/** Whatever `navigator.clipboard` was before any test replaced it, so
+ * [`stubClipboard`] can be undone without this file having an opinion on what
+ * jsdom does or does not provide. */
+const CLIPBOARD = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
 /** jsdom has no clipboard, and the copy buttons are half of what this block
  * does. `defineProperty` because `navigator.clipboard` is a getter. */
 function stubClipboard(writeText: (text: string) => Promise<void>): void {
@@ -53,6 +58,16 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // A definition is not a mock, so `restoreAllMocks` leaves it in place: the
+  // rejecting stub below would otherwise outlive its test and fail the next
+  // one to click a copy button, for a reason nowhere in that test. The
+  // inverse is worse — a later test could expect the failure message without
+  // arranging the failure, and pass on someone else's stub.
+  if (CLIPBOARD) {
+    Object.defineProperty(navigator, "clipboard", CLIPBOARD);
+  } else {
+    Reflect.deleteProperty(navigator, "clipboard");
+  }
 });
 
 it("gives each mounted block its own elements when Settings and the wizard render at once", async () => {
@@ -122,6 +137,14 @@ it("explains itself when the clipboard refuses", async () => {
     "Couldn't copy — select the text and copy it.",
   );
   expect(consoleError).toHaveBeenCalled();
+});
+
+it("hands the next test a navigator no earlier test has stubbed", () => {
+  // Deliberately after the rejecting stub above, because file order is what
+  // makes the leak observable: this is the assertion that fails if `afterEach`
+  // ever stops undoing `stubClipboard`, and it names the leak instead of
+  // letting some unrelated test fail for it.
+  expect(Object.getOwnPropertyDescriptor(navigator, "clipboard")).toEqual(CLIPBOARD);
 });
 
 it("fetches the command once, however often the block is shown", async () => {

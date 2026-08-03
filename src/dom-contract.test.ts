@@ -33,13 +33,18 @@ interface ElementReference {
   /** An `id` (global) or a `data-role` (scoped to a container). */
   kind: "id" | "role";
   name: string;
+  /** For a role, the id of the container the lookup runs inside; a block
+   * mounted twice yields one reference per mount. Undefined for ids, which
+   * are global by construction. */
+  container?: string;
 }
 
 interface Scan {
   references: ElementReference[];
-  /** Lookups whose argument the scanner could not reduce to a literal. Always
-   * asserted empty: a silent skip would let a whole module drop out of the
-   * check without anyone noticing. */
+  /** Lookups whose name — or, for a role, whose container — the scanner could
+   * not reduce to a literal, printed whole so the failure says which call.
+   * Always asserted empty: a silent skip would let a whole module drop out of
+   * the check without anyone noticing. */
   unresolved: string[];
 }
 
@@ -208,6 +213,55 @@ function resolveIdentifier(
     .filter((literal): literal is string => literal !== undefined);
 }
 
+/** The literals `expression` can be at run time: itself when it is a string
+ * literal, otherwise whatever its call sites pass when it is a name the caller
+ * supplies. Empty means "could not tell", which every caller reports rather
+ * than skips. */
+function literalsFor(
+  sources: ReadonlyMap<string, string>,
+  code: string,
+  offset: number,
+  expression: string,
+): string[] {
+  const literal = stringLiteral(expression);
+  if (literal !== undefined) {
+    return [literal];
+  }
+  return /^[A-Za-z_$][\w$]*$/.test(expression)
+    ? resolveIdentifier(sources, code, offset, expression)
+    : [];
+}
+
+/** The ids of the containers a `requireChild(root, …)` lookup is scoped to.
+ *
+ * A role only has to exist inside the subtree it is looked up in, so matching
+ * one against the whole document would let a role renamed in one of several
+ * mounts still resolve — against a *sibling* mount's copy, which is precisely
+ * the confusion `requireChild` exists to make impossible. `root` is always a
+ * local bound to `requireElement(<id>)`, so the scope is that id, itself run
+ * through [`resolveIdentifier`] when the caller supplies it. Every container
+ * the lookup can run against is returned, because the block has to be whole
+ * in each of them. */
+function containerIds(
+  sources: ReadonlyMap<string, string>,
+  code: string,
+  root: string,
+): string[] {
+  if (!/^[A-Za-z_$][\w$]*$/.test(root)) {
+    return [];
+  }
+  const binding = new RegExp(
+    String.raw`\b${root}\s*(?::[^=;]*)?=\s*requireElement\s*(?:<[^<>()]*>)?\s*\(`,
+    "g",
+  );
+  const ids: string[] = [];
+  for (const match of code.matchAll(binding)) {
+    const open = match.index + match[0].length - 1;
+    ids.push(...literalsFor(sources, code, open, readArguments(code, open)[0] ?? ""));
+  }
+  return ids;
+}
+
 /** Every id and `data-role` the given modules ask the markup for.
  *
  * `sources` must already have been through [`blankComments`], so a lookup
@@ -221,37 +275,48 @@ function extractReferences(sources: ReadonlyMap<string, string>): Scan {
       const helper = match[1];
       const open = match.index + match[0].length - 1;
       const args = readArguments(code, open);
-      const argument = args[helper === "requireChild" ? 1 : 0] ?? "";
-      const kind = helper === "requireChild" ? "role" : "id";
-      const literal = stringLiteral(argument);
-      if (literal !== undefined) {
-        references.push({ module, kind, name: literal });
+      const scoped = helper === "requireChild";
+      const argument = args[scoped ? 1 : 0] ?? "";
+      const kind = scoped ? "role" : "id";
+      const names = literalsFor(sources, code, open, argument);
+      // `[undefined]` rather than `[]` for an id: one unscoped reference, not
+      // none — the loop below is the same either way.
+      const containers = scoped ? containerIds(sources, code, args[0] ?? "") : [undefined];
+      if (names.length === 0 || containers.length === 0) {
+        unresolved.push(`${module}: ${helper}(${args.join(", ")})`);
         continue;
       }
-      const resolved = /^[A-Za-z_$][\w$]*$/.test(argument)
-        ? resolveIdentifier(sources, code, open, argument)
-        : [];
-      if (resolved.length === 0) {
-        unresolved.push(`${module}: ${helper}(${argument})`);
-        continue;
-      }
-      for (const name of resolved) {
-        references.push({ module, kind, name });
+      for (const name of names) {
+        for (const container of containers) {
+          references.push({ module, kind, name, container });
+        }
       }
     }
   }
   return { references, unresolved };
 }
 
-/** The references `markup` cannot satisfy, named so a failure is actionable. */
+/** Whether `markup` carries the referenced element — a role only inside the
+ * container it is scoped to, so one mount that still has it does not vouch for
+ * another that lost it. */
+function satisfied({ kind, name, container }: ElementReference, markup: Document): boolean {
+  if (kind === "id") {
+    return markup.getElementById(name) !== null;
+  }
+  const root = container === undefined ? null : markup.getElementById(container);
+  return root !== null && root.querySelector(`[data-role="${name}"]`) !== null;
+}
+
+/** The references `markup` cannot satisfy, named so a failure is actionable —
+ * for a role that means naming the mount it is missing from, since the others
+ * may be fine. */
 function unsatisfied(references: readonly ElementReference[], markup: Document): string[] {
   return references
-    .filter(({ kind, name }) =>
-      kind === "id"
-        ? markup.getElementById(name) === null
-        : markup.querySelector(`[data-role="${name}"]`) === null,
-    )
-    .map(({ module, kind, name }) => `${module} wants ${kind} "${name}"`);
+    .filter((reference) => !satisfied(reference, markup))
+    .map(
+      ({ module, kind, name, container }) =>
+        `${module} wants ${kind} "${name}"${container === undefined ? "" : ` inside #${container}`}`,
+    );
 }
 
 // `node:path` rather than `new URL(…, import.meta.url)`: see `dom-harness.ts`
@@ -333,12 +398,67 @@ it("notices an id index.html does not have", () => {
 
 it("notices a data-role index.html does not have", () => {
   const synthetic = new Map([
-    ["synthetic-view.ts", blankComments('requireChild<HTMLElement>(container, "commandd");')],
+    [
+      "synthetic-view.ts",
+      blankComments(
+        [
+          'const container = requireElement<HTMLElement>("statusline-setup");',
+          'requireChild<HTMLElement>(container, "commandd");',
+        ].join("\n"),
+      ),
+    ],
   ]);
 
   const scan = extractReferences(synthetic);
 
-  expect(unsatisfied(scan.references, MARKUP)).toEqual(['synthetic-view.ts wants role "commandd"']);
+  expect(scan.unresolved).toEqual([]);
+  expect(unsatisfied(scan.references, MARKUP)).toEqual([
+    'synthetic-view.ts wants role "commandd" inside #statusline-setup',
+  ]);
+});
+
+it("notices a role missing from one mount even when another mount still has it", () => {
+  // The reason a role is checked inside its container rather than against the
+  // document: the block that uses `requireChild` is mounted twice, so renaming
+  // a role in one of the two copies leaves the other one answering for it.
+  // `popover-view` stands in for the mount that lost the role — it is a real
+  // container in the markup that carries no `data-role` at all.
+  const synthetic = new Map([
+    [
+      "synthetic-view.ts",
+      blankComments(
+        [
+          "function mount(id: string): void {",
+          "  const container = requireElement<HTMLElement>(id);",
+          '  requireChild<HTMLElement>(container, "command");',
+          "}",
+          'mount("statusline-setup");',
+          'mount("popover-view");',
+        ].join("\n"),
+      ),
+    ],
+  ]);
+
+  const scan = extractReferences(synthetic);
+
+  expect(scan.unresolved).toEqual([]);
+  expect(unsatisfied(scan.references, MARKUP)).toEqual([
+    'synthetic-view.ts wants role "command" inside #popover-view',
+  ]);
+});
+
+it("reports a role whose container it cannot pin down, rather than checking it document-wide", () => {
+  // Falling back to a document-wide query for an unresolvable container would
+  // be the silent skip this scanner refuses everywhere else: the reference
+  // would still pass while covering nothing in particular.
+  const synthetic = new Map([
+    ["synthetic-view.ts", blankComments('requireChild<HTMLElement>(handedIn, "command");')],
+  ]);
+
+  expect(extractReferences(synthetic)).toEqual({
+    references: [],
+    unresolved: ['synthetic-view.ts: requireChild(handedIn, "command")'],
+  });
 });
 
 it("reads no lookup out of prose that merely mentions one", () => {
