@@ -42,18 +42,21 @@ it("dims every disabled control and refuses the cursor on it", () => {
   expect(body).toMatch(/cursor:\s*not-allowed/);
 });
 
-it("dims disabled controls and not-applicable sections by the same token, not the same number twice", () => {
-  // The two treatments say the same thing ("here, but not available to you"),
-  // so they have to agree by construction. Two literal `0.55`s would agree
-  // only until the first time either was tuned.
+it("dims every inert control through one token, not the same number written twice", () => {
+  // More than one rule dims something for being unavailable — the control
+  // itself, and the label wrapping it — and they have to agree by
+  // construction: two literal `0.55`s would agree only until the first time
+  // either was tuned. Asserted over the whole `:disabled` family rather than
+  // by naming its members, so the next one added is covered for free.
   const declarations = [...CSS.matchAll(/--inert-opacity:\s*([^;]+);/g)];
   expect(declarations).toHaveLength(1);
-  const notApplicable = rules().filter(
-    ([selector]) => selector === ".settings-section.not-applicable",
-  );
-  expect(notApplicable).toHaveLength(1);
-  expect(notApplicable[0][1]).toMatch(/opacity:\s*var\(--inert-opacity\)/);
-  expect(notApplicable[0][1]).not.toMatch(/opacity:\s*[\d.]/);
+  const opacities = rules()
+    .filter(([selector]) => selector.includes(":disabled"))
+    .flatMap(([, body]) => [...body.matchAll(/opacity:\s*([^;]+);/g)].map((m) => m[1].trim()));
+  // The token, plus the `1` that resets the checkbox nested inside a dimmed
+  // label — opacity multiplies through nesting, so that one is not a literal
+  // dimming value but the absence of one.
+  expect(new Set(opacities)).toEqual(new Set(["var(--inert-opacity)", "1"]));
 });
 
 it("reaches the label wrapping a disabled checkbox, which :disabled alone cannot", () => {

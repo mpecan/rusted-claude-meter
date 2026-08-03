@@ -1061,13 +1061,6 @@ input[type="checkbox"] {
   flex-wrap: wrap;
 }
 
-/* Dimmed, never hidden: on the status-line source the Terms-of-Service
-   question does not apply, but removing it outright would make switching back
-   feel like the risk had quietly gone away. */
-.settings-section.not-applicable {
-  opacity: var(--inert-opacity);
-}
-
 /* Inert controls (issue #78). A disabled control had no styling at all, so the
    wizard's consent Continue looked pressable and simply ignored the click, and
    the autostart toggle read as broken rather than busy while its IPC call was

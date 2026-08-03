@@ -28,6 +28,7 @@ import {
   scopedModelNames,
   squareTrayHint,
   toggleModel,
+  usageSourceFormState,
 } from "./settings-view-model";
 import {
   REFRESH_INTERVAL_OPTIONS,
@@ -45,9 +46,7 @@ import {
 } from "./types";
 import {
   STATUSLINE_NO_SCOPED_MODELS,
-  STATUSLINE_NO_SESSION_KEY,
   USAGE_SOURCE_OPTIONS,
-  tosAppliesTo,
   usageSourceHint,
 } from "./usage-source";
 import { createStatuslineSetup } from "./statusline-setup";
@@ -97,7 +96,6 @@ export function initSettingsView(backend: UsageBackend): void {
   const scopedSourceHint = requireElement<HTMLElement>("scoped-source-hint");
   const tosSection = requireElement<HTMLElement>("settings-tos-section");
   const sessionSection = requireElement<HTMLElement>("settings-session-section");
-  const sessionSourceHint = requireElement<HTMLElement>("settings-session-source-hint");
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("refresh-interval-select");
   const warningInput = requireElement<HTMLInputElement>("warning-threshold");
   const warningValue = requireElement<HTMLElement>("warning-threshold-value");
@@ -135,7 +133,6 @@ export function initSettingsView(backend: UsageBackend): void {
 
   renderSelectOptions(usageSourceSelect, USAGE_SOURCE_OPTIONS);
   scopedSourceHint.textContent = STATUSLINE_NO_SCOPED_MODELS;
-  sessionSourceHint.textContent = STATUSLINE_NO_SESSION_KEY;
   const statuslineSetup = createStatuslineSetup(backend, "statusline-setup");
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
 
@@ -243,7 +240,34 @@ export function initSettingsView(backend: UsageBackend): void {
     setSegmentedValue(displayModeToggle, settings.pace_first_display ? "pace" : "consumption");
     setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
     tosConsent.checked = settings.tos_acknowledged;
+    // Source-independent now that the row is hidden wherever it would not
+    // apply, so it belongs here with the checkbox it describes rather than in
+    // `applyUsageSourceToForm`.
+    tosState.textContent = tosStateHint(settings.tos_acknowledged);
     applyUsageSourceToForm();
+  }
+
+  /** Make every control in the two claude.ai-only sections match the chosen
+   * source, alongside the sections' own `hidden`.
+   *
+   * Swept live rather than from a fixed list, because `browser-import-list` is
+   * rebuilt from `listBrowserSessions()` *after* this has already run — and a
+   * fixed list would silently miss exactly the buttons that can start a
+   * claude.ai request. Safe to sweep because nothing else in these two
+   * sections owns a `disabled` state; `loadBrowserList` re-runs it after each
+   * rebuild, which is what covers the rows it just replaced. The selector
+   * matches the one `styles.css` dims, so anything caught here is also seen to
+   * be inert if it ever ends up on screen. */
+  function applyClaudeAiControlAvailability(): void {
+    const { claudeAiControlsDisabled } = usageSourceFormState(settings.usage_source);
+    for (const section of [tosSection, sessionSection]) {
+      const controls = section.querySelectorAll<
+        HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >("button, input, select, textarea");
+      for (const control of controls) {
+        control.disabled = claudeAiControlsDisabled;
+      }
+    }
   }
 
   /** Everything that keys off which source is selected. The status-line setup
@@ -253,23 +277,22 @@ export function initSettingsView(backend: UsageBackend): void {
     const source = settings.usage_source;
     usageSourceSelect.value = source;
     usageSourceHintEl.textContent = usageSourceHint(source);
-    // One spelling of the predicate, from the module that owns source
-    // semantics — four UI decisions below key off it.
-    const statusline = !tosAppliesTo(source);
-    statuslineSetup.setVisible(statusline);
-    scopedSourceHint.hidden = !statusline;
-    // The consent question is about claude.ai traffic. On the status-line
-    // source there is none, so the warning is dimmed rather than removed —
-    // switching back must not feel like the risk quietly disappeared.
-    tosSection.classList.toggle("not-applicable", statusline);
-    // …and say so, rather than leaving "Tracking is paused" under a meter
-    // that is working perfectly well off Claude Code.
-    tosState.textContent = tosStateHint(settings.tos_acknowledged, !statusline);
-    // The session field would be refused outright on this source (the backend
-    // returns `WrongSource`), so it is dimmed and explained rather than left
-    // looking usable.
-    sessionSection.classList.toggle("not-applicable", statusline);
-    sessionSourceHint.hidden = !statusline;
+    // Which way each flag points is `usageSourceFormState`'s decision, not
+    // this function's — they do not all point the same way, and this half is
+    // pure application so an inverted one cannot hide here.
+    //
+    // Both claude.ai sections go entirely on the status-line source: it
+    // originates no claude.ai request, so the consent question has no subject
+    // and a pasted key would be refused outright (`WrongSource`). They used to
+    // be dimmed-but-present, so switching back would not feel like the risk
+    // had quietly disappeared — but a Terms-of-Service warning left on screen
+    // against a source it does not govern is the more misleading of the two.
+    const form = usageSourceFormState(source);
+    statuslineSetup.setVisible(form.statuslineSetupVisible);
+    scopedSourceHint.hidden = form.scopedModelsHintHidden;
+    tosSection.hidden = form.claudeAiSectionsHidden;
+    sessionSection.hidden = form.claudeAiSectionsHidden;
+    applyClaudeAiControlAvailability();
   }
 
   function refreshSessionStatus(): void {
@@ -344,6 +367,9 @@ export function initSettingsView(backend: UsageBackend): void {
       .listBrowserSessions()
       .then((browsers) => {
         renderBrowserList(browserImportList, browsers, handleBrowserImport, handleOpenSettingsPane);
+        // The rows are new elements, so they arrive enabled whatever the
+        // source is — including one that cannot import at all.
+        applyClaudeAiControlAvailability();
       })
       .catch((error: unknown) => {
         console.error("failed to list importable browsers", error);
@@ -531,7 +557,7 @@ export function initSettingsView(backend: UsageBackend): void {
   tosConsent.addEventListener("change", () => {
     const acknowledged = tosConsent.checked;
     settings = { ...settings, tos_acknowledged: acknowledged };
-    tosState.textContent = tosStateHint(acknowledged, tosAppliesTo(settings.usage_source));
+    tosState.textContent = tosStateHint(acknowledged);
     backend.setTosAcknowledged(acknowledged).catch((error: unknown) => {
       console.error("failed to persist ToS acknowledgement", error);
     });
