@@ -15,7 +15,7 @@ dupes_max_near_percent := "1.5"
 dupes_excludes := "--exclude 'target/*' --exclude 'node_modules/*' --exclude 'dist/*' --exclude 'src-tauri/gen/*'"
 
 # Run all checks (what CI runs)
-check: fmt-check lint test file-size lockfile-versions deny dupes coverage frontend-typecheck frontend-test
+check: fmt-check lint lint-lite test file-size lockfile-versions deny dupes coverage frontend-typecheck frontend-test
 
 # One-time setup after cloning
 setup:
@@ -34,6 +34,12 @@ fmt-check:
 # Run clippy (warnings are errors)
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
+
+# Lint the "lite" build too (browser import and the `rookie` crate compiled
+# out). CI runs this as its own step; without it here, a parameter used only
+# under `#[cfg(feature = "browser-import")]` passes locally and fails on CI.
+lint-lite:
+    cargo clippy -p rusted-claude-meter --no-default-features --all-targets -- -D warnings
 
 # Run all Rust tests
 test:

@@ -89,7 +89,7 @@ pub async fn import_browser_session(
     {
         // Browser import is compiled out in this build; manual session-key
         // paste is the way in.
-        let _ = (state, scheduler, consent, browser);
+        let _ = (state, scheduler, consent, selection, browser);
         Err(BrowserImportError::Unsupported(
             "Browser import isn't available in this build — paste your session key instead."
                 .to_owned(),
