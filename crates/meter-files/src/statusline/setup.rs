@@ -168,13 +168,14 @@ fn current_exe() -> PathBuf {
 /// an IPC handler (Settings' "Copy command"), and extracting a binary is
 /// launch work, not something a button press should trigger.
 fn current_invocation() -> String {
-    let image = appimage::running_from();
+    let exe = current_exe();
+    let image = appimage::running_from(&exe);
     let extracted = image
         .is_some()
         .then(|| super::home_path(appimage::BIN_DIR))
         .flatten()
         .map(|bin_dir| appimage::bridge_copy(&bin_dir));
-    invocation_for(&current_exe(), image.as_deref(), extracted.as_deref())
+    invocation_for(&exe, image.as_deref(), extracted.as_deref())
 }
 
 /// [`command_for`] against this install.
@@ -189,11 +190,15 @@ pub fn current_command() -> String {
 /// modes are replacing an existing status line and reading stdin twice (which
 /// hangs), so both are called out rather than left to be inferred.
 ///
-/// `appimage` adds one further note, because that install has a third failure
-/// mode the others do not: the command outlives only *this* image file. With
-/// `None` the document is byte-for-byte the one that shipped before issue #74.
+/// `note` is `appimage::note` on an `AppImage` install, because that one has a
+/// third failure mode the others do not: the command outlives only *this*
+/// image file. Rendered by the caller rather than decided here — which of its
+/// two forms applies depends on whether the extraction succeeded, which is
+/// `statusline::appimage`'s business and not this document's. Empty everywhere
+/// else, where the document is then byte-for-byte the one that shipped before
+/// issue #74.
 #[must_use]
-pub fn document(invocation: &str, appimage: Option<&Path>) -> String {
+pub fn document(invocation: &str, note: &str) -> String {
     format!(
         "Rusted Claude Meter — Claude Code status line
 ============================================
@@ -237,7 +242,6 @@ This file is rewritten by Rusted Claude Meter on every launch. Edit the
 status line, not this file.
 ",
         command = command_for(invocation),
-        note = appimage.map(appimage::note).unwrap_or_default(),
     )
 }
 
@@ -262,21 +266,33 @@ fn document_for(exe: &Path, appimage: Option<&Path>, claudemeter: Option<&Path>)
     {
         eprintln!("could not extract the status-line bridge from the AppImage: {error}");
     }
-    document(&invocation_for(exe, appimage, copy.as_deref()), appimage)
+    // Probed once and used twice: the command and the note that explains it
+    // must describe the same install, or the document argues with itself.
+    let extracted = copy.as_deref().and_then(bridge_at);
+    document(
+        &invocation_for(exe, appimage, extracted),
+        &appimage.map_or_else(String::new, |image| appimage::note(image, extracted)),
+    )
 }
 
 /// Write the setup document for this install. Best-effort: a failure here
 /// costs a convenience, never the app, so callers log and continue — exactly
 /// how `export.rs`'s write is treated.
 pub fn write(path: &Path) -> io::Result<()> {
-    atomic_write(
-        path,
-        &document_for(
-            &current_exe(),
-            appimage::running_from().as_deref(),
-            path.parent(),
-        ),
-    )
+    let exe = current_exe();
+    write_for(path, &exe, appimage::running_from(&exe).as_deref())
+}
+
+/// The half of [`write`] that is a decision rather than a reading of this
+/// process, so the whole of it can be exercised against a staged install.
+///
+/// `~/.claudemeter/` is derived from `path`'s own parent rather than passed
+/// alongside it: the setup document and the extracted bridge live in the same
+/// directory by construction, and a second parameter naming it is a second
+/// chance to name a different one. That leaves [`write`] itself two calls into
+/// the environment and nothing else — the only lines here a test cannot reach.
+fn write_for(path: &Path, exe: &Path, appimage: Option<&Path>) -> io::Result<()> {
+    atomic_write(path, &document_for(exe, appimage, path.parent()))
 }
 
 #[cfg(test)]
@@ -420,7 +436,7 @@ mod tests {
     /// would break a working status line, so both must be stated outright.
     #[test]
     fn the_document_warns_against_replacing_and_against_double_reading_stdin() {
-        let doc = document(&aliased("/usr/bin/rcm"), None);
+        let doc = document(&aliased("/usr/bin/rcm"), "");
         assert!(doc.contains("KEEP IT"), "{doc}");
         assert!(doc.contains("exactly one command"), "{doc}");
         assert!(doc.contains("Do not read stdin twice"), "{doc}");
@@ -429,7 +445,7 @@ mod tests {
     #[test]
     fn the_document_embeds_the_command_verbatim() {
         let invocation = aliased("/usr/bin/rcm");
-        assert!(document(&invocation, None).contains(&command_for(&invocation)));
+        assert!(document(&invocation, "").contains(&command_for(&invocation)));
     }
 
     /// The merge example must carry the real quoted path too, or an agent
@@ -438,7 +454,7 @@ mod tests {
     fn the_merge_example_carries_the_real_path_not_a_placeholder() {
         let doc = document(
             &aliased("/Applications/Rusted Claude Meter.app/Contents/MacOS/rcm"),
-            None,
+            "",
         );
         assert!(
             !doc.contains('<') || !doc.contains("path from the command"),
@@ -460,8 +476,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (gui, _) = installed(&dir);
         for doc in [
-            document(&invocation_for(&gui, None, None), None),
-            document(&aliased("/x/rcm"), None),
+            document(&invocation_for(&gui, None, None), ""),
+            document(&aliased("/x/rcm"), ""),
         ] {
             assert!(doc.contains("--pace"), "{doc}");
             assert!(doc.contains("--quiet"), "{doc}");
@@ -473,7 +489,7 @@ mod tests {
     fn the_document_pins_the_claude_code_version_floor() {
         // Below this the payload carries no `rate_limits` at all, so a user
         // would wire everything up correctly and see nothing.
-        assert!(document(&aliased("/usr/bin/rcm"), None).contains("2.1.216"));
+        assert!(document(&aliased("/usr/bin/rcm"), "").contains("2.1.216"));
     }
 
     #[test]
@@ -586,6 +602,62 @@ mod tests {
         assert!(!doc.contains("/mount/usr/bin"), "{doc}");
     }
 
+    /// Everything [`write`] adds to that is two readings of this process, and
+    /// the rest — extracting into the directory the document itself lives in —
+    /// had no test of its own: passing `None` for the image, or a directory
+    /// from somewhere else, left every assertion above green while the shipped
+    /// `AppImage` went back to recording its mount path. So the seam sits one
+    /// call out, and this walks it end to end.
+    #[test]
+    fn writing_extracts_into_the_directory_the_document_itself_lives_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let mount = dir.path().join("mount/usr/bin");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(mount.join(BRIDGE_BIN), "the bridge").unwrap();
+        let image = dir.path().join("RustedClaudeMeter.AppImage");
+        std::fs::write(&image, "").unwrap();
+        let path = claudemeter_path(dir.path(), SETUP_FILE);
+
+        write_for(&path, &mount.join(FALLBACK_EXE), Some(&image)).unwrap();
+
+        let copy = path
+            .parent()
+            .unwrap()
+            .join(appimage::BIN_DIR)
+            .join(BRIDGE_BIN);
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), "the bridge");
+        let doc = std::fs::read_to_string(&path).unwrap();
+        assert!(doc.contains(&copy.display().to_string()), "{doc}");
+        assert!(!doc.contains("/mount/usr/bin"), "{doc}");
+    }
+
+    /// When the extraction fails — an image predating the standalone bridge,
+    /// a read-only home — the command falls back to the image itself, and the
+    /// note beside it has to describe *that* install. A note promising a copy
+    /// in `~/.claudemeter/bin/` sends the one user whose setup went wrong
+    /// looking for a file no restart will ever produce.
+    #[test]
+    fn a_failed_extraction_is_described_as_the_image_running_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("RustedClaudeMeter.AppImage");
+        std::fs::write(&image, "").unwrap();
+        let claudemeter = dir.path().join(".claudemeter");
+
+        // Nothing to extract: the mount holds no bridge binary at all.
+        let doc = document_for(
+            &dir.path().join("mount/usr/bin").join(FALLBACK_EXE),
+            Some(&image),
+            Some(claudemeter.as_path()),
+        );
+
+        assert!(doc.contains("runs the AppImage itself"), "{doc}");
+        assert!(!doc.contains("copy of the bridge"), "{doc}");
+        assert!(
+            doc.contains(&format!("{}' {SUBCOMMAND}", image.display())),
+            "{doc}"
+        );
+    }
+
     /// The other half of that: an ordinary install must gain no side effect at
     /// all from issue #74 — no directory, no copy, no extra work per launch.
     #[test]
@@ -606,7 +678,7 @@ mod tests {
     #[test]
     fn the_document_warns_that_an_appimage_command_is_tied_to_this_install() {
         let image = Path::new("/home/you/Applications/RustedClaudeMeter.AppImage");
-        let doc = document(&aliased("/x/rcm"), Some(image));
+        let doc = document(&aliased("/x/rcm"), &appimage::note(image, None));
         assert!(doc.contains(&image.display().to_string()), "{doc}");
         assert!(doc.contains("re-run /statusline"), "{doc}");
     }
@@ -615,6 +687,6 @@ mod tests {
     /// document every other install reads byte-identical to before.
     #[test]
     fn the_document_says_nothing_about_appimages_on_an_ordinary_install() {
-        assert!(!document(&aliased("/usr/bin/rcm"), None).contains("AppImage"));
+        assert!(!document(&aliased("/usr/bin/rcm"), "").contains("AppImage"));
     }
 }

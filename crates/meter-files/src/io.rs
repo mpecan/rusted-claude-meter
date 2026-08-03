@@ -54,7 +54,16 @@ pub fn atomic_write(path: &Path, body: &str) -> io::Result<()> {
     atomic_replace(path, 0o600, |tmp| fs::write(tmp, body))
 }
 
-/// Copy `source` over `dest` atomically, leaving it owner-executable (`0755`).
+/// The mode [`atomic_copy`] leaves behind: readable and executable, writable
+/// by its owner alone.
+///
+/// Named because it is a two-sided fact — `statusline::appimage` asks "is this
+/// still the copy we made?" of the same number, and a copy whose mode has
+/// drifted (a backup restored without mode bits, an over-permissive `chmod`)
+/// is not one, however identical its bytes.
+pub(crate) const EXECUTABLE_MODE: u32 = 0o755;
+
+/// Copy `source` over `dest` atomically, leaving it [`EXECUTABLE_MODE`].
 ///
 /// The third form of the idiom, for the one thing this app puts on disk that
 /// is not a document: the status-line bridge extracted out of an `AppImage`'s
@@ -67,7 +76,7 @@ pub fn atomic_write(path: &Path, body: &str) -> io::Result<()> {
 /// platforms — the running process keeps the old inode — so an upgrade can
 /// refresh the copy while a status-line render is in flight.
 pub fn atomic_copy(source: &Path, dest: &Path) -> io::Result<()> {
-    atomic_replace(dest, 0o755, |tmp| fs::copy(source, tmp).map(drop))
+    atomic_replace(dest, EXECUTABLE_MODE, |tmp| fs::copy(source, tmp).map(drop))
 }
 
 /// The shared dance: `create_dir_all` the parent, let `fill` produce the temp

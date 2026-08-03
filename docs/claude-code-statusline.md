@@ -53,7 +53,9 @@ The setup block that appears contains the exact command for your install, with t
 
 If you run the Linux AppImage, the command names a **copy** of the bridge kept at `~/.claudemeter/bin/rusted-claude-meter-statusline`, not a path inside the image. It has to: an AppImage is mounted at a fresh `/tmp/.mount_…` directory for the lifetime of each run, so a command naming anything inside it works until you quit the app and never again.
 
-The app refreshes that copy every time it starts, so upgrading the AppImage upgrades the bridge — but **start the app once after upgrading**, before relying on the status line. And if you move, rename or replace the `.AppImage` file itself, start the app once and re-run the `/statusline` command below: the recorded command belongs to the install it was generated from. `~/.claudemeter/statusline-command.txt` says so too.
+The app refreshes that copy every time it starts, so upgrading the AppImage upgrades the bridge — but **start the app once after upgrading**, before relying on the status line. The same refresh repairs a copy that has stopped being executable, which is what a backup or file-sync tool that drops permission bits leaves behind. And if you move, rename or replace the `.AppImage` file itself, start the app once and re-run the `/statusline` command below: the recorded command belongs to the install it was generated from. `~/.claudemeter/statusline-command.txt` says so too.
+
+If the copy cannot be made at all — a read-only home, or an AppImage predating the standalone bridge — the command runs the AppImage itself instead. That is slower on every status-line redraw but it survives a restart, which a path inside the mount does not; `statusline-command.txt` says which of the two your install got.
 
 Uninstalling the AppImage does not remove the copy. It is harmless — it only reports what Claude Code hands it — but `rm -rf ~/.claudemeter/bin` if you want it gone.
 
