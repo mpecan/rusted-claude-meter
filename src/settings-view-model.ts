@@ -8,7 +8,9 @@ import type {
   IconStyle,
   LinuxDesktop,
   UsageSnapshot,
+  UsageSource,
 } from "./types";
+import { tosAppliesTo } from "./usage-source";
 
 /** The settings a fresh install starts from, before `getSettings()`
  * resolves. Mirrors `settings::AppSettings::default()` on the Rust side,
@@ -38,6 +40,39 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // pre-resolve render never implies a source the user has not chosen.
   usage_source: "claude_ai",
 };
+
+/** Every part of the Settings form that keys off the chosen usage source,
+ * returned as the DOM flags it becomes rather than as the predicate it comes
+ * from.
+ *
+ * A function, and named after the attributes, for the same reason
+ * `wizard-view-model.ts::consentGateState` is: the flags do not all point the
+ * same way — the setup block is *shown* on the very source that *hides* the
+ * two claude.ai sections — and inverting one on the way to the DOM is the
+ * mistake worth catching. Getting `claudeAiSectionsHidden` backwards would put
+ * a live Terms-of-Service consent box in front of someone whose source cannot
+ * use it, which is the failure this whole area exists to prevent.
+ *
+ * `tosAppliesTo` is the one spelling of the underlying predicate; this is the
+ * only place the Settings panel reads it. */
+export function usageSourceFormState(source: UsageSource): {
+  statuslineSetupVisible: boolean;
+  scopedModelsHintHidden: boolean;
+  claudeAiSectionsHidden: boolean;
+  claudeAiControlsDisabled: boolean;
+} {
+  // "The chosen source is the status line", i.e. nothing here reaches
+  // claude.ai. Every flag below is this or its inverse.
+  const statusline = !tosAppliesTo(source);
+  return {
+    statuslineSetupVisible: statusline,
+    scopedModelsHintHidden: !statusline,
+    // Hidden *and* disabled: `hidden` is presentation and one stray CSS rule
+    // undoes it, `disabled` is what stops the control acting.
+    claudeAiSectionsHidden: statusline,
+    claudeAiControlsDisabled: statusline,
+  };
+}
 
 /** Deduped, snapshot-order list of every scoped model's display name in the
  * latest snapshot — the source for Settings' one-toggle-per-model list. A

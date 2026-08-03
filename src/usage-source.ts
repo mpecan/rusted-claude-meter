@@ -62,12 +62,6 @@ export const STATUSLINE_SETUP_MANUAL =
 export const STATUSLINE_NO_SCOPED_MODELS =
   "Model-scoped limits and the spend view need claude.ai — Claude Code does not report them.";
 
-/** Said where the session field lives, when it cannot do anything. The field
- * is dimmed rather than removed for the same reason the Terms-of-Service
- * warning is: switching back must not feel like something vanished. */
-export const STATUSLINE_NO_SESSION_KEY =
-  "Not needed on this source — Claude Code reports usage without one, and the app makes no claude.ai request to validate it.";
-
 /** Shown under the wizard's consent checkbox (issue #71).
  *
  * The step is a dead end for anyone unwilling to accept the risk: the

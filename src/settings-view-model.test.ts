@@ -8,6 +8,7 @@ import {
   squareTrayHint,
   squareTrayStyles,
   toggleModel,
+  usageSourceFormState,
 } from "./settings-view-model";
 
 function limit(displayName: string): ScopedLimit {
@@ -147,5 +148,50 @@ describe("square tray hint (Plasma's square cell)", () => {
 
   it("says nothing when there is no better style to offer", () => {
     expect(squareTrayHint("kde", "battery", [preview("battery", 66)])).toBeNull();
+  });
+});
+
+describe("usageSourceFormState", () => {
+  it("hides and disables the claude.ai sections on the Claude Code source", () => {
+    // The point of the change: the Terms-of-Service warning and the session
+    // field are about claude.ai traffic, and this source originates none.
+    // Hidden *and* disabled — `hidden` is presentation, `disabled` is what
+    // stops the consent checkbox acting if anything ever puts it back on
+    // screen.
+    const state = usageSourceFormState("claude_code_statusline");
+    expect(state.claudeAiSectionsHidden).toBe(true);
+    expect(state.claudeAiControlsDisabled).toBe(true);
+  });
+
+  it("shows and enables them on claude.ai, where the consent question is real", () => {
+    const state = usageSourceFormState("claude_ai");
+    expect(state.claudeAiSectionsHidden).toBe(false);
+    expect(state.claudeAiControlsDisabled).toBe(false);
+  });
+
+  it("points the setup block the opposite way from the sections it replaces", () => {
+    // The flags deliberately do not all agree, which is the whole reason this
+    // is a function rather than one boolean applied five times: the status-line
+    // source is exactly the one that *shows* the setup block and *hides* the
+    // two claude.ai sections. A copy-paste that made them agree would leave the
+    // user on Claude Code with no setup instructions and a live consent box.
+    const statusline = usageSourceFormState("claude_code_statusline");
+    expect(statusline.statuslineSetupVisible).toBe(true);
+    expect(statusline.scopedModelsHintHidden).toBe(false);
+    expect(statusline.claudeAiSectionsHidden).toBe(true);
+
+    const claudeAi = usageSourceFormState("claude_ai");
+    expect(claudeAi.statuslineSetupVisible).toBe(false);
+    expect(claudeAi.scopedModelsHintHidden).toBe(true);
+  });
+
+  it("gives every flag the opposite value on the two sources", () => {
+    // Nothing here is source-independent, so a flag that came out the same
+    // both ways would be one someone forgot to wire up.
+    const statusline = usageSourceFormState("claude_code_statusline");
+    const claudeAi = usageSourceFormState("claude_ai");
+    for (const key of Object.keys(statusline) as (keyof typeof statusline)[]) {
+      expect(statusline[key]).toBe(!claudeAi[key]);
+    }
   });
 });
