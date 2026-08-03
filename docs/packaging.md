@@ -6,8 +6,8 @@ flow that needs no manual version bumps or artifact handling.
 
 ## Release process
 
-Two distinct workflows, split on purpose so building never runs on a plain
-tag push:
+Three workflows, split on purpose so building never runs on a plain tag push
+and so the distribution channels can be retried without it:
 
 1. **`.github/workflows/release-please.yml`** (on push to `main`) maintains a
    **release PR** via
@@ -41,6 +41,10 @@ tag push:
    notarizing the macOS DMG when the Apple secrets are set. Artifacts upload
    onto the existing release (found by id), and the macOS leg renders +
    uploads the Homebrew cask (`scripts/render-cask.sh`).
+3. **`.github/workflows/aur.yml`** publishes the Arch package. `release.yml`
+   calls it, but it is also dispatchable on its own by tag — it needs nothing
+   from the release but the tag, so a failed AUR push is retried without the
+   macOS jobs behind it. See [AUR](#aur) below.
 
 Nothing beyond merging the release PR is manual — the version bump is
 automatic. `ubuntu-22.04` (not `-latest`) is deliberate: an AppImage/deb built
@@ -272,9 +276,9 @@ notarized DMG asset, so it only resolves once the release is published.
 
 ## AUR
 
-The Arch package in `packaging/aur/` is published by the `publish-aur` job in
-the same workflow, on the same trigger, and for the same reason as the cask
-push: a release that ships without updating its distribution channels is a
+The Arch package in `packaging/aur/` is published by `.github/workflows/aur.yml`,
+which `release.yml` calls on the same trigger and for the same reason as the
+cask push: a release that ships without updating its distribution channels is a
 release users do not get.
 
 It differs from the cask in one way worth knowing. The cask is *rendered* from
@@ -286,10 +290,17 @@ versions a human has to remember to bump — which otherwise made it a fourth
 version location outside release-please's reach, alongside `Cargo.toml`,
 `tauri.conf.json` and `package.json`.
 
-The job also *builds* the package before pushing, on `ubuntu-latest`, which is
+It also *builds* the package before pushing, on `ubuntu-latest`, which is
 x86_64 and so matches `arch=('x86_64')` natively. That is the only place the
 AUR package is exercised in CI. Locally the equivalent is `just arch-makepkg`
 against the Rosetta VM — see `harness/README.md`.
+
+That build is why the workflow is two jobs — `build` then `publish` — and not
+one. The expensive half compiles the whole app under `makepkg`; the fragile
+half pushes over SSH to a third-party host and opens a PR against a protected
+branch, which is where the failures actually happen. Fused, every retry of a
+bad push paid for the compile again. Retrying is
+[documented with the package](../packaging/aur/README.md#retrying-a-failed-push).
 
 Setup is one secret, `AUR_SSH_PRIVATE_KEY`; without it the job skips and the
 release still ships. Details and the manual first-import in

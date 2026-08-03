@@ -41,15 +41,38 @@ cd rusted-claude-meter/packaging/aur && makepkg -si
 
 ## Publishing to the AUR
 
-**Automated.** The `publish-aur` job in `.github/workflows/release.yml` runs on
-every published release and does the whole thing: sets `pkgver` from the tag,
-resets `pkgrel`, refreshes `sha256sums` with `updpkgsums`, regenerates
-`.SRCINFO`, **builds the package to prove it still works**, pushes to
-`ssh://aur@aur.archlinux.org/rusted-claude-meter.git`, and opens a PR syncing
-the result back here.
+**Automated.** `.github/workflows/aur.yml` runs on every published release
+(`release.yml` calls it) in two jobs:
+
+| Job | Does |
+| --- | --- |
+| `build` | Sets `pkgver` from the tag, resets `pkgrel`, refreshes `sha256sums` with `updpkgsums`, regenerates `.SRCINFO` — then **builds the package to prove it still works** (`makepkg -f`), and uploads the two computed files as an artifact |
+| `publish` | Pushes them to `ssh://aur@aur.archlinux.org/rusted-claude-meter.git`, then opens a PR syncing the result back here |
 
 Nothing needs pushing between releases. The `source=` is a tagged tarball, so
 the package cannot change until there is a new tag.
+
+### Retrying a failed push
+
+The two jobs are split there because the slow work and the fragile work are
+different work: `build` compiles the whole app, while `publish` pushes to a
+third-party host and opens a PR against a protected branch, which is where
+this actually breaks. Fused, a retry of the push dragged the compile along.
+Two ways to retry without it:
+
+* **Re-run failed jobs** on the release run. `build` already succeeded, so
+  only `publish` re-runs, against the artifact from the earlier attempt — a
+  partial re-run moves artifacts into the new attempt rather than deleting
+  them.
+* **Run the `AUR` workflow from the Actions tab** with the tag and
+  `verify: false`. That redoes the metadata refresh (which needs no toolchain,
+  so it installs none) and pushes, skipping the compile — and skipping
+  `release.yml`'s macOS jobs entirely. Use it when the original run is too old
+  to re-run, or when the fix was to the workflow itself. It publishes a
+  package nothing built, so the run carries a warning annotation saying so.
+
+Both are idempotent: an unchanged `PKGBUILD`/`.SRCINFO` pair is a no-op push,
+and an unchanged sync branch opens no PR.
 
 That sync PR is committed through GitHub's API
 (`peter-evans/create-pull-request` with `sign-commits`), not with the git CLI,
@@ -68,9 +91,12 @@ silently and in a different way:
 | `.SRCINFO` | Generated, and it is what pacman clients read **instead of** the PKGBUILD — stale, it advertises the wrong version whatever the PKGBUILD says. |
 
 Setup is one secret: **`AUR_SSH_PRIVATE_KEY`**, the private half of a key
-registered on the AUR account that owns the package. Without it the job logs a
-skip and the release still ships — the AUR just lags, the same way a missing
-Apple secret degrades signing rather than failing the run. The AUR host key is
+registered on the AUR account that owns the package. Without it both jobs
+report a skip and the release still ships — the AUR just lags, the same way a
+missing Apple secret degrades signing rather than failing the run. (The
+`REPOSITORY_BUTLER_*` pair the sync PR needs is *not* optional in the same way:
+it is read after the AUR push has landed, so `aur.yml` declares it
+`required: true` rather than pretending it degrades.) The AUR host key is
 pinned in the workflow (`SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4`)
 rather than accepted on first use.
 
