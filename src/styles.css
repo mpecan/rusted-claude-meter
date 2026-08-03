@@ -28,6 +28,14 @@
   --track-bg: rgb(20 18 10 / 9%);
   --banner-bg: rgb(20 18 10 / 4%);
   --input-bg: #ffffff;
+  /* How far anything inert is dimmed — a disabled control, or a settings
+     section the chosen source makes moot. One token because the two are the
+     same statement ("this is here but not available to you right now") and two
+     literals saying 0.55 would drift the first time either is tuned.
+     Deliberately not overridden in the dark-scheme block below: inert is the
+     same amount of inert in both themes, and the value is a ratio against
+     whatever the surrounding text colour already is. */
+  --inert-opacity: 0.55;
 
   font-family:
     Inter,
@@ -1057,5 +1065,40 @@ input[type="checkbox"] {
    question does not apply, but removing it outright would make switching back
    feel like the risk had quietly gone away. */
 .settings-section.not-applicable {
-  opacity: 0.55;
+  opacity: var(--inert-opacity);
+}
+
+/* Inert controls (issue #78). A disabled control had no styling at all, so the
+   wizard's consent Continue looked pressable and simply ignored the click, and
+   the autostart toggle read as broken rather than busy while its IPC call was
+   in flight. Element selectors rather than `.primary-button`/`.ghost-button` by
+   name: `disabled` is the state the browser already knows about, so the next
+   control to grow a disabled state is right without anyone remembering to add
+   its class here. The two places the app disables something today are
+   `wizard.ts::syncConsent` (plus the markup's initial `disabled`) and
+   `settings-view.ts`'s autostart toggle. */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: var(--inert-opacity);
+  cursor: not-allowed;
+}
+
+/* A wrapping label is the visible half of a checkbox — "Launch at login" is
+   text in the label, not in the input — and `:disabled` cannot reach it from
+   the input. Its own rule rather than another entry in the list above, because
+   an engine without `:has()` (WebKitGTK < 2.42) drops the *whole* selector list
+   a `:has()` appears in: merged, an old engine would lose the base treatment
+   too, which is a far worse trade than losing the label dimming alone. */
+label:has(input:disabled) {
+  opacity: var(--inert-opacity);
+  cursor: not-allowed;
+}
+
+/* Opacity multiplies through nesting, so a dimmed label containing a dimmed box
+   renders the box at 0.55 x 0.55 ≈ 0.30 — faded past reading as merely
+   unavailable. The label already carries the dimming for both halves. */
+label:has(input:disabled) input:disabled {
+  opacity: 1;
 }

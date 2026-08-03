@@ -36,6 +36,7 @@ import {
   DOCS_URL,
   TOS_BODY,
   TOS_CONSENT_LABEL,
+  TOS_CONSENT_REQUIRED_HINT,
   TOS_HEADLINE,
   TOS_MITIGATION,
 } from "./tos-notice";
@@ -140,6 +141,7 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   const consentContinueButton = requireElement<HTMLButtonElement>(
     "wizard-consent-continue-button",
   );
+  const consentBlockedReason = requireElement<HTMLElement>("wizard-consent-blocked-reason");
 
   const browserImportList = requireElement<HTMLElement>("wizard-browser-import-list");
   const sessionForm = requireElement<HTMLFormElement>("wizard-session-form");
@@ -172,6 +174,8 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   tosConsentLabel.textContent = TOS_CONSENT_LABEL;
   // The way out of this step for anyone unwilling to tick the box.
   tosAlternative.textContent = TOS_DECLINE_ALTERNATIVE;
+  // …and, for anyone who is willing, what the inert Continue is waiting for.
+  consentBlockedReason.textContent = TOS_CONSENT_REQUIRED_HINT;
 
   const iconStylePicker = createIconStylePicker(iconStyleContainer, "battery", (style) => {
     backend.setIconStyle(style).catch((error: unknown) => {
@@ -215,9 +219,25 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
    * wizard has still consented, and one who unticks it has still withdrawn.
    *
    * The checkbox is the only way past this step: there is no "skip" and no
-   * "decide later", because every step after it involves contacting claude.ai. */
+   * "decide later", because every step after it involves contacting claude.ai.
+   *
+   * The reason Continue is inert moves with the flag (issue #78), as a visible
+   * paragraph the button points `aria-describedby` at rather than a `title`: a
+   * disabled button is not focusable, so anything hung off the button itself is
+   * announced to nobody, and a tooltip is invisible to keyboard and touch. Both
+   * the paragraph and the reference go the moment the box is ticked — a
+   * description of a state the control is no longer in is worse than none. */
   function syncConsent(): void {
-    consentContinueButton.disabled = !tosConsent.checked;
+    const blocked = !tosConsent.checked;
+    consentContinueButton.disabled = blocked;
+    consentBlockedReason.hidden = !blocked;
+    if (blocked) {
+      // The element's own id, never a re-spelled literal, so the reference
+      // cannot dangle — which is a failure ARIA reports to no one.
+      consentContinueButton.setAttribute("aria-describedby", consentBlockedReason.id);
+    } else {
+      consentContinueButton.removeAttribute("aria-describedby");
+    }
   }
 
   /** Move one step along the current source's path. Every Back/Continue goes
