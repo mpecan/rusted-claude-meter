@@ -19,3 +19,21 @@ export function requireElement<T extends HTMLElement>(id: string): T {
   }
   return el as T;
 }
+
+/** The descendant of `root` marked `data-role="<role>"`, or a throw naming
+ * what is missing.
+ *
+ * [`requireElement`] resolves a *global* id, which silently caps a component
+ * at one instance per document. This is the same contract scoped to a
+ * subtree, for blocks that legitimately appear more than once — the
+ * status-line setup block is in both Settings and the wizard. Roles rather
+ * than ids because a duplicated id is invalid HTML and `getElementById`
+ * would hand both instances the first one's elements.
+ */
+export function requireChild<T extends HTMLElement>(root: HTMLElement, role: string): T {
+  const el = root.querySelector<T>(`[data-role="${role}"]`);
+  if (!el) {
+    throw new Error(`missing [data-role="${role}"] inside #${root.id} in index.html`);
+  }
+  return el;
+}

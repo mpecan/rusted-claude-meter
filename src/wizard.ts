@@ -1,8 +1,12 @@
-// DOM wiring for the first-run setup wizard (issue #11): welcome → consent →
-// session (import via #10 or paste) → validate (spinner + friendly errors) →
-// pick icon style + interval → done. The consent step is a hard gate, not a
-// notice: until its checkbox is ticked the Continue button stays disabled and
-// the backend refuses every claude.ai call anyway (see `src-tauri/src/consent.rs`). Kept separate from `main.ts` for the same
+// DOM wiring for the first-run setup wizard (issue #11): welcome → source →
+// then one of two branches (issue #71) → pick icon style + interval → done.
+// Polling claude.ai goes consent → session (import via #10 or paste) →
+// validate (spinner + friendly errors); reading from Claude Code goes to the
+// status-line step instead, since it needs neither consent nor a credential.
+//
+// The consent step is a hard gate, not a notice: until its checkbox is ticked
+// the Continue button stays disabled, and the backend refuses every claude.ai
+// call anyway (see `src-tauri/src/consent.rs`). Kept separate from `main.ts` for the same
 // reason the Settings panel's own render/logic split is: this is a whole
 // self-contained flow with its own element ids, and factoring it out keeps
 // `main.ts` from having to know its internals — `main.ts` only calls
@@ -27,6 +31,7 @@ import { createIconStylePicker } from "./icon-style-picker";
 import { describeError } from "./ipc";
 import type { UsageBackend } from "./ipc";
 import { renderSelectOptions } from "./settings-render";
+import { createStatuslineSetup } from "./statusline-setup";
 import {
   DOCS_URL,
   TOS_BODY,
@@ -35,10 +40,18 @@ import {
   TOS_MITIGATION,
 } from "./tos-notice";
 import { REFRESH_INTERVAL_OPTIONS } from "./types";
-import type { Browser, IconStyle, RefreshInterval } from "./types";
+import type { Browser, IconStyle, RefreshInterval, UsageSource } from "./types";
+import {
+  TOS_DECLINE_ALTERNATIVE,
+  USAGE_SOURCE_OPTIONS,
+  usageSourceHint,
+  wizardDoneSummary,
+} from "./usage-source";
 import {
   type WizardStep,
   describeWizardValidation,
+  nextStep,
+  previousStep,
   stepIndicatorLabel,
   wizardCustomizeDefaults,
 } from "./wizard-view-model";
@@ -54,6 +67,9 @@ export interface WizardCallbacks {
   /** The consent step moved the ToS acknowledgement, so the Settings panel's
    * own checkbox and paused/active hint stay in step with it. */
   onTosAcknowledgedChange(acknowledged: boolean): void;
+  /** The source step decides which branch the wizard takes *and* which
+   * sections Settings dims, so the panel has to hear about it too. */
+  onUsageSourceChange(source: UsageSource): void;
   /** Called every time the wizard closes, finished or cancelled, so the
    * caller can refresh anything the wizard may have changed (session status,
    * browser list). */
@@ -79,15 +95,39 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
 
   const steps: Record<WizardStep, HTMLElement> = {
     welcome: requireElement("wizard-step-welcome"),
+    source: requireElement("wizard-step-source"),
     consent: requireElement("wizard-step-consent"),
     session: requireElement("wizard-step-session"),
     validate: requireElement("wizard-step-validate"),
+    statusline: requireElement("wizard-step-statusline"),
     customize: requireElement("wizard-step-customize"),
     done: requireElement("wizard-step-done"),
   };
 
+  /** Which branch the wizard is on. Held here rather than re-read from the
+   * backend on every transition: the source step writes it the moment it
+   * changes, and every path decision below reads this one value. */
+  let source: UsageSource = "claude_ai";
+
+  /** The step on screen. Tracked because the step *indicator* depends on the
+   * source as well as the step — switching source changes how many steps
+   * there are — so it has to be re-rendered when the source moves, for
+   * whatever step happens to be showing. */
+  let currentStep: WizardStep = "welcome";
+
   const skipButton = requireElement<HTMLButtonElement>("wizard-skip-button");
   const startButton = requireElement<HTMLButtonElement>("wizard-start-button");
+
+  const usageSourceSelect = requireElement<HTMLSelectElement>("wizard-usage-source-select");
+  const usageSourceHintEl = requireElement<HTMLElement>("wizard-usage-source-hint");
+  const sourceBackButton = requireElement<HTMLButtonElement>("wizard-source-back-button");
+  const sourceContinueButton = requireElement<HTMLButtonElement>("wizard-source-continue-button");
+
+  const statuslineSetup = createStatuslineSetup(backend, "wizard-statusline-setup");
+  const statuslineBackButton = requireElement<HTMLButtonElement>("wizard-statusline-back-button");
+  const statuslineContinueButton = requireElement<HTMLButtonElement>(
+    "wizard-statusline-continue-button",
+  );
 
   const tosHeadline = requireElement<HTMLElement>("wizard-tos-headline");
   const tosBody = requireElement<HTMLElement>("wizard-tos-body");
@@ -95,6 +135,7 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   const tosDocsLink = requireElement<HTMLButtonElement>("wizard-tos-docs-link");
   const tosConsent = requireElement<HTMLInputElement>("wizard-tos-consent");
   const tosConsentLabel = requireElement<HTMLElement>("wizard-tos-consent-label");
+  const tosAlternative = requireElement<HTMLElement>("wizard-tos-alternative");
   const consentBackButton = requireElement<HTMLButtonElement>("wizard-consent-back-button");
   const consentContinueButton = requireElement<HTMLButtonElement>(
     "wizard-consent-continue-button",
@@ -116,10 +157,12 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   const refreshIntervalSelect = requireElement<HTMLSelectElement>("wizard-refresh-interval-select");
   const customizeContinueButton = requireElement<HTMLButtonElement>("wizard-customize-continue-button");
 
+  const doneSummary = requireElement<HTMLElement>("wizard-done-summary");
   const gnomeHint = requireElement<HTMLElement>("wizard-gnome-hint");
   const finishButton = requireElement<HTMLButtonElement>("wizard-finish-button");
 
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
+  renderSelectOptions(usageSourceSelect, USAGE_SOURCE_OPTIONS);
 
   // Copy comes from `tos-notice.ts` so the wizard and Settings state the same
   // risk in the same words — see that module's header.
@@ -127,6 +170,8 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
   tosBody.textContent = TOS_BODY.join(" ");
   tosMitigation.textContent = TOS_MITIGATION;
   tosConsentLabel.textContent = TOS_CONSENT_LABEL;
+  // The way out of this step for anyone unwilling to tick the box.
+  tosAlternative.textContent = TOS_DECLINE_ALTERNATIVE;
 
   const iconStylePicker = createIconStylePicker(iconStyleContainer, "battery", (style) => {
     backend.setIconStyle(style).catch((error: unknown) => {
@@ -142,13 +187,18 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     });
 
   function goToStep(step: WizardStep): void {
+    currentStep = step;
     for (const [name, el] of Object.entries(steps)) {
       el.hidden = name !== step;
     }
-    stepIndicator.textContent = stepIndicatorLabel(step);
+    stepIndicator.textContent = stepIndicatorLabel(step, source);
     if (step === "session") {
       loadBrowsers();
+    } else if (step === "statusline") {
+      // Showing the block is what fetches this machine's command.
+      statuslineSetup.setVisible(true);
     } else if (step === "done") {
+      doneSummary.textContent = wizardDoneSummary(source);
       backend
         .linuxDesktop()
         .then((desktop) => {
@@ -168,6 +218,35 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
    * "decide later", because every step after it involves contacting claude.ai. */
   function syncConsent(): void {
     consentContinueButton.disabled = !tosConsent.checked;
+  }
+
+  /** Move one step along the current source's path. Every Back/Continue goes
+   * through these rather than naming its neighbour, so which step follows
+   * which is `wizard-view-model.ts`'s business alone — and the two branches
+   * cannot grow a transition the path does not have. */
+  function advance(from: WizardStep): void {
+    const to = nextStep(from, source);
+    if (to) {
+      goToStep(to);
+    }
+  }
+
+  function back(from: WizardStep): void {
+    const to = previousStep(from, source);
+    if (to) {
+      goToStep(to);
+    }
+  }
+
+  /** Reflect the chosen source: the hint beside the picker, and — because the
+   * choice decides how many steps there are — the indicator for whichever
+   * step is on screen. `currentStep`, not `"source"`: this also runs from
+   * `loadCurrentSettings` while the user is still on `welcome`, and hard-coding
+   * the source step there would label the welcome screen "Step 2". */
+  function syncSource(): void {
+    usageSourceSelect.value = source;
+    usageSourceHintEl.textContent = usageSourceHint(source);
+    stepIndicator.textContent = stepIndicatorLabel(currentStep, source);
   }
 
   function loadBrowsers(): void {
@@ -246,16 +325,32 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     callbacks.onTosAcknowledgedChange(tosConsent.checked);
   });
   tosDocsLink.addEventListener("click", () => handleOpenSettingsPane(DOCS_URL));
-  consentBackButton.addEventListener("click", () => goToStep("welcome"));
-  consentContinueButton.addEventListener("click", () => goToStep("session"));
+  consentBackButton.addEventListener("click", () => back("consent"));
+  consentContinueButton.addEventListener("click", () => advance("consent"));
 
-  sessionBackButton.addEventListener("click", () => goToStep("consent"));
+  usageSourceSelect.addEventListener("change", () => {
+    source = usageSourceSelect.value as UsageSource;
+    syncSource();
+    backend.setUsageSource(source).catch((error: unknown) => {
+      console.error("failed to persist the usage source", error);
+    });
+    callbacks.onUsageSourceChange(source);
+  });
+  sourceBackButton.addEventListener("click", () => back("source"));
+  sourceContinueButton.addEventListener("click", () => advance("source"));
+
+  statuslineBackButton.addEventListener("click", () => back("statusline"));
+  statuslineContinueButton.addEventListener("click", () => advance("statusline"));
+
+  sessionBackButton.addEventListener("click", () => back("session"));
   sessionCancelButton.addEventListener("click", close);
   skipButton.addEventListener("click", close);
-  startButton.addEventListener("click", () => goToStep("consent"));
+  startButton.addEventListener("click", () => advance("welcome"));
 
+  // Retry re-enters the step that failed, which is not "the previous one" on
+  // any path — the validate step is reached from `session` by submitting it.
   validateRetryButton.addEventListener("click", () => goToStep("session"));
-  validateContinueButton.addEventListener("click", () => goToStep("customize"));
+  validateContinueButton.addEventListener("click", () => advance("validate"));
 
   refreshIntervalSelect.addEventListener("change", () => {
     const interval = refreshIntervalSelect.value as RefreshInterval;
@@ -265,7 +360,7 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     callbacks.onRefreshIntervalChange(interval);
   });
 
-  customizeContinueButton.addEventListener("click", () => goToStep("done"));
+  customizeContinueButton.addEventListener("click", () => advance("customize"));
 
   finishButton.addEventListener("click", () => {
     backend
@@ -282,26 +377,30 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     callbacks.onClose();
   }
 
-  /** Preselect the customize step's icon-style / refresh-interval selects
-   * from the caller's actual current settings, so reopening the wizard
-   * (Settings' "Run setup again") shows the app's real configuration rather
-   * than the customize step's hard-coded HTML defaults (Battery / Every
-   * minute) — mirrors `main.ts`'s `applySettingsToForm()`. Best-effort: if
-   * this fails the selects just keep whatever they last showed. */
-  function loadCustomizeDefaults(): void {
+  /** Preselect every control the wizard shares with Settings — icon style,
+   * refresh interval, the consent box and the usage source — from the
+   * caller's actual current settings, so reopening the wizard (Settings' "Run
+   * setup again") shows the app's real configuration rather than the steps'
+   * hard-coded HTML defaults (Battery / Every minute) — mirrors `main.ts`'s
+   * `applySettingsToForm()`. Best-effort: if this fails the controls just keep
+   * whatever they last showed. */
+  function loadCurrentSettings(): void {
     backend
       .getSettings()
       .then((settings) => {
         const defaults = wizardCustomizeDefaults(settings);
         iconStylePicker.setSelected(defaults.iconStyle);
         refreshIntervalSelect.value = defaults.refreshInterval;
-        // Reflect a previously given answer, so "Run setup again" does not
-        // present someone who already consented with an unticked box.
+        // Reflect previously given answers, so "Run setup again" does not
+        // present someone who already consented with an unticked box, or
+        // offer a source they did not choose.
         tosConsent.checked = settings.tos_acknowledged;
         syncConsent();
+        source = settings.usage_source;
+        syncSource();
       })
       .catch((error: unknown) => {
-        console.error("failed to load current settings for the customize step", error);
+        console.error("failed to load current settings for the wizard", error);
       });
   }
 
@@ -309,12 +408,20 @@ export function createWizard(backend: UsageBackend, callbacks: WizardCallbacks):
     panel.hidden = false;
     sessionInput.value = "";
     sessionError.hidden = true;
-    // Closed until `loadCustomizeDefaults` says otherwise: the box must never
+    // Closed until `loadCurrentSettings` says otherwise: the box must never
     // be pre-ticked on a first run.
     tosConsent.checked = false;
     syncConsent();
-    loadCustomizeDefaults();
+    // The path itself depends on the stored source, so assume the default
+    // until `loadCurrentSettings` says otherwise — a first run has no stored
+    // settings and claude.ai is what `AppSettings::default` picks.
+    source = "claude_ai";
+    // Before `syncSource`, which renders the indicator for whatever step is
+    // showing: reopening the wizard must not label the welcome screen with
+    // the step the *last* run happened to end on.
     goToStep("welcome");
+    syncSource();
+    loadCurrentSettings();
   }
 
   function maybeAutoOpen(): void {

@@ -46,8 +46,6 @@ import {
 import {
   STATUSLINE_NO_SCOPED_MODELS,
   STATUSLINE_NO_SESSION_KEY,
-  STATUSLINE_SETUP_INTRO,
-  STATUSLINE_SETUP_MANUAL,
   USAGE_SOURCE_OPTIONS,
   tosAppliesTo,
   usageSourceHint,
@@ -136,11 +134,9 @@ export function initSettingsView(backend: UsageBackend): void {
   const runSetupAgainButton = requireElement<HTMLButtonElement>("run-setup-again-button");
 
   renderSelectOptions(usageSourceSelect, USAGE_SOURCE_OPTIONS);
-  requireElement<HTMLElement>("statusline-setup-intro").textContent = STATUSLINE_SETUP_INTRO;
-  requireElement<HTMLElement>("statusline-setup-manual").textContent = STATUSLINE_SETUP_MANUAL;
   scopedSourceHint.textContent = STATUSLINE_NO_SCOPED_MODELS;
   sessionSourceHint.textContent = STATUSLINE_NO_SESSION_KEY;
-  const statuslineSetup = createStatuslineSetup(backend);
+  const statuslineSetup = createStatuslineSetup(backend, "statusline-setup");
   renderSelectOptions(refreshIntervalSelect, REFRESH_INTERVAL_OPTIONS);
 
   let settings: AppSettings = DEFAULT_SETTINGS;
@@ -247,7 +243,6 @@ export function initSettingsView(backend: UsageBackend): void {
     setSegmentedValue(displayModeToggle, settings.pace_first_display ? "pace" : "consumption");
     setSegmentedValue(weeklyPaceDaysToggle, String(settings.weekly_pace_days));
     tosConsent.checked = settings.tos_acknowledged;
-    tosState.textContent = tosStateHint(settings.tos_acknowledged);
     applyUsageSourceToForm();
   }
 
@@ -267,6 +262,9 @@ export function initSettingsView(backend: UsageBackend): void {
     // source there is none, so the warning is dimmed rather than removed —
     // switching back must not feel like the risk quietly disappeared.
     tosSection.classList.toggle("not-applicable", statusline);
+    // …and say so, rather than leaving "Tracking is paused" under a meter
+    // that is working perfectly well off Claude Code.
+    tosState.textContent = tosStateHint(settings.tos_acknowledged, !statusline);
     // The session field would be refused outright on this source (the backend
     // returns `WrongSource`), so it is dimmed and explained rather than left
     // looking usable.
@@ -394,6 +392,10 @@ export function initSettingsView(backend: UsageBackend): void {
     },
     onTosAcknowledgedChange(acknowledged) {
       settings = { ...settings, tos_acknowledged: acknowledged };
+      applySettingsToForm();
+    },
+    onUsageSourceChange(source) {
+      settings = { ...settings, usage_source: source };
       applySettingsToForm();
     },
     onClose() {
@@ -529,7 +531,7 @@ export function initSettingsView(backend: UsageBackend): void {
   tosConsent.addEventListener("change", () => {
     const acknowledged = tosConsent.checked;
     settings = { ...settings, tos_acknowledged: acknowledged };
-    tosState.textContent = tosStateHint(acknowledged);
+    tosState.textContent = tosStateHint(acknowledged, tosAppliesTo(settings.usage_source));
     backend.setTosAcknowledged(acknowledged).catch((error: unknown) => {
       console.error("failed to persist ToS acknowledgement", error);
     });

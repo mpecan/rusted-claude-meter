@@ -637,7 +637,13 @@ body {
   margin: 0;
 }
 
-.settings-section select {
+/* Both panels, not just Settings: the wizard's selects used to inherit this
+   only by sitting inside a `.settings-section` wrapper, so the first one
+   placed directly in a step (the source picker, issue #71) rendered with
+   browser defaults. Styling the control where it appears rather than where it
+   happens to be nested is the fix. */
+.settings-section select,
+.wizard-step select {
   font: inherit;
   padding: 0.4rem 0.5rem;
   border-radius: 6px;

@@ -1,8 +1,8 @@
-/** The Settings block that gets the bridge into Claude Code's status line.
+/** The block that gets the bridge into Claude Code's status line.
  *
  * Its own module rather than more of `settings-view.ts` for the file-size
- * gate, and because it is self-contained: it owns its elements, fetches the
- * command once, and exposes nothing but "show yourself or don't".
+ * gate, and because it is self-contained: it owns its elements, its copy, and
+ * fetches the command once, exposing nothing but "show yourself or don't".
  *
  * Two routes, deliberately in this order. `/statusline` is the easy one — the
  * agent behind it reads `~/.claudemeter/statusline-command.txt` (written by
@@ -10,13 +10,21 @@
  * handles the path. The raw command is the fallback for anyone who would
  * rather edit the file themselves, or whose Claude Code is too old to have
  * the command.
+ *
+ * **Mounted twice** — the Settings section and the first-run wizard's
+ * status-line step (issue #71) — so it resolves its elements by `data-role`
+ * within a container the caller names, rather than by global id. Both routes
+ * appear in both places: the wizard is exactly where someone whose Claude
+ * Code predates `/statusline` needs the fallback, and forking the block to
+ * show a subset would be two versions of copy the module header exists to
+ * keep singular.
  */
 
 import type { UsageBackend } from "./ipc";
-import { STATUSLINE_SLASH_COMMAND } from "./usage-source";
-import { requireElement } from "./dom";
+import { STATUSLINE_SETUP_INTRO, STATUSLINE_SETUP_MANUAL, STATUSLINE_SLASH_COMMAND } from "./usage-source";
+import { requireChild, requireElement } from "./dom";
 
-/** What the block exposes to the settings view. */
+/** What the block exposes to its host view. */
 export interface StatuslineSetup {
   /** Show or hide the whole block; showing it fetches the command once. */
   setVisible(visible: boolean): void;
@@ -38,21 +46,24 @@ function wireCopy(button: HTMLButtonElement, status: HTMLElement, text: () => st
   });
 }
 
-export function createStatuslineSetup(backend: UsageBackend): StatuslineSetup {
-  const container = requireElement<HTMLElement>("statusline-setup");
-  const slashCommandEl = requireElement<HTMLElement>("statusline-slash-command");
-  const commandEl = requireElement<HTMLElement>("statusline-command");
+/** Wire the block inside `containerId`, whose descendants carry the
+ * `data-role` names below. */
+export function createStatuslineSetup(backend: UsageBackend, containerId: string): StatuslineSetup {
+  const container = requireElement<HTMLElement>(containerId);
+  const commandEl = requireChild<HTMLElement>(container, "command");
 
-  slashCommandEl.textContent = STATUSLINE_SLASH_COMMAND;
+  requireChild<HTMLElement>(container, "intro").textContent = STATUSLINE_SETUP_INTRO;
+  requireChild<HTMLElement>(container, "manual").textContent = STATUSLINE_SETUP_MANUAL;
+  requireChild<HTMLElement>(container, "slash-command").textContent = STATUSLINE_SLASH_COMMAND;
 
   wireCopy(
-    requireElement<HTMLButtonElement>("copy-statusline-slash-command"),
-    requireElement<HTMLElement>("copy-statusline-slash-status"),
+    requireChild<HTMLButtonElement>(container, "copy-slash-command"),
+    requireChild<HTMLElement>(container, "copy-slash-status"),
     () => STATUSLINE_SLASH_COMMAND,
   );
   wireCopy(
-    requireElement<HTMLButtonElement>("copy-statusline-command"),
-    requireElement<HTMLElement>("copy-statusline-status"),
+    requireChild<HTMLButtonElement>(container, "copy-command"),
+    requireChild<HTMLElement>(container, "copy-status"),
     () => commandEl.textContent ?? "",
   );
 

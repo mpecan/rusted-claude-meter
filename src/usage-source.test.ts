@@ -6,9 +6,11 @@ import {
   STATUSLINE_SETUP_INTRO,
   STATUSLINE_SETUP_MANUAL,
   STATUSLINE_SLASH_COMMAND,
+  TOS_DECLINE_ALTERNATIVE,
   USAGE_SOURCE_OPTIONS,
   tosAppliesTo,
   usageSourceHint,
+  wizardDoneSummary,
 } from "./usage-source";
 
 describe("the usage-source picker", () => {
@@ -102,5 +104,36 @@ describe("the status-line setup copy", () => {
   it("explains the empty scoped-models list rather than leaving it bare", () => {
     expect(STATUSLINE_NO_SCOPED_MODELS).toMatch(/claude\.ai/);
     expect(STATUSLINE_NO_SCOPED_MODELS).toMatch(/does not report them/);
+  });
+});
+
+describe("TOS_DECLINE_ALTERNATIVE", () => {
+  it("names the other source, not just 'see Settings'", () => {
+    // The point of issue #71: the person weighing the risk is the one most
+    // likely to want the alternative, and it is one Back button away.
+    expect(TOS_DECLINE_ALTERNATIVE).toContain("Read from Claude Code");
+    expect(TOS_DECLINE_ALTERNATIVE).toMatch(/go back/i);
+  });
+
+  it("states the cost of taking it, so it is a choice and not a nudge", () => {
+    expect(TOS_DECLINE_ALTERNATIVE).toMatch(/5-hour and 7-day/);
+  });
+});
+
+describe("wizardDoneSummary", () => {
+  it("says the meter is already working on claude.ai", () => {
+    expect(wizardDoneSummary("claude_ai")).toMatch(/now watching/);
+  });
+
+  it("does not claim the Claude Code meter is working yet, because it is not", () => {
+    // Nothing appears until Claude Code next renders its status line, so the
+    // claude.ai wording would be a promise the tray immediately breaks.
+    const summary = wizardDoneSummary("claude_code_statusline");
+    expect(summary).not.toMatch(/now watching/);
+    expect(summary).toMatch(/Claude Code/);
+  });
+
+  it("tells the Claude Code user what to do to see something", () => {
+    expect(wizardDoneSummary("claude_code_statusline")).toMatch(/prompt it once/i);
   });
 });

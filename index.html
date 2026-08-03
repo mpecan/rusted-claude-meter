@@ -90,22 +90,26 @@
           <p class="settings-hint">Where the meter gets its numbers.</p>
           <select id="usage-source-select"></select>
           <p id="usage-source-hint" class="settings-hint" role="status"></p>
+          <!-- Children are addressed by data-role, not id: the same block is
+               mounted again in the wizard's status-line step, and duplicate
+               ids would hand both instances the first one's elements. See
+               `statusline-setup.ts`. -->
           <div id="statusline-setup" class="statusline-setup" hidden>
-            <p id="statusline-setup-intro" class="settings-hint"></p>
-            <code id="statusline-slash-command" class="statusline-command"></code>
+            <p data-role="intro" class="settings-hint"></p>
+            <code data-role="slash-command" class="statusline-command"></code>
             <div class="statusline-actions">
-              <button id="copy-statusline-slash-command" class="ghost-button" type="button">
+              <button data-role="copy-slash-command" class="ghost-button" type="button">
                 Copy /statusline command
               </button>
-              <span id="copy-statusline-slash-status" class="settings-hint" role="status"></span>
+              <span data-role="copy-slash-status" class="settings-hint" role="status"></span>
             </div>
-            <p id="statusline-setup-manual" class="settings-hint"></p>
-            <code id="statusline-command" class="statusline-command"></code>
+            <p data-role="manual" class="settings-hint"></p>
+            <code data-role="command" class="statusline-command"></code>
             <div class="statusline-actions">
-              <button id="copy-statusline-command" class="ghost-button" type="button">
+              <button data-role="copy-command" class="ghost-button" type="button">
                 Copy command
               </button>
-              <span id="copy-statusline-status" class="settings-hint" role="status"></span>
+              <span data-role="copy-status" class="settings-hint" role="status"></span>
             </div>
           </div>
         </div>
@@ -354,7 +358,26 @@
               </div>
             </div>
 
-            <!-- Sits between welcome and session on purpose: the risk has to
+            <!-- Second on purpose (issue #71): the Terms-of-Service question
+                 below only applies to one of these answers, so the choice
+                 comes first and the warning is shown to the people it is
+                 actually about. -->
+            <div id="wizard-step-source" class="wizard-step" hidden>
+              <h2>Where should the numbers come from?</h2>
+              <p class="settings-hint">You can change this later in Settings.</p>
+              <select id="wizard-usage-source-select"></select>
+              <p id="wizard-usage-source-hint" class="settings-hint" role="status"></p>
+              <div class="wizard-actions">
+                <button id="wizard-source-back-button" class="ghost-button" type="button">
+                  Back
+                </button>
+                <button id="wizard-source-continue-button" class="primary-button" type="button">
+                  Continue
+                </button>
+              </div>
+            </div>
+
+            <!-- Sits between source and session on purpose: the risk has to
                  be accepted before the app asks for a credential, not after. -->
             <div id="wizard-step-consent" class="wizard-step" hidden>
               <h2>Before you connect</h2>
@@ -370,6 +393,7 @@
                 <input id="wizard-tos-consent" type="checkbox" />
                 <span id="wizard-tos-consent-label"></span>
               </label>
+              <p id="wizard-tos-alternative" class="settings-hint"></p>
               <div class="wizard-actions">
                 <button id="wizard-consent-back-button" class="ghost-button" type="button">
                   Back
@@ -447,9 +471,43 @@
               </div>
             </div>
 
+            <!-- The Claude Code branch's only setup work, and the reason
+                 that branch exists as a step rather than a skip: picking the
+                 source does nothing on its own until this command is in the
+                 user's status line. -->
+            <div id="wizard-step-statusline" class="wizard-step" hidden>
+              <h2>Set up the Claude Code status line</h2>
+              <div id="wizard-statusline-setup" class="statusline-setup">
+                <p data-role="intro" class="settings-hint"></p>
+                <code data-role="slash-command" class="statusline-command"></code>
+                <div class="statusline-actions">
+                  <button data-role="copy-slash-command" class="ghost-button" type="button">
+                    Copy /statusline command
+                  </button>
+                  <span data-role="copy-slash-status" class="settings-hint" role="status"></span>
+                </div>
+                <p data-role="manual" class="settings-hint"></p>
+                <code data-role="command" class="statusline-command"></code>
+                <div class="statusline-actions">
+                  <button data-role="copy-command" class="ghost-button" type="button">
+                    Copy command
+                  </button>
+                  <span data-role="copy-status" class="settings-hint" role="status"></span>
+                </div>
+              </div>
+              <div class="wizard-actions">
+                <button id="wizard-statusline-back-button" class="ghost-button" type="button">
+                  Back
+                </button>
+                <button id="wizard-statusline-continue-button" class="primary-button" type="button">
+                  Continue
+                </button>
+              </div>
+            </div>
+
             <div id="wizard-step-done" class="wizard-step" hidden>
               <h2>You're all set</h2>
-              <p>Rusted Claude Meter is now watching your usage from the tray.</p>
+              <p id="wizard-done-summary"></p>
               <p id="wizard-gnome-hint" class="settings-hint" hidden>
                 Heads up: GNOME hides tray icons unless the "AppIndicator and KStatusNotifierItem
                 Support" extension is installed and enabled. Install it from
