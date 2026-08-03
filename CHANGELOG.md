@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.7...v0.1.8) (2026-08-03)
+
+
+### Features
+
+* **settings:** hide and disable the ToS and Session sections on the Claude Code source ([#81](https://github.com/mpecan/rusted-claude-meter/issues/81)) ([3654b90](https://github.com/mpecan/rusted-claude-meter/commit/3654b903c4cf342428e57ed6452b3afdced47c8e))
+
 ## [0.1.7](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.6...v0.1.7) (2026-08-03)
 
 
