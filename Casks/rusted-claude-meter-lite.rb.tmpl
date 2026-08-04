@@ -12,7 +12,7 @@ cask "rusted-claude-meter-lite" do
   homepage "https://github.com/mpecan/rusted-claude-meter"
 
   auto_updates false
-  depends_on macos: ">= :big_sur"
+  depends_on macos: :big_sur
 
   app "Rusted Claude Meter Lite.app"
 
