@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.8...v0.1.9) (2026-08-04)
+
+
+### Bug Fixes
+
+* **packaging:** use symbol form for `depends_on macos:` in the casks ([#83](https://github.com/mpecan/rusted-claude-meter/issues/83)) ([b6a9661](https://github.com/mpecan/rusted-claude-meter/commit/b6a9661bf0d2915eef46084fc2d5139ddf78768e))
+
 ## [0.1.8](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.7...v0.1.8) (2026-08-03)
 
 
