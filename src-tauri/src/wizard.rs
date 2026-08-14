@@ -34,7 +34,10 @@ use crate::settings::SettingsState;
 /// the moment the wizard is auto-opened, so only the very first Settings open
 /// of a first-run session shows it. Re-opening the wizard later from Settings
 /// ("Run setup again") does not touch this; it is purely a frontend action.
-pub struct FirstRunState(pub AtomicFlag);
+///
+/// Tagged with itself, like every other shared switch: the tag is what keeps
+/// two flags from being one managed type (see [`AtomicFlag`]).
+pub struct FirstRunState(pub AtomicFlag<Self>);
 
 impl FirstRunState {
     /// Whether the wizard should still be auto-opened. A pure read — clearing

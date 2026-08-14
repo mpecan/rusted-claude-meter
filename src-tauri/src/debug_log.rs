@@ -34,7 +34,9 @@ const MAX_LOG_BYTES: u64 = 4 * 1024 * 1024;
 /// see the same atomic flag and path.
 #[derive(Debug)]
 pub struct ResponseLog {
-    enabled: AtomicFlag,
+    /// Tagged with this struct: private, so nothing else can name the type,
+    /// which is the point (see [`AtomicFlag`]).
+    enabled: AtomicFlag<Self>,
     /// Destination file, or `None` when no log directory could be resolved — in
     /// which case logging is a no-op regardless of the toggle.
     path: Option<PathBuf>,

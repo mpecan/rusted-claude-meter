@@ -380,3 +380,81 @@ fn spawn_scheduler(
         },
     ));
 }
+
+/// What `setup` hands to `Manager::manage`, checked against a real `App`
+/// (issue #86).
+///
+/// `manage` is keyed by `TypeId` and returns `false` — rather than erroring —
+/// when it already holds that type, and every call site here discards that
+/// return. So a second managed value of an existing type is dropped in
+/// silence, and every `State` lookup for it resolves to the first. That is not
+/// a hypothetical: the consent gate and the usage-source selection were both a
+/// bare `sync::AtomicFlag`, which made the two commands that gate every
+/// sign-in path read and write one shared bit — in one position no session key
+/// could be stored because "the source is Claude Code", in the other because
+/// "the Terms of Service were never accepted", and there is no third position.
+///
+/// `tauri::test::mock_app` is the real registry with no windowing runtime, so
+/// these assert the API that actually failed rather than a stand-in for it.
+#[cfg(test)]
+mod managed_state_tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::{consent, source};
+    use crate::source::UsageSource;
+    use pretty_assertions::assert_eq;
+    use std::sync::Arc;
+    use tauri::Manager;
+
+    /// Issue #86: the two switches `setup` hands to `manage` must be two
+    /// *types*, or only one of them is ever managed.
+    #[test]
+    fn the_consent_gate_and_the_source_selection_are_both_managed() {
+        let app = tauri::test::mock_app();
+        let consent = Arc::new(consent::ConsentGate::new(false));
+        let selection = Arc::new(source::selection(UsageSource::ClaudeAi));
+
+        assert!(app.manage(Arc::clone(&consent)));
+        assert!(
+            app.manage(Arc::clone(&selection)),
+            "the source selection was dropped: `manage` is keyed by TypeId"
+        );
+    }
+
+    /// The consequence, stated the way a command sees it: flipping one gate
+    /// through managed state must not move the other.
+    #[test]
+    fn accepting_the_terms_does_not_switch_the_usage_source() {
+        let app = tauri::test::mock_app();
+        app.manage(Arc::new(consent::ConsentGate::new(false)));
+        app.manage(Arc::new(source::selection(UsageSource::ClaudeAi)));
+
+        let gate = app.state::<Arc<consent::ConsentGate>>();
+        let selection = app.state::<Arc<source::SourceSelection>>();
+        gate.set(true);
+
+        assert_eq!(source::selected(&selection), UsageSource::ClaudeAi);
+    }
+
+    /// And the other way: choosing a source must not answer the
+    /// Terms-of-Service question on the user's behalf. Both directions are
+    /// asserted because the flags disagree about which bool means what —
+    /// picking claude.ai used to *withdraw* consent, and picking Claude Code
+    /// used to grant it.
+    #[test]
+    fn choosing_a_usage_source_does_not_move_the_consent_gate() {
+        for source in [UsageSource::ClaudeAi, UsageSource::ClaudeCodeStatusline] {
+            let app = tauri::test::mock_app();
+            app.manage(Arc::new(consent::ConsentGate::new(true)));
+            app.manage(Arc::new(source::selection(
+                UsageSource::ClaudeCodeStatusline,
+            )));
+
+            let gate = app.state::<Arc<consent::ConsentGate>>();
+            let selection = app.state::<Arc<source::SourceSelection>>();
+            source::select(&selection, source);
+
+            assert!(gate.get(), "consent was silently withdrawn by {source:?}");
+        }
+    }
+}

@@ -23,18 +23,25 @@
 //! every tick from an async task, and because a gate that can never block or
 //! poison is one fewer way for "did the user agree?" to fail open.
 //!
-//! It is a plain alias rather than a newtype wrapping the flag: the wrapper
-//! bought nothing but two delegating accessors, which were themselves
-//! duplicates of the identical pair on every other shared switch in the app
-//! (see [`AtomicFlag`]'s own docs). `gate.get()` at a call site that names the
-//! value `consent` reads clearly enough.
+//! It is an alias for a *tagged* [`AtomicFlag`] rather than a newtype wrapping
+//! one: a newtype bought nothing but two delegating accessors, which were
+//! themselves duplicates of the identical pair on every other shared switch in
+//! the app (see [`AtomicFlag`]'s own docs), while the tag buys the one thing
+//! that actually mattered — a type of its own, so Tauri's `TypeId`-keyed
+//! managed state cannot confuse this gate with the usage-source selection
+//! (issue #86). `gate.get()` at a call site that names the value `consent`
+//! reads clearly enough.
 
 use crate::sync::AtomicFlag;
+
+/// Marker distinguishing [`ConsentGate`] from every other shared switch. Never
+/// constructed; see [`AtomicFlag`] for why it exists.
+pub struct Tos;
 
 /// Shared, cheap-to-read consent flag: `true` once the user has accepted the
 /// Terms-of-Service risk, and only then may anything contact claude.ai. Held
 /// in Tauri managed state and cloned (via `Arc`) into the scheduler transport.
-pub type ConsentGate = AtomicFlag;
+pub type ConsentGate = AtomicFlag<Tos>;
 
 /// A closed gate — no network access permitted. The default position, what a
 /// fresh install starts from, and what a caller with nothing persisted should
