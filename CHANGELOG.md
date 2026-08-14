@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.9...v0.1.10) (2026-08-14)
+
+
+### Bug Fixes
+
+* tag the shared flags so the consent gate and the usage source are two managed types ([#92](https://github.com/mpecan/rusted-claude-meter/issues/92)) ([b24c269](https://github.com/mpecan/rusted-claude-meter/commit/b24c269dfa13bf1e4ac41133f72c8643c0dc969b))
+
 ## [0.1.9](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.8...v0.1.9) (2026-08-04)
 
 
