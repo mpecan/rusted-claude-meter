@@ -91,6 +91,11 @@ zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] 
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+# `tauri::test::mock_app` — a real `App` (and so the real, `TypeId`-keyed
+# managed-state registry) with no windowing runtime, so the wiring in
+# `lib.rs::run` can be asserted against the API it actually uses rather than a
+# stand-in for it. See `lib.rs`'s managed-state tests (issue #86).
+tauri = { version = "2", features = ["test"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "test-util"] }
 wiremock = { workspace = true }

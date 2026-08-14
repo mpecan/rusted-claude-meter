@@ -114,7 +114,13 @@ pub const WRONG_SOURCE_MESSAGE: &str = "Rusted Claude Meter is reading usage fro
 /// [`selected`] and write with [`select`], all in terms of [`UsageSource`], so
 /// widening to a third source changes three function bodies rather than every
 /// call site.
-pub type SourceSelection = AtomicFlag;
+///
+/// Tagged with [`UsageSource`] itself — not for the value, which the bool
+/// already carries, but so this is a different *type* from the consent gate.
+/// Both are managed by Tauri, whose state map is keyed by `TypeId` and drops a
+/// second registration of a type it already holds without saying so; while the
+/// two shared one type the consent gate stood in for both (issue #86).
+pub type SourceSelection = AtomicFlag<UsageSource>;
 
 /// Seed a selection from the persisted setting.
 #[must_use]
