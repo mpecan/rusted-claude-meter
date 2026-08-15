@@ -65,7 +65,7 @@ jobs:
         with:
           toolchain: "1.96.0"
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
         with:
           # Save the (on macOS, expensive) dependency compile cache even when a
           # later step fails, so a bad sign/upload never forces the next run
@@ -109,7 +109,7 @@ jobs:
         with:
           toolchain: "1.96.0"
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
         with:
           # Save the (on macOS, expensive) dependency compile cache even when a
           # later step fails, so a bad sign/upload never forces the next run
