@@ -24,6 +24,7 @@
 mod appimage;
 mod bridge;
 pub mod config;
+mod freshness;
 pub mod setup;
 
 use std::io;
@@ -63,7 +64,8 @@ pub struct StatusLinePayload {
     pub session_usage: Option<ExportLimit>,
     /// The 7-day headline window; see `session_usage`.
     pub weekly_usage: Option<ExportLimit>,
-    /// When the bridge observed the reading. This becomes the snapshot's
+    /// When Claude Code last heard from the API with these numbers, not when
+    /// the bridge last ran — see [`freshness`]. This becomes the snapshot's
     /// `fetched_at`, so the scheduler's existing staleness rule reports
     /// "Claude Code has not run recently" with no special-casing.
     pub recorded_at: Timestamp,
@@ -148,10 +150,28 @@ pub const fn headline_snapshot(
     })
 }
 
+/// Merge `observed` into the reading recorded at `path` and return the
+/// result — the reading every consumer should now report.
+///
+/// The only way in for a new reading: several Claude Code sessions write this
+/// one file, an idle one with numbers hours old, so a reading is merged with
+/// what is there ([`freshness::merge`]) rather than written over it. The file
+/// is rewritten only when the merge changed it, which also means idle
+/// sessions do not write at all.
+pub fn update(path: &Path, observed: UsageSnapshot) -> io::Result<UsageSnapshot> {
+    let recorded = read(path);
+    let merged = freshness::merge(recorded.as_ref(), observed);
+    if recorded.as_ref() != Some(&merged) {
+        record(path, &merged)?;
+    }
+    Ok(merged)
+}
+
 /// Persist `snapshot`, replacing any previous reading. Atomic, so the
 /// scheduler can read the file at any moment without seeing a half-written
-/// document.
-pub fn record(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
+/// document. Private: replacing without merging is the bug [`update`] exists
+/// to prevent.
+fn record(path: &Path, snapshot: &UsageSnapshot) -> io::Result<()> {
     write_json_pretty(path, &StatusLinePayload::from(snapshot))
 }
 
@@ -181,6 +201,7 @@ mod tests {
     use super::*;
     use crate::io::atomic_write;
     use pretty_assertions::assert_eq;
+    use std::time::UNIX_EPOCH;
 
     fn now() -> Timestamp {
         "2026-08-02T12:00:00Z".parse().unwrap()
@@ -230,6 +251,53 @@ mod tests {
         let written = read(&write(&dir, &payload())).unwrap();
         record(&path, &written).unwrap();
         assert_eq!(read(&path).unwrap(), written);
+    }
+
+    /// [`update`] skips the write when the merge changed nothing, which only
+    /// works if a recorded reading reads back *exactly* — a transcript mtime
+    /// carries nanoseconds, and losing them would rewrite the file on every
+    /// redraw of every idle session.
+    #[test]
+    fn a_nanosecond_observation_time_survives_the_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = claudemeter_path(dir.path(), STATUSLINE_FILE);
+        let mut written = read(&write(&dir, &payload())).unwrap();
+        written.fetched_at = "2026-08-02T12:00:00.123456789Z".parse().unwrap();
+        record(&path, &written).unwrap();
+        assert_eq!(read(&path).unwrap(), written);
+    }
+
+    #[test]
+    fn an_update_from_nothing_records_the_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = claudemeter_path(dir.path(), STATUSLINE_FILE);
+        let observed = read(&write(&dir, &payload())).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(update(&path, observed.clone()).unwrap(), observed);
+        assert_eq!(read(&path).unwrap(), observed);
+    }
+
+    /// A stale reading changes nothing, so the file is not even rewritten —
+    /// its modification time is the proof.
+    #[test]
+    fn a_stale_update_reports_the_recording_and_leaves_the_file_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(&dir, &payload());
+        let recorded = read(&path).unwrap();
+        let untouched = UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(untouched)
+            .unwrap();
+        let mut stale = recorded.clone();
+        stale.five_hour.as_mut().unwrap().utilization = 12.0;
+        assert_eq!(update(&path, stale).unwrap(), recorded);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            untouched
+        );
     }
 
     /// The reader must restore the window lengths the narrower on-disk shape

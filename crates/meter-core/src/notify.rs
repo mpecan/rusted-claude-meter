@@ -23,7 +23,7 @@
 //!
 //! Two kinds of `resets_at` movement are deliberately *not* rollovers. The
 //! API stamps a real reset with sub-second jitter around a stable boundary,
-//! so cycle detection tolerates changes under [`RESET_JITTER_TOLERANCE_SECS`]
+//! so cycle detection tolerates jitter (see [`UsageWindow::shares_cycle_with`])
 //! rather than comparing for exact equality. And a *synthesized* reset — the
 //! `fetched_at + window` fallback the mapping fills in when the API reports
 //! `resets_at: null` for an idle window (see
@@ -108,14 +108,6 @@ pub enum NotificationEvent {
     WindowReset { window: WindowId },
 }
 
-/// The API stamps a real `resets_at` with sub-second jitter that can even
-/// straddle the whole second (observed live: the same 17:00 boundary arriving
-/// as `16:59:59.601` on one poll and `17:00:00.306` on the next). Exact
-/// equality would read every poll as a fresh cycle. A genuine reset moves the
-/// boundary by at least a full window (≥5 h), so a minute of slack cleanly
-/// separates a real rollover from that jitter.
-const RESET_JITTER_TOLERANCE_SECS: f64 = 60.0;
-
 /// Dedup bookkeeping for one window's current cycle.
 #[derive(Debug, Clone)]
 struct CycleState {
@@ -186,14 +178,7 @@ impl NotificationTracker {
         // API's sub-second wobble on a stable boundary is not mistaken for a
         // new cycle.
         let is_new_cycle = previous.is_some_and(|state| {
-            !estimated
-                && !state.estimated
-                && state
-                    .resets_at
-                    .duration_since(usage.resets_at)
-                    .as_secs_f64()
-                    .abs()
-                    > RESET_JITTER_TOLERANCE_SECS
+            !estimated && !state.estimated && !usage.shares_cycle_with(state.resets_at)
         });
 
         if is_new_cycle && options.notify_resets {

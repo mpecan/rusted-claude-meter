@@ -101,7 +101,7 @@ mod tests {
 
     fn recorded(dir: &tempfile::TempDir) -> PathBuf {
         let path = claudemeter_path(dir.path(), statusline::STATUSLINE_FILE);
-        statusline::record(&path, &snapshot()).unwrap();
+        statusline::update(&path, snapshot()).unwrap();
         path
     }
 

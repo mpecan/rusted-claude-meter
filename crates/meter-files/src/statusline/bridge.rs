@@ -49,13 +49,15 @@
 //! notion of whether you are spending it faster than the window replenishes.
 
 use std::io::{self, Read as _};
+use std::path::PathBuf;
 
 use jiff::Timestamp;
 use meter_core::{HEAVY_OVERUSE_THRESHOLD, LimitWindow, PaceKind, UsageSnapshot, UsageWindow};
 use serde::Deserialize;
 
 use super::config::{self, StatuslineConfig};
-use super::{STATUSLINE_FILE, headline_snapshot, home_path, record};
+use super::freshness::observed_at;
+use super::{STATUSLINE_FILE, headline_snapshot, home_path, update};
 
 /// `argv[1]` that selects this mode instead of launching the GUI.
 pub const SUBCOMMAND: &str = "statusline";
@@ -113,6 +115,9 @@ struct StatusLineInput {
     /// Absent entirely on a cold session, and on API-key/Bedrock/Vertex auth.
     #[serde(default)]
     rate_limits: RawRateLimits,
+    /// This session's transcript, whose mtime says when it last heard from
+    /// the API — see [`super::freshness::observed_at`].
+    transcript_path: Option<PathBuf>,
 }
 
 /// What one status-line render is asked to do.
@@ -151,9 +156,10 @@ pub fn parse_args(args: &[String]) -> Option<Invocation> {
     (subcommand == SUBCOMMAND).then(|| parse_flags(rest))
 }
 
-/// Map one raw status-line blob to a snapshot taken at `now`.
+/// Map one raw status-line blob to a snapshot observed no later than `now`.
 ///
-/// `None` when the blob is unparseable **or** carries no usable window — see
+/// `fetched_at` is when the session last heard from the API, not `now` — see
+/// [`observed_at`]. `None` when the blob is unparseable **or** carries no usable window — see
 /// [`headline_snapshot`] for the second rule. Both are ordinary, expected
 /// states (a cold session has no `rate_limits` key at all), and both must
 /// leave any previously recorded reading untouched.
@@ -168,7 +174,11 @@ pub fn snapshot(input: &str, now: Timestamp) -> Option<UsageSnapshot> {
         .rate_limits
         .seven_day
         .and_then(|window| window.into_domain(LimitWindow::SevenDay));
-    headline_snapshot(five_hour, seven_day, now)
+    headline_snapshot(
+        five_hour,
+        seven_day,
+        observed_at(parsed.transcript_path.as_deref(), now),
+    )
 }
 
 /// The one-line status-line segment, e.g. `5h 37% · 7d 61%`, with the
@@ -226,8 +236,12 @@ fn pace_segment(
     Some(format!("{glyph}{:.1}×", signal.ratio))
 }
 
-/// Read one blob from stdin, record it, and print the segment unless
-/// `--quiet`.
+/// Read one blob from stdin, merge it into the recording, and print the
+/// merged segment unless `--quiet`.
+///
+/// The segment is the merged reading ([`update`]), not this session's own:
+/// an idle session's numbers may be hours behind another session's, and its
+/// status line should show the current usage regardless.
 ///
 /// Never returns an error and never panics: this process *is* part of the
 /// user's prompt, so every failure degrades to "print nothing this render"
@@ -240,14 +254,17 @@ pub fn execute(invocation: Invocation) {
         return;
     }
     let now = Timestamp::now();
-    let Some(snapshot) = snapshot(&raw, now) else {
+    let Some(observed) = snapshot(&raw, now) else {
         return;
     };
-    if let Some(path) = home_path(STATUSLINE_FILE)
-        && let Err(error) = record(&path, &snapshot)
-    {
-        eprintln!("rusted-claude-meter: could not record the reading: {error}");
-    }
+    let snapshot = match home_path(STATUSLINE_FILE).map(|path| update(&path, observed.clone())) {
+        Some(Ok(merged)) => merged,
+        Some(Err(error)) => {
+            eprintln!("rusted-claude-meter: could not record the reading: {error}");
+            observed
+        }
+        None => observed,
+    };
     if !invocation.quiet {
         // The pace mirror is only read when it is going to be used, so a
         // status line that never asked for pace pays nothing for it.
@@ -268,6 +285,7 @@ mod tests {
     // actually pins the mapping.
     #![allow(clippy::float_cmp)]
 
+    use super::super::freshness::transcript_written_at;
     use super::*;
     use pretty_assertions::assert_eq;
 
@@ -347,6 +365,21 @@ mod tests {
         );
         assert_eq!(snapshot.seven_day.unwrap().window, LimitWindow::SevenDay);
         assert_eq!(snapshot.fetched_at, now());
+    }
+
+    /// An idle session redraws with numbers as old as its last API response,
+    /// so the reading is dated by its transcript, not by the redraw.
+    #[test]
+    fn the_reading_is_dated_by_the_sessions_transcript_not_the_redraw() {
+        let dir = tempfile::tempdir().unwrap();
+        let last_response: Timestamp = "2026-08-02T09:30:00Z".parse().unwrap();
+        let transcript = transcript_written_at(dir.path(), last_response);
+        let mut raw: serde_json::Value = serde_json::from_str(&payload()).unwrap();
+        raw["transcript_path"] = serde_json::json!(transcript);
+        assert_eq!(
+            snapshot(&raw.to_string(), now()).unwrap().fetched_at,
+            last_response
+        );
     }
 
     #[test]

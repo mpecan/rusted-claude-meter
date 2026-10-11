@@ -1,7 +1,22 @@
+use std::cmp::Ordering;
+
 use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::status::UsageStatus;
+
+/// How far two readings' `resets_at` may differ and still name the same
+/// cycle of a window.
+///
+/// The API stamps a real `resets_at` with sub-second jitter that can even
+/// straddle the whole second (observed live: the same 17:00 boundary arriving
+/// as `16:59:59.601` on one poll and `17:00:00.306` on the next), and Claude
+/// Code rounds it to whole seconds before passing it on. Exact equality would
+/// read every reading as a fresh cycle. A genuine reset moves the boundary by
+/// at least a full window (≥5 h) — the next cycle starts no earlier than the
+/// last one ends — so a minute of slack cleanly separates a real rollover
+/// from that jitter.
+const RESET_JITTER: SignedDuration = SignedDuration::from_secs(60);
 
 /// The rolling window a limit applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -79,6 +94,29 @@ impl UsageWindow {
     /// a clock-aligned boundary never does.)
     pub fn reset_is_estimated(&self, fetched_at: Timestamp) -> bool {
         self.resets_at == self.window.fallback_reset(fetched_at)
+    }
+
+    /// Whether a window resetting at `other_reset` is this same cycle, within
+    /// [`RESET_JITTER`]. The one definition of a rollover, shared by
+    /// notification cycle tracking and [`Self::progress_cmp`].
+    pub fn shares_cycle_with(&self, other_reset: Timestamp) -> bool {
+        self.resets_at.duration_since(other_reset).abs() <= RESET_JITTER
+    }
+
+    /// Which of two readings of the same limit is further along, using
+    /// nothing but the readings themselves: a later cycle is ahead whatever
+    /// its utilization, and within one cycle utilization never falls, so the
+    /// higher reading is the later one. `Equal` when neither is ahead.
+    ///
+    /// This is what lets readings from sources with no shared clock — several
+    /// Claude Code sessions, each holding the numbers from its own last API
+    /// response — be reconciled without trusting when each was taken.
+    pub fn progress_cmp(&self, other: &Self) -> Ordering {
+        if self.shares_cycle_with(other.resets_at) {
+            self.utilization.total_cmp(&other.utilization)
+        } else {
+            self.resets_at.cmp(&other.resets_at)
+        }
     }
 
     /// Fraction of the window that has elapsed at `now`, clamped to `0.0..=1.0`.
@@ -196,5 +234,37 @@ mod tests {
             window(85.0, 2, LimitWindow::SevenDay).status(),
             UsageStatus::Critical
         );
+    }
+
+    #[test]
+    fn further_into_the_same_cycle_is_ahead() {
+        let earlier = window(40.0, 3, LimitWindow::FiveHour);
+        let later = window(41.0, 3, LimitWindow::FiveHour);
+        assert_eq!(later.progress_cmp(&earlier), Ordering::Greater);
+        assert_eq!(earlier.progress_cmp(&later), Ordering::Less);
+        assert_eq!(earlier.progress_cmp(&earlier.clone()), Ordering::Equal);
+    }
+
+    /// A reset starts the count again from a low number; the later cycle is
+    /// still the newer reading.
+    #[test]
+    fn a_later_cycle_is_ahead_despite_a_lower_reading() {
+        let previous = window(97.0, 1, LimitWindow::FiveHour);
+        let current = window(3.0, 6, LimitWindow::FiveHour);
+        assert_eq!(current.progress_cmp(&previous), Ordering::Greater);
+        assert_eq!(previous.progress_cmp(&current), Ordering::Less);
+    }
+
+    /// Reset jitter must not make a lower reading of the same cycle look
+    /// like a newer cycle.
+    #[test]
+    fn reset_jitter_is_the_same_cycle() {
+        let recorded = window(40.0, 3, LimitWindow::FiveHour);
+        let mut jittered = window(30.0, 3, LimitWindow::FiveHour);
+        jittered.resets_at += SignedDuration::from_secs(59);
+        assert!(jittered.shares_cycle_with(recorded.resets_at));
+        assert_eq!(jittered.progress_cmp(&recorded), Ordering::Less);
+        jittered.resets_at += SignedDuration::from_secs(2);
+        assert!(!jittered.shares_cycle_with(recorded.resets_at));
     }
 }
