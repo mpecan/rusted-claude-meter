@@ -2950,7 +2950,7 @@ dependencies = [
 
 [[package]]
 name = "meter-api"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "jiff",
  "meter-core",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "meter-core"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "jiff",
  "pretty_assertions",
@@ -2977,7 +2977,7 @@ dependencies = [
 
 [[package]]
 name = "meter-files"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "jiff",
  "meter-core",
@@ -2989,7 +2989,7 @@ dependencies = [
 
 [[package]]
 name = "meter-render"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "jiff",
  "meter-core",
@@ -4473,7 +4473,7 @@ dependencies = [
 
 [[package]]
 name = "rusted-claude-meter"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "apple-native-keyring-store",
  "jiff",
