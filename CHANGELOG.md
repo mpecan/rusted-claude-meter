@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.10...v0.1.11) (2026-10-11)
+
+
+### Bug Fixes
+
+* **statusline:** merge readings so idle Claude Code sessions cannot overwrite fresh usage ([#133](https://github.com/mpecan/rusted-claude-meter/issues/133)) ([8ccfb27](https://github.com/mpecan/rusted-claude-meter/commit/8ccfb27aa43ff778eab53f7179e81ab10a9df92e))
+
 ## [0.1.10](https://github.com/mpecan/rusted-claude-meter/compare/v0.1.9...v0.1.10) (2026-08-14)
 
 
