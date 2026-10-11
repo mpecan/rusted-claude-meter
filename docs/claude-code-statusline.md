@@ -180,6 +180,8 @@ On this source the meter re-reads the file **every 15 seconds**, regardless of y
 
 Your refresh interval still decides when a reading is called **stale** — at 2× the interval — which is the question that still matters here: not "how often do we look" but "how old may this get before it stops being worth trusting". Leave Claude Code closed for long enough and the tray says so.
 
+**Several Claude Code sessions at once are fine.** Every open session runs the bridge on every redraw, but a session that is sitting idle still holds the numbers from its *own* last API response — possibly hours old. The bridge does not let those win: within one window usage only ever goes up, and a new window always resets later than the last, so each window keeps whichever reading is furthest along, whichever session it came from. An idle session's status line therefore shows the current usage too, not its own stale copy, and it never rewrites the file. The reading's age is when Claude Code last actually heard from the API (the session transcript's last write), not when something last redrew, so a machine where every session is idle goes stale on schedule instead of looking fresh forever.
+
 Polling this fast does not churn the disk: the cache and the public `usage.json` export are only rewritten when the reading actually changed.
 
 Nothing here can be fixed in this app; they are properties of what Claude Code exposes.

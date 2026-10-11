@@ -66,6 +66,11 @@ fn linkage(binary: &str) -> Option<String> {
 /// `HOME` so the recorded reading lands in `home` rather than the developer's
 /// real `~/.claudemeter/`.
 fn render(binary: &str, args: &[&str], home: &Path) -> String {
+    render_payload(binary, args, home, PAYLOAD)
+}
+
+/// [`render`] with a payload of the caller's choosing.
+fn render_payload(binary: &str, args: &[&str], home: &Path, payload: &str) -> String {
     let mut child = Command::new(binary)
         .args(args)
         .env("HOME", home)
@@ -77,7 +82,7 @@ fn render(binary: &str, args: &[&str], home: &Path) -> String {
         .stdin
         .take()
         .unwrap()
-        .write_all(PAYLOAD.as_bytes())
+        .write_all(payload.as_bytes())
         .unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(
@@ -166,5 +171,28 @@ fn the_gui_binarys_subcommand_still_renders_the_very_same_segment() {
     assert_eq!(
         render(gui, &[SUBCOMMAND], home.path()),
         render(bridge, &[], home.path())
+    );
+}
+
+/// Two Claude Code sessions sharing one recording, the way they do on a real
+/// machine: the idle one redraws with the numbers from its last API response,
+/// hours behind. It must neither overwrite the active session's reading nor
+/// print its own stale one.
+#[test]
+fn an_idle_session_shows_the_active_sessions_usage_and_leaves_it_recorded() {
+    let home = tempfile::tempdir().unwrap();
+    let bridge = env!("CARGO_BIN_EXE_rusted-claude-meter-statusline");
+    assert_eq!(render(bridge, &[], home.path()).trim(), "5h 37% · 7d 61%");
+    let recorded = std::fs::read_to_string(recording(home.path())).unwrap();
+
+    let idle = PAYLOAD.replace("37.4", "12.0").replace("61.2", "55.0");
+    assert_eq!(
+        render_payload(bridge, &[], home.path(), &idle).trim(),
+        "5h 37% · 7d 61%"
+    );
+    assert_eq!(
+        std::fs::read_to_string(recording(home.path())).unwrap(),
+        recorded,
+        "a stale reading must not rewrite the recording"
     );
 }
